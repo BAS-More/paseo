@@ -3144,6 +3144,27 @@ export class DaemonClient {
     });
   }
 
+  async getNineRouterStatus(requestId?: string): Promise<{
+    requestId: string;
+    reachable: boolean;
+    accounts: Array<{ id: string; name: string; provider: string; status: string }>;
+    usage: {
+      totalRequests: number;
+      totalTokens: number;
+      totalCost: number;
+      byAccount: Array<{ id: string; requests: number; tokens: number; cost: number }>;
+    };
+  }> {
+    return this.sendCorrelatedSessionRequest({
+      requestId,
+      message: {
+        type: "nine_router_status_request",
+      },
+      responseType: "nine_router_status_response",
+      timeout: 10000,
+    });
+  }
+
   async getDaemonConfig(
     requestId?: string,
   ): Promise<{ requestId: string; config: MutableDaemonConfig }> {
