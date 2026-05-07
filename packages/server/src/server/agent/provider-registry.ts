@@ -28,6 +28,7 @@ import { GenericACPAgentClient } from "./providers/generic-acp-agent.js";
 import { OpenCodeAgentClient, OpenCodeServerManager } from "./providers/opencode-agent.js";
 import { PiDirectAgentClient } from "./providers/pi-direct-agent.js";
 import { MockLoadTestAgentClient } from "./providers/mock-load-test-agent.js";
+import { OccAgentClient } from "./providers/occ-agent.js";
 import {
   AGENT_PROVIDER_DEFINITIONS,
   BUILTIN_PROVIDER_IDS,
@@ -95,6 +96,7 @@ const PROVIDER_CLIENT_FACTORIES: Record<string, ProviderClientFactory> = {
       runtimeSettings,
     }),
   mock: (logger) => new MockLoadTestAgentClient(logger),
+  occ: (logger) => new OccAgentClient({ logger }),
 };
 
 function getProviderClientFactory(provider: string): ProviderClientFactory {
