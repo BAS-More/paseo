@@ -104,7 +104,7 @@ export const baseColors = {
   },
 } as const;
 
-export type ThemeName = "light" | "dark" | "zinc" | "midnight" | "claude" | "ghostty";
+export type ThemeName = "light" | "dark" | "zinc" | "midnight" | "claude" | "ghostty" | "soifer" | "soifer-dark";
 
 // Diff stat colors — light uses muted tones, dark uses the brighter palette values
 const lightDiffColors = {
@@ -412,6 +412,25 @@ const ghosttyDarkColors = buildDarkSemanticColors({
   destructive: "#c44a55", // red with slight cool lean against the slate-blue surfaces
 });
 
+// Soifer — warm beige with orange-brown accent (dark variant)
+const soiferDarkColors = buildDarkSemanticColors({
+  surface0: "#1A1917",       // warm charcoal
+  surface1: "#21201E",
+  surface2: "#2A2826",
+  surface3: "#454240",
+  surface4: "#5C5856",
+  surfaceDiffEmpty: "#262422",
+  surfaceSidebar: "#151413",
+  surfaceSidebarHover: "#1E1D1B",
+  foregroundMuted: "#ADA8A3",
+  scrollbarHandle: "#7A756F",
+  border: "#2D2A27",
+  borderAccent: "#383430",
+  accent: "#D4762A",         // Claude warm orange-brown
+  accentBright: "#E8A06A",
+  destructive: "#CF4F3A",
+});
+
 export const SPACING = {
   0: 0,
   1: 4,
@@ -529,6 +548,7 @@ export const darkZincTheme = buildDarkTheme(zincDarkColors);
 export const darkMidnightTheme = buildDarkTheme(midnightDarkColors);
 export const darkClaudeTheme = buildDarkTheme(claudeDarkColors);
 export const darkGhosttyTheme = buildDarkTheme(ghosttyDarkColors);
+export const darkSoiferTheme = buildDarkTheme(soiferDarkColors);
 
 export const lightTheme = {
   colorScheme: "light" as const,
@@ -559,6 +579,106 @@ export const lightTheme = {
   ...commonTheme,
 } as const;
 
+// Soifer warm light theme — beige/cream palette
+const soiferLightSemanticColors = {
+  surface0: "#F9F6F1",        // warm off-white bg
+  surface1: "#F4F0EB",        // subtle hover
+  surface2: "#EDE9E3",        // elevated: badges, inputs
+  surface3: "#DFD9D2",        // highest elevation
+  surface4: "#CFC8BF",        // extra emphasis
+  surfaceDiffEmpty: "#F6F2ED",
+  surfaceSidebar: "#F4F0EB",
+  surfaceSidebarHover: "#E8E2DA",
+  surfaceWorkspace: "#F9F6F1",
+
+  foreground: "#272420",      // warm near-black
+  foregroundMuted: "#767170",
+
+  scrollbarHandle: "#A09892",
+
+  border: "#DFD9D2",
+  borderAccent: "#E8E2DA",
+
+  accent: "#D4762A",          // Claude warm orange-brown
+  accentBright: "#E8943E",
+  accentForeground: "#ffffff",
+
+  destructive: "#B04138",
+  destructiveForeground: "#ffffff",
+  success: "#20744A",
+  successForeground: "#ffffff",
+
+  background: "#F9F6F1",
+  popover: "#ffffff",
+  popoverForeground: "#272420",
+  primary: "#272420",
+  primaryForeground: "#F9F6F1",
+  secondary: "#EDE9E3",
+  secondaryForeground: "#272420",
+  muted: "#EDE9E3",
+  mutedForeground: "#767170",
+  accentBorder: "#E8E2DA",
+  input: "#EDE9E3",
+  ring: "#D4762A",
+
+  ...lightDiffColors,
+  ...lightStatusColors,
+
+  terminal: {
+    background: "#F9F6F1",
+    foreground: "#272420",
+    cursor: "#272420",
+    cursorAccent: "#F9F6F1",
+    selectionBackground: "rgba(0, 0, 0, 0.12)",
+    selectionForeground: "#272420",
+    black: "#272420",
+    red: "#dc2626",
+    green: "#16a34a",
+    yellow: "#d97706",
+    blue: "#2563eb",
+    magenta: "#9333ea",
+    cyan: "#0891b2",
+    white: "#f4f4f5",
+    brightBlack: "#767170",
+    brightRed: "#ef4444",
+    brightGreen: "#22c55e",
+    brightYellow: "#f59e0b",
+    brightBlue: "#3b82f6",
+    brightMagenta: "#a855f7",
+    brightCyan: "#06b6d4",
+    brightWhite: "#ffffff",
+  },
+};
+
+export const soiferLightTheme = {
+  colorScheme: "light" as const,
+  colors: {
+    ...soiferLightSemanticColors,
+    palette: baseColors,
+  },
+  shadow: {
+    sm: {
+      shadowColor: "rgba(0, 0, 0, 0.03)",
+      shadowOffset: { width: 0, height: 1 },
+      shadowRadius: 4,
+      elevation: 2,
+    },
+    md: {
+      shadowColor: "rgba(0, 0, 0, 0.05)",
+      shadowOffset: { width: 0, height: 4 },
+      shadowRadius: 12,
+      elevation: 4,
+    },
+    lg: {
+      shadowColor: "rgba(0, 0, 0, 0.08)",
+      shadowOffset: { width: 0, height: 8 },
+      shadowRadius: 24,
+      elevation: 8,
+    },
+  },
+  ...commonTheme,
+} as const;
+
 // Keep compatibility with existing code
 export const theme = darkTheme;
 
@@ -571,7 +691,9 @@ type UnistylesThemeKey =
   | "darkZinc"
   | "darkMidnight"
   | "darkClaude"
-  | "darkGhostty";
+  | "darkGhostty"
+  | "soifer"
+  | "darkSoifer";
 
 export const THEME_TO_UNISTYLES: Record<ThemeName, UnistylesThemeKey> = {
   light: "light",
@@ -580,6 +702,8 @@ export const THEME_TO_UNISTYLES: Record<ThemeName, UnistylesThemeKey> = {
   midnight: "darkMidnight",
   claude: "darkClaude",
   ghostty: "darkGhostty",
+  soifer: "soifer",
+  "soifer-dark": "darkSoifer",
 };
 
 export const THEME_SWATCHES: Record<ThemeName, string> = {
@@ -589,4 +713,6 @@ export const THEME_SWATCHES: Record<ThemeName, string> = {
   midnight: "#4A6BA8",
   claude: "#D97757",
   ghostty: "#8caaee",
+  soifer: "#F9F6F1",
+  "soifer-dark": "#D4762A",
 };

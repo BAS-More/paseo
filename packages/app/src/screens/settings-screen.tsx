@@ -175,6 +175,8 @@ const THEME_LABELS: Record<AppSettings["theme"], string> = {
   midnight: "Midnight",
   claude: "Claude",
   ghostty: "Ghostty",
+  soifer: "Soifer",
+  "soifer-dark": "Soifer Dark",
   auto: "System",
 };
 
