@@ -17,6 +17,25 @@ function hasPathSeparator(value: string): boolean {
 }
 
 async function enumerateCandidates(name: string): Promise<string[]> {
+  if (process.platform !== "win32") {
+    return enumerateCandidatesViaSystemWhich(name);
+  }
+  return enumerateCandidatesViaLibrary(name);
+}
+
+async function enumerateCandidatesViaSystemWhich(name: string): Promise<string[]> {
+  try {
+    const { stdout } = await execCommand("/usr/bin/which", ["-a", name], {
+      timeout: 3000,
+      killSignal: "SIGKILL",
+    });
+    return Array.from(new Set(stdout.trim().split("\n").filter(Boolean)));
+  } catch {
+    return [];
+  }
+}
+
+async function enumerateCandidatesViaLibrary(name: string): Promise<string[]> {
   let candidates: string[];
   try {
     candidates = await which(name, { all: true });
