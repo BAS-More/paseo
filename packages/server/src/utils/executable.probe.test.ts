@@ -1,4 +1,12 @@
-import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { performance } from "node:perf_hooks";
@@ -32,10 +40,6 @@ function writeExecutable(filePath: string, content: string | Buffer): string {
 
 function scriptPath(dir: string, name: string): string {
   return process.platform === "win32" ? path.join(dir, `${name}.cmd`) : path.join(dir, name);
-}
-
-function binaryPath(dir: string, name: string): string {
-  return process.platform === "win32" ? path.join(dir, `${name}.exe`) : path.join(dir, name);
 }
 
 function createHangingFixture(dir: string): string {
@@ -78,8 +82,10 @@ function createSlowSuccessFixture(dir: string): string {
   return writeExecutable(scriptPath(dir, "slow-success"), "#!/bin/sh\nsleep 0.05\nexit 0\n");
 }
 
-function createGarbageFixture(dir: string): string {
-  return writeExecutable(binaryPath(dir, "garbage"), Buffer.from([0xff, 0x00, 0xfe, 0x01]));
+function createDirectoryFixture(dir: string): string {
+  const directoryPath = path.join(dir, "candidate-directory");
+  mkdirSync(directoryPath);
+  return directoryPath;
 }
 
 function missingAbsolutePath(): string {
@@ -118,9 +124,9 @@ const fixtures: ProbeFixture[] = [
     create: (dir) => ({ executablePath: createSlowSuccessFixture(dir) }),
   },
   {
-    name: "has garbage content",
+    name: "points at a directory",
     expected: false,
-    create: (dir) => ({ executablePath: createGarbageFixture(dir) }),
+    create: (dir) => ({ executablePath: createDirectoryFixture(dir) }),
   },
   {
     name: "does not exist at an absolute path",
