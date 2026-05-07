@@ -214,6 +214,13 @@ export const AGENT_PROVIDER_DEFINITIONS: AgentProviderDefinition[] = [
     defaultModeId: "default",
     modes: OCC_MODES,
   },
+  {
+    id: "crewai",
+    label: "CrewAI",
+    description: "Multi-agent orchestration framework via Python bridge with SSE streaming",
+    defaultModeId: null,
+    modes: [],
+  },
 ];
 
 export const DEV_AGENT_PROVIDER_DEFINITIONS: AgentProviderDefinition[] = [
