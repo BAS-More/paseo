@@ -1,5 +1,5 @@
 import { router, usePathname } from "expo-router";
-import { FolderPlus, MessagesSquare, Settings } from "lucide-react-native";
+import { FolderPlus, MessagesSquare, PanelLeftOpen, Plus, Search, Settings } from "lucide-react-native";
 import {
   type Dispatch,
   memo,
@@ -801,7 +801,43 @@ function DesktopSidebar({
   );
 
   if (!isOpen) {
-    return null;
+    return (
+      <View style={[styles.iconRail, { paddingTop: insetsTop }]}>
+        <TitlebarDragRegion />
+        <Tooltip delayDuration={200}>
+          <TooltipTrigger asChild>
+            <Pressable
+              onPress={() => usePanelStore.getState().toggleLeftSidebar()}
+              style={styles.iconRailButton}
+              accessibilityLabel="Expand sidebar"
+            >
+              <PanelLeftOpen size={18} color={theme.colors.foregroundMuted} />
+            </Pressable>
+          </TooltipTrigger>
+          <TooltipContent side="right"><Text>Expand sidebar</Text></TooltipContent>
+        </Tooltip>
+        <Tooltip delayDuration={200}>
+          <TooltipTrigger asChild>
+            <Pressable onPress={handleOpenProject} style={styles.iconRailButton} accessibilityLabel="New agent">
+              <Plus size={18} color={theme.colors.foregroundMuted} />
+            </Pressable>
+          </TooltipTrigger>
+          <TooltipContent side="right"><Text>New agent</Text></TooltipContent>
+        </Tooltip>
+        <Tooltip delayDuration={200}>
+          <TooltipTrigger asChild>
+            <Pressable onPress={handleViewMore} style={styles.iconRailButton} accessibilityLabel="Sessions">
+              <MessagesSquare size={18} color={theme.colors.foregroundMuted} />
+            </Pressable>
+          </TooltipTrigger>
+          <TooltipContent side="right"><Text>Sessions</Text></TooltipContent>
+        </Tooltip>
+        <View style={{ flex: 1 }} />
+        <Pressable onPress={handleSettings} style={styles.iconRailButton} accessibilityLabel="Settings">
+          <Settings size={18} color={theme.colors.foregroundMuted} />
+        </Pressable>
+      </View>
+    );
   }
 
   return (
@@ -818,6 +854,18 @@ function DesktopSidebar({
             testID="sidebar-sessions"
           />
         </View>
+
+        <Pressable
+          onPress={handleOpenProject}
+          style={({ pressed }) => [
+            styles.newChatButton,
+            pressed && { opacity: 0.7 },
+          ]}
+          accessibilityLabel="New agent"
+        >
+          <Plus size={16} color={theme.colors.foregroundMuted} />
+          <Text style={styles.newChatText}>New Agent</Text>
+        </Pressable>
 
         {isInitialLoad ? (
           <SidebarAgentListSkeleton />
@@ -889,6 +937,38 @@ const styles = StyleSheet.create((theme) => ({
     borderRightWidth: 1,
     borderRightColor: theme.colors.border,
     backgroundColor: theme.colors.surfaceSidebar,
+  },
+  iconRail: {
+    width: 48,
+    backgroundColor: theme.colors.surfaceSidebar,
+    borderRightWidth: 1,
+    borderRightColor: theme.colors.border,
+    alignItems: "center",
+    paddingVertical: theme.spacing[3],
+    gap: theme.spacing[2],
+  },
+  iconRailButton: {
+    width: 36,
+    height: 36,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: theme.borderRadius.lg,
+  },
+  newChatButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: theme.spacing[2],
+    marginHorizontal: theme.spacing[3],
+    marginBottom: theme.spacing[2],
+    paddingVertical: theme.spacing[2],
+    paddingHorizontal: theme.spacing[3],
+    borderRadius: theme.borderRadius.lg,
+    backgroundColor: theme.colors.surface2,
+  },
+  newChatText: {
+    fontSize: theme.fontSize.sm,
+    fontWeight: theme.fontWeight.medium,
+    color: theme.colors.foreground,
   },
   resizeHandle: {
     position: "absolute",
