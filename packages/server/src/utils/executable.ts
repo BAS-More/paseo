@@ -39,7 +39,10 @@ async function enumerateCandidates(name: string): Promise<string[]> {
   });
 }
 
-async function probeExecutable(executablePath: string): Promise<boolean> {
+export async function probeExecutable(
+  executablePath: string,
+  timeoutMs = PROBE_TIMEOUT_MS,
+): Promise<boolean> {
   return await new Promise((resolve) => {
     let pendingResolve: ((result: boolean) => void) | null = resolve;
     let started = false;
@@ -76,7 +79,7 @@ async function probeExecutable(executablePath: string): Promise<boolean> {
         return;
       }
       settle(false);
-    }, PROBE_TIMEOUT_MS) as unknown as NodeJS.Timeout;
+    }, timeoutMs) as unknown as NodeJS.Timeout;
     timer.unref();
 
     child.once("spawn", () => {
@@ -109,18 +112,23 @@ export function executableExists(
   return null;
 }
 
-export async function findExecutable(name: string): Promise<string | null> {
+export async function findExecutable(
+  name: string,
+  probeTimeoutMs = PROBE_TIMEOUT_MS,
+): Promise<string | null> {
   const trimmed = name.trim();
   if (!trimmed) {
     return null;
   }
 
   if (hasPathSeparator(trimmed)) {
-    return (await probeExecutable(trimmed)) ? trimmed : null;
+    return (await probeExecutable(trimmed, probeTimeoutMs)) ? trimmed : null;
   }
 
   const candidates = await enumerateCandidates(trimmed);
-  const probeResults = await Promise.all(candidates.map((candidate) => probeExecutable(candidate)));
+  const probeResults = await Promise.all(
+    candidates.map((candidate) => probeExecutable(candidate, probeTimeoutMs)),
+  );
   const firstMatch = probeResults.findIndex((result) => result);
   return firstMatch === -1 ? null : candidates[firstMatch];
 }
