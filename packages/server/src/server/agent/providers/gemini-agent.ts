@@ -6,6 +6,9 @@ import {
 } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { EventEmitter } from "node:events";
+import { readFile } from "node:fs/promises";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import type { Logger } from "pino";
 
 import type {
@@ -82,12 +85,15 @@ function nodeSpawnSync(
   return spawnSync(command, args as string[], { ...options, encoding: "utf8" });
 }
 
+type ReadFileFn = (path: string) => Promise<string>;
+
 export interface GeminiAgentClientOptions {
   logger: Logger;
   geminiPath?: string;
   env?: Record<string, string>;
   _spawnForTest?: SpawnFn;
   _spawnSyncForTest?: SpawnSyncFn;
+  _readFileForTest?: ReadFileFn;
 }
 
 export class GeminiAgentClient implements AgentClient {
@@ -99,6 +105,7 @@ export class GeminiAgentClient implements AgentClient {
   private readonly baseEnv: Record<string, string>;
   private readonly spawnFn: SpawnFn;
   private readonly spawnSyncFn: SpawnSyncFn;
+  private readonly readFileFn: ReadFileFn;
 
   constructor(options: GeminiAgentClientOptions) {
     this.logger = options.logger.child({ provider: GEMINI_PROVIDER_ID });
@@ -106,6 +113,7 @@ export class GeminiAgentClient implements AgentClient {
     this.baseEnv = options.env ?? {};
     this.spawnFn = options._spawnForTest ?? defaultSpawn;
     this.spawnSyncFn = options._spawnSyncForTest ?? nodeSpawnSync;
+    this.readFileFn = options._readFileForTest ?? ((p: string) => readFile(p, "utf8"));
   }
 
   async isAvailable(): Promise<boolean> {
@@ -144,7 +152,41 @@ export class GeminiAgentClient implements AgentClient {
     return this.spawnSession(config, handle.sessionId);
   }
 
-  private spawnSession(config: AgentSessionConfig, resumeId?: string): GeminiAgentSession {
+  private async detectMcpConfig(cwd?: string): Promise<string | null> {
+    try {
+      const configPath = join(homedir(), ".gemini.json");
+      const raw = await this.readFileFn(configPath);
+      const config = JSON.parse(raw) as Record<string, unknown>;
+
+      if (
+        config.mcpServers &&
+        typeof config.mcpServers === "object" &&
+        Object.keys(config.mcpServers as object).length > 0
+      ) {
+        return configPath;
+      }
+
+      if (cwd && config.geminiProjects && typeof config.geminiProjects === "object") {
+        const projects = config.geminiProjects as Record<string, Record<string, unknown>>;
+        const projectConfig = projects[cwd];
+        if (
+          projectConfig?.mcpServers &&
+          typeof projectConfig.mcpServers === "object" &&
+          Object.keys(projectConfig.mcpServers as object).length > 0
+        ) {
+          return configPath;
+        }
+      }
+    } catch {
+      // Config file doesn't exist or isn't parsable
+    }
+    return null;
+  }
+
+  private async spawnSession(
+    config: AgentSessionConfig,
+    resumeId?: string,
+  ): Promise<GeminiAgentSession> {
     const args: string[] = [];
 
     if (config.systemPrompt) {
@@ -157,6 +199,11 @@ export class GeminiAgentClient implements AgentClient {
 
     if (config.model) {
       args.push("--model", config.model);
+    }
+
+    const mcpConfigPath = await this.detectMcpConfig(config.cwd);
+    if (mcpConfigPath) {
+      args.push("--mcp-config", mcpConfigPath);
     }
 
     args.push("--output-format", "stream-json");

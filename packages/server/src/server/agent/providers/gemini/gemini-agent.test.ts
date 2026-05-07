@@ -300,3 +300,85 @@ describe("GeminiAgentClient uses spawnProcess by default", () => {
     spy.mockRestore();
   });
 });
+
+describe("GeminiAgentClient MCP config injection", () => {
+  it("passes --mcp-config when ~/.gemini.json has mcpServers", async () => {
+    const mockProcess = createMockProcess();
+    const mockSpawn = vi.fn().mockReturnValue(mockProcess);
+    const client = new GeminiAgentClient({
+      logger: createMockLogger(),
+      _spawnForTest: mockSpawn,
+      _readFileForTest: async () =>
+        JSON.stringify({ mcpServers: { myServer: { command: "node", args: ["server.js"] } } }),
+    });
+
+    await client.createSession({
+      provider: GEMINI_PROVIDER_ID,
+      cwd: ".",
+    });
+
+    const spawnArgs = mockSpawn.mock.calls[0][1] as string[];
+    expect(spawnArgs).toContain("--mcp-config");
+  });
+
+  it("does not pass --mcp-config when ~/.gemini.json has no mcpServers", async () => {
+    const mockProcess = createMockProcess();
+    const mockSpawn = vi.fn().mockReturnValue(mockProcess);
+    const client = new GeminiAgentClient({
+      logger: createMockLogger(),
+      _spawnForTest: mockSpawn,
+      _readFileForTest: async () => JSON.stringify({}),
+    });
+
+    await client.createSession({
+      provider: GEMINI_PROVIDER_ID,
+      cwd: ".",
+    });
+
+    const spawnArgs = mockSpawn.mock.calls[0][1] as string[];
+    expect(spawnArgs).not.toContain("--mcp-config");
+  });
+
+  it("does not pass --mcp-config when ~/.gemini.json does not exist", async () => {
+    const mockProcess = createMockProcess();
+    const mockSpawn = vi.fn().mockReturnValue(mockProcess);
+    const client = new GeminiAgentClient({
+      logger: createMockLogger(),
+      _spawnForTest: mockSpawn,
+      _readFileForTest: async () => {
+        throw new Error("ENOENT");
+      },
+    });
+
+    await client.createSession({
+      provider: GEMINI_PROVIDER_ID,
+      cwd: ".",
+    });
+
+    const spawnArgs = mockSpawn.mock.calls[0][1] as string[];
+    expect(spawnArgs).not.toContain("--mcp-config");
+  });
+
+  it("detects project-specific mcpServers in geminiProjects", async () => {
+    const mockProcess = createMockProcess();
+    const mockSpawn = vi.fn().mockReturnValue(mockProcess);
+    const client = new GeminiAgentClient({
+      logger: createMockLogger(),
+      _spawnForTest: mockSpawn,
+      _readFileForTest: async () =>
+        JSON.stringify({
+          geminiProjects: {
+            "/my/project": { mcpServers: { db: { command: "sqlite-mcp" } } },
+          },
+        }),
+    });
+
+    await client.createSession({
+      provider: GEMINI_PROVIDER_ID,
+      cwd: "/my/project",
+    });
+
+    const spawnArgs = mockSpawn.mock.calls[0][1] as string[];
+    expect(spawnArgs).toContain("--mcp-config");
+  });
+});
