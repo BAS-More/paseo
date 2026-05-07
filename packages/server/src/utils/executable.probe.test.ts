@@ -1,4 +1,4 @@
-import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { performance } from "node:perf_hooks";
@@ -6,14 +6,14 @@ import { afterEach, describe, expect, test } from "vitest";
 
 import { probeExecutable } from "./executable.js";
 
-const timeoutMs = 200;
+const timeoutMs = 1000;
 const timeoutSlackMs = 500;
 const tempDirs: string[] = [];
 
 interface ProbeFixture {
   name: string;
   expected: boolean;
-  create: (dir: string) => string;
+  create: (dir: string) => { executablePath: string; pidFile?: string };
 }
 
 function makeTempDir(): string {
@@ -47,7 +47,7 @@ function createHangingFixture(dir: string): string {
   }
   return writeExecutable(
     scriptPath(dir, "hangs"),
-    "#!/bin/sh\ntrap '' TERM\nwhile :; do sleep 60; done\n",
+    `#!/bin/sh\ntrap '' TERM\necho $$ > "${path.join(dir, "hangs.pid")}"\nwhile :; do :; done\n`,
   );
 }
 
@@ -86,36 +86,46 @@ function missingAbsolutePath(): string {
   return process.platform === "win32" ? "C:\\no\\such\\path.exe" : "/no/such/path";
 }
 
+async function waitForFile(filePath: string): Promise<void> {
+  const deadline = performance.now() + timeoutSlackMs;
+  while (!existsSync(filePath) && performance.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+}
+
 const fixtures: ProbeFixture[] = [
   {
     name: "hangs forever after starting",
     expected: true,
-    create: createHangingFixture,
+    create: (dir) => ({
+      executablePath: createHangingFixture(dir),
+      pidFile: process.platform === "win32" ? undefined : path.join(dir, "hangs.pid"),
+    }),
   },
   {
     name: "does not know --version and exits zero",
     expected: true,
-    create: createNoVersionFixture,
+    create: (dir) => ({ executablePath: createNoVersionFixture(dir) }),
   },
   {
     name: "exits non-zero immediately",
     expected: true,
-    create: createNonZeroFixture,
+    create: (dir) => ({ executablePath: createNonZeroFixture(dir) }),
   },
   {
     name: "starts slowly and exits zero",
     expected: true,
-    create: createSlowSuccessFixture,
+    create: (dir) => ({ executablePath: createSlowSuccessFixture(dir) }),
   },
   {
     name: "has garbage content",
     expected: false,
-    create: createGarbageFixture,
+    create: (dir) => ({ executablePath: createGarbageFixture(dir) }),
   },
   {
     name: "does not exist at an absolute path",
     expected: false,
-    create: () => missingAbsolutePath(),
+    create: () => ({ executablePath: missingAbsolutePath() }),
   },
 ];
 
@@ -127,12 +137,17 @@ afterEach(() => {
 
 describe("probeExecutable", () => {
   test.each(fixtures)("$name", async ({ create, expected }) => {
-    const executablePath = create(makeTempDir());
+    const { executablePath, pidFile } = create(makeTempDir());
     const startedAt = performance.now();
 
     const result = await probeExecutable(executablePath, timeoutMs);
 
     expect(result).toBe(expected);
     expect(performance.now() - startedAt).toBeLessThanOrEqual(timeoutMs + timeoutSlackMs);
+    if (pidFile) {
+      await waitForFile(pidFile);
+      const pid = Number(readFileSync(pidFile, "utf8"));
+      expect(() => process.kill(pid, 0)).toThrow(expect.objectContaining({ code: "ESRCH" }));
+    }
   });
 });
