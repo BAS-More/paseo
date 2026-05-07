@@ -1586,6 +1586,11 @@ export const RegisterPushTokenMessageSchema = z.object({
   token: z.string(),
 });
 
+export const NineRouterStatusRequestSchema = z.object({
+  type: z.literal("nine_router_status_request"),
+  requestId: z.string(),
+});
+
 // ============================================================================
 // Terminal Messages
 // ============================================================================
@@ -1745,6 +1750,7 @@ export const SessionInboundMessageSchema = z.discriminatedUnion("type", [
   PingMessageSchema,
   ListCommandsRequestSchema,
   RegisterPushTokenMessageSchema,
+  NineRouterStatusRequestSchema,
   ListTerminalsRequestSchema,
   SubscribeTerminalsRequestSchema,
   UnsubscribeTerminalsRequestSchema,
@@ -3158,6 +3164,35 @@ export const ListCommandsResponseSchema = z.object({
   }),
 });
 
+export const NineRouterStatusResponseSchema = z.object({
+  type: z.literal("nine_router_status_response"),
+  payload: z.object({
+    requestId: z.string(),
+    reachable: z.boolean(),
+    accounts: z.array(
+      z.object({
+        id: z.string(),
+        name: z.string(),
+        provider: z.string(),
+        status: z.string(),
+      }),
+    ),
+    usage: z.object({
+      totalRequests: z.number(),
+      totalTokens: z.number(),
+      totalCost: z.number(),
+      byAccount: z.array(
+        z.object({
+          id: z.string(),
+          requests: z.number(),
+          tokens: z.number(),
+          cost: z.number(),
+        }),
+      ),
+    }),
+  }),
+});
+
 // ============================================================================
 // Terminal Outbound Messages
 // ============================================================================
@@ -3363,6 +3398,7 @@ export const SessionOutboundMessageSchema = z.discriminatedUnion("type", [
   RefreshProvidersSnapshotResponseMessageSchema,
   ProviderDiagnosticResponseMessageSchema,
   ListCommandsResponseSchema,
+  NineRouterStatusResponseSchema,
   ListTerminalsResponseSchema,
   TerminalsChangedSchema,
   CreateTerminalResponseSchema,

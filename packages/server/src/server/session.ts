@@ -77,6 +77,7 @@ import type { ScriptHealthState } from "./script-health-monitor.js";
 import { spawnWorkspaceScript } from "./worktree-bootstrap.js";
 import type { WorkspaceScriptRuntimeStore } from "./workspace-script-runtime-store.js";
 import type { DaemonConfigStore } from "./daemon-config-store.js";
+import { NineRouterClient } from "./nine-router-client.js";
 import { applyMutableProviderConfigToOverrides } from "./daemon-config-store.js";
 import { getErrorMessage, getErrorMessageOr } from "../shared/error-utils.js";
 import type { WorkspaceGitRuntimeSnapshot, WorkspaceGitService } from "./workspace-git-service.js";
@@ -2182,7 +2183,24 @@ export class Session {
       case "register_push_token":
         this.handleRegisterPushToken(msg.token);
         return;
+      case "nine_router_status_request":
+        await this.handleNineRouterStatusRequest(msg.requestId);
+        return;
     }
+  }
+
+  private async handleNineRouterStatusRequest(requestId: string): Promise<void> {
+    const client = new NineRouterClient();
+    const status = await client.getStatus();
+    this.emit({
+      type: "nine_router_status_response",
+      payload: {
+        requestId,
+        reachable: status.reachable,
+        accounts: status.accounts,
+        usage: status.usage,
+      },
+    });
   }
 
   public resetPeakInflight(): void {
