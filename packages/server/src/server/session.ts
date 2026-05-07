@@ -2186,6 +2186,9 @@ export class Session {
       case "nine_router_status_request":
         await this.handleNineRouterStatusRequest(msg.requestId);
         return;
+      case "soifer_backend_status_request":
+        await this.handleSoiferBackendStatusRequest(msg.requestId);
+        return;
     }
   }
 
@@ -2200,6 +2203,17 @@ export class Session {
         accounts: status.accounts,
         usage: status.usage,
       },
+    });
+  }
+
+  private async handleSoiferBackendStatusRequest(requestId: string): Promise<void> {
+    const { SoiferBackendClient } = await import("./soifer-backend-client.js");
+    const client = new SoiferBackendClient();
+    const status = await client.getFullStatus();
+    const health = await client.checkHealth();
+    this.emit({
+      type: "soifer_backend_status_response",
+      payload: { requestId, reachable: health.reachable, ...status },
     });
   }
 

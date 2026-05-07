@@ -3165,6 +3165,27 @@ export class DaemonClient {
     });
   }
 
+  async getSoiferBackendStatus(requestId?: string): Promise<{
+    requestId: string;
+    reachable: boolean;
+    health: { status: string; services: Record<string, { status: string }> };
+    skills: string[];
+    agents: Array<{ name: string; content: string }>;
+    rules: Array<{ name: string; content: string }>;
+    mcpServers: { mcpServers: Record<string, unknown> };
+    hooks: Record<string, unknown[]>;
+    permissions: { allow: string[]; deny: string[] };
+  }> {
+    return this.sendCorrelatedSessionRequest({
+      requestId,
+      message: {
+        type: "soifer_backend_status_request",
+      },
+      responseType: "soifer_backend_status_response",
+      timeout: 15000,
+    });
+  }
+
   async getDaemonConfig(
     requestId?: string,
   ): Promise<{ requestId: string; config: MutableDaemonConfig }> {
