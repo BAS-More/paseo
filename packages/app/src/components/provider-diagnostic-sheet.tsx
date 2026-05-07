@@ -19,6 +19,7 @@ import { useProvidersSnapshot } from "@/hooks/use-providers-snapshot";
 import { useHostRuntimeClient } from "@/runtime/host-runtime";
 import { SettingsSection } from "@/screens/settings/settings-section";
 import { settingsStyles } from "@/styles/settings";
+import { ProviderConfigSection } from "@/components/provider-config-section";
 import { resolveProviderLabel } from "@/utils/provider-definitions";
 import { formatTimeAgo } from "@/utils/time";
 import type { AgentModelDefinition, AgentProvider } from "@server/server/agent/agent-sdk-types";
@@ -422,6 +423,8 @@ export function ProviderDiagnosticSheet({
           />
         </View>
       </SettingsSection>
+
+      <ProviderConfigSection provider={provider} serverId={serverId} />
 
       <CustomModelsSection provider={provider} serverId={serverId} refresh={refresh} />
 
