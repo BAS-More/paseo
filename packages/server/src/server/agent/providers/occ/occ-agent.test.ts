@@ -6,6 +6,7 @@ import type { Logger } from "pino";
 
 import type { AgentStreamEvent } from "../../agent-sdk-types.js";
 import { OccAgentClient, OCC_PROVIDER_ID, OCC_CAPABILITIES } from "../occ-agent.js";
+import * as spawnUtils from "../../../../utils/spawn.js";
 
 function createMockLogger(): Logger {
   return {
@@ -305,5 +306,110 @@ describe("OccAgentSession", () => {
     const info = await session.getRuntimeInfo();
     expect(info.provider).toBe(OCC_PROVIDER_ID);
     expect(info.model).toBe("claude-sonnet-4-20250514");
+  });
+
+  it("startTurn spawns a new process for each turn", async () => {
+    const mockProc1 = createMockProcess();
+    const mockProc2 = createMockProcess();
+    const mockSpawn = vi.fn().mockReturnValueOnce(mockProc1).mockReturnValueOnce(mockProc2);
+    const client = new OccAgentClient({
+      logger,
+      _spawnForTest: mockSpawn,
+    });
+
+    const session = await client.createSession({
+      provider: OCC_PROVIDER_ID,
+      cwd: "/test",
+    });
+
+    expect(mockSpawn).toHaveBeenCalledTimes(1);
+
+    await session.startTurn("Second turn");
+    expect(mockSpawn).toHaveBeenCalledTimes(2);
+    const secondCallArgs = mockSpawn.mock.calls[1][1] as string[];
+    expect(secondCallArgs).toContain("-p");
+    expect(secondCallArgs).toContain("Second turn");
+    expect(secondCallArgs).toContain("--output-format");
+  });
+
+  it("run resolves when process exits cleanly", async () => {
+    const mockProc1 = createMockProcess();
+    const mockProc2 = createMockProcess();
+    const mockSpawn = vi.fn().mockReturnValueOnce(mockProc1).mockReturnValueOnce(mockProc2);
+    const client = new OccAgentClient({
+      logger,
+      _spawnForTest: mockSpawn,
+    });
+
+    const session = await client.createSession({
+      provider: OCC_PROVIDER_ID,
+      cwd: "/test",
+    });
+
+    const runPromise = session.run("test prompt");
+    await new Promise((r) => setTimeout(r, 10));
+    mockProc2.emit("close", 0);
+
+    const result = await runPromise;
+    expect(result.sessionId).toBeTruthy();
+  });
+
+  it("run resolves with turn_failed on non-zero exit", async () => {
+    const mockProc1 = createMockProcess();
+    const mockProc2 = createMockProcess();
+    const mockSpawn = vi.fn().mockReturnValueOnce(mockProc1).mockReturnValueOnce(mockProc2);
+    const client = new OccAgentClient({
+      logger,
+      _spawnForTest: mockSpawn,
+    });
+
+    const session = await client.createSession({
+      provider: OCC_PROVIDER_ID,
+      cwd: "/test",
+    });
+
+    const events: AgentStreamEvent[] = [];
+    session.subscribe((e) => events.push(e));
+
+    const runPromise = session.run("test prompt");
+    await new Promise((r) => setTimeout(r, 10));
+    mockProc2.emit("close", 1);
+
+    await runPromise;
+    expect(events.some((e) => e.type === "turn_failed")).toBe(true);
+  });
+});
+
+describe("OccAgentClient uses spawnProcess by default", () => {
+  it("calls spawnProcess from utils when no _spawnForTest provided", async () => {
+    const mockProc = createMockProcess();
+    const spy = vi
+      .spyOn(spawnUtils, "spawnProcess")
+      .mockReturnValue(mockProc as unknown as ChildProcess);
+
+    const client = new OccAgentClient({ logger: createMockLogger() });
+    await client.createSession({
+      provider: OCC_PROVIDER_ID,
+      cwd: "/test",
+    });
+
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(spy.mock.calls[0][0]).toBe("occ");
+    spy.mockRestore();
+  });
+
+  it("uses spawnProcess for isAvailable check", async () => {
+    const mockProc = createMockProcess();
+    const spy = vi
+      .spyOn(spawnUtils, "spawnProcess")
+      .mockReturnValue(mockProc as unknown as ChildProcess);
+
+    const client = new OccAgentClient({ logger: createMockLogger() });
+    const availablePromise = client.isAvailable();
+    mockProc.emit("close", 0);
+    await availablePromise;
+
+    expect(spy).toHaveBeenCalledTimes(1);
+    spy.mockRestore();
   });
 });

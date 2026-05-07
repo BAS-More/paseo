@@ -1,5 +1,4 @@
 import {
-  spawn,
   spawnSync,
   type ChildProcess,
   type SpawnOptions,
@@ -7,6 +6,9 @@ import {
 } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { EventEmitter } from "node:events";
+import { readFile } from "node:fs/promises";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import type { Logger } from "pino";
 
 import type {
@@ -30,6 +32,7 @@ import type {
   AgentStreamEvent,
   ListModelsOptions,
 } from "../agent-sdk-types.js";
+import { spawnProcess } from "../../../utils/spawn.js";
 import { mapGeminiEventToStreamEvents, type GeminiStreamEvent } from "./gemini/event-mapper.js";
 
 export const GEMINI_PROVIDER_ID: AgentProvider = "gemini";
@@ -66,12 +69,12 @@ type SpawnSyncFn = (
   options?: SpawnOptions,
 ) => SpawnSyncReturns<string>;
 
-function nodeSpawn(
+function defaultSpawn(
   command: string,
   args?: readonly string[],
   options?: SpawnOptions,
 ): ChildProcess {
-  return spawn(command, args as string[], options ?? {});
+  return spawnProcess(command, (args as string[]) ?? [], options);
 }
 
 function nodeSpawnSync(
@@ -82,12 +85,15 @@ function nodeSpawnSync(
   return spawnSync(command, args as string[], { ...options, encoding: "utf8" });
 }
 
+type ReadFileFn = (path: string) => Promise<string>;
+
 export interface GeminiAgentClientOptions {
   logger: Logger;
   geminiPath?: string;
   env?: Record<string, string>;
   _spawnForTest?: SpawnFn;
   _spawnSyncForTest?: SpawnSyncFn;
+  _readFileForTest?: ReadFileFn;
 }
 
 export class GeminiAgentClient implements AgentClient {
@@ -99,13 +105,15 @@ export class GeminiAgentClient implements AgentClient {
   private readonly baseEnv: Record<string, string>;
   private readonly spawnFn: SpawnFn;
   private readonly spawnSyncFn: SpawnSyncFn;
+  private readonly readFileFn: ReadFileFn;
 
   constructor(options: GeminiAgentClientOptions) {
     this.logger = options.logger.child({ provider: GEMINI_PROVIDER_ID });
     this.geminiPath = options.geminiPath ?? process.env.GEMINI_PATH ?? "gemini";
     this.baseEnv = options.env ?? {};
-    this.spawnFn = options._spawnForTest ?? nodeSpawn;
+    this.spawnFn = options._spawnForTest ?? defaultSpawn;
     this.spawnSyncFn = options._spawnSyncForTest ?? nodeSpawnSync;
+    this.readFileFn = options._readFileForTest ?? ((p: string) => readFile(p, "utf8"));
   }
 
   async isAvailable(): Promise<boolean> {
@@ -144,7 +152,41 @@ export class GeminiAgentClient implements AgentClient {
     return this.spawnSession(config, handle.sessionId);
   }
 
-  private spawnSession(config: AgentSessionConfig, resumeId?: string): GeminiAgentSession {
+  private async detectMcpConfig(cwd?: string): Promise<string | null> {
+    try {
+      const configPath = join(homedir(), ".gemini.json");
+      const raw = await this.readFileFn(configPath);
+      const config = JSON.parse(raw) as Record<string, unknown>;
+
+      if (
+        config.mcpServers &&
+        typeof config.mcpServers === "object" &&
+        Object.keys(config.mcpServers as object).length > 0
+      ) {
+        return configPath;
+      }
+
+      if (cwd && config.geminiProjects && typeof config.geminiProjects === "object") {
+        const projects = config.geminiProjects as Record<string, Record<string, unknown>>;
+        const projectConfig = projects[cwd];
+        if (
+          projectConfig?.mcpServers &&
+          typeof projectConfig.mcpServers === "object" &&
+          Object.keys(projectConfig.mcpServers as object).length > 0
+        ) {
+          return configPath;
+        }
+      }
+    } catch {
+      // Config file doesn't exist or isn't parsable
+    }
+    return null;
+  }
+
+  private async spawnSession(
+    config: AgentSessionConfig,
+    resumeId?: string,
+  ): Promise<GeminiAgentSession> {
     const args: string[] = [];
 
     if (config.systemPrompt) {
@@ -157,6 +199,11 @@ export class GeminiAgentClient implements AgentClient {
 
     if (config.model) {
       args.push("--model", config.model);
+    }
+
+    const mcpConfigPath = await this.detectMcpConfig(config.cwd);
+    if (mcpConfigPath) {
+      args.push("--mcp-config", mcpConfigPath);
     }
 
     args.push("--output-format", "stream-json");
@@ -179,8 +226,23 @@ export class GeminiAgentClient implements AgentClient {
       model: config.model ?? GEMINI_MODELS[0].id,
       process: proc,
       logger: this.logger,
+      spawnContext: {
+        geminiPath: this.geminiPath,
+        cwd: config.cwd ?? ".",
+        env: spawnEnv,
+        model: config.model,
+        spawnFn: this.spawnFn,
+      },
     });
   }
+}
+
+interface GeminiSpawnContext {
+  geminiPath: string;
+  cwd: string;
+  env: Record<string, string>;
+  model?: string;
+  spawnFn: SpawnFn;
 }
 
 interface GeminiSessionOptions {
@@ -189,6 +251,7 @@ interface GeminiSessionOptions {
   model: string;
   process: ChildProcess;
   logger: Logger;
+  spawnContext: GeminiSpawnContext;
 }
 
 class GeminiAgentSession implements AgentSession {
@@ -200,6 +263,7 @@ class GeminiAgentSession implements AgentSession {
   private model: string;
   private proc: ChildProcess;
   private logger: Logger;
+  private spawnContext: GeminiSpawnContext;
   private emitter = new EventEmitter();
   private lineBuffer = "";
   private turnId: string;
@@ -211,8 +275,15 @@ class GeminiAgentSession implements AgentSession {
     this.model = options.model;
     this.proc = options.process;
     this.logger = options.logger;
+    this.spawnContext = options.spawnContext;
     this.turnId = randomUUID();
 
+    this.attachToProcess(this.proc);
+  }
+
+  private attachToProcess(proc: ChildProcess): void {
+    this.proc = proc;
+    this.lineBuffer = "";
     this.setupStdoutParsing();
     this.setupStderrHandling();
     this.setupProcessLifecycle();
@@ -220,6 +291,13 @@ class GeminiAgentSession implements AgentSession {
     if (this.proc.stdin) {
       (this.proc.stdin as NodeJS.WritableStream).end();
     }
+  }
+
+  private detachFromProcess(): void {
+    this.proc.stdout?.removeAllListeners("data");
+    this.proc.stderr?.removeAllListeners("data");
+    this.proc.removeAllListeners("close");
+    this.proc.removeAllListeners("error");
   }
 
   private setupStdoutParsing(): void {
@@ -286,6 +364,12 @@ class GeminiAgentSession implements AgentSession {
           error: `Gemini process exited with code ${code}`,
           turnId: this.turnId,
         } satisfies AgentStreamEvent);
+      } else {
+        this.emitter.emit("event", {
+          type: "turn_completed",
+          provider: this.provider,
+          turnId: this.turnId,
+        } satisfies AgentStreamEvent);
       }
     });
 
@@ -302,6 +386,36 @@ class GeminiAgentSession implements AgentSession {
   subscribe(callback: (event: AgentStreamEvent) => void): () => void {
     this.emitter.on("event", callback);
     return () => this.emitter.off("event", callback);
+  }
+
+  private extractPromptText(prompt: AgentPromptInput): string {
+    if (typeof prompt === "string") return prompt;
+    return prompt
+      .filter((b) => b.type === "text")
+      .map((b) => (b as { type: "text"; text: string }).text)
+      .join("\n");
+  }
+
+  private spawnForTurn(promptText: string): void {
+    this.detachFromProcess();
+
+    const args: string[] = ["--prompt", promptText];
+    if (this.sessionId) {
+      args.push("--resume", this.sessionId);
+    }
+    if (this.model) {
+      args.push("--model", this.model);
+    }
+    args.push("--output-format", "stream-json");
+
+    const ctx = this.spawnContext;
+    const proc = ctx.spawnFn(ctx.geminiPath, args, {
+      cwd: ctx.cwd,
+      env: ctx.env,
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+
+    this.attachToProcess(proc);
   }
 
   async run(prompt: AgentPromptInput, _options?: AgentRunOptions): Promise<AgentRunResult> {
@@ -323,10 +437,15 @@ class GeminiAgentSession implements AgentSession {
   }
 
   async startTurn(
-    _prompt: AgentPromptInput,
+    prompt: AgentPromptInput,
     _options?: AgentRunOptions,
   ): Promise<{ turnId: string }> {
     this.turnId = randomUUID();
+    const promptText = this.extractPromptText(prompt);
+
+    if (promptText) {
+      this.spawnForTurn(promptText);
+    }
 
     this.emitter.emit("event", {
       type: "turn_started",

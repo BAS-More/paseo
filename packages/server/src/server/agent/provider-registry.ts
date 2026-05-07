@@ -98,9 +98,10 @@ const PROVIDER_CLIENT_FACTORIES: Record<string, ProviderClientFactory> = {
       runtimeSettings,
     }),
   mock: (logger) => new MockLoadTestAgentClient(logger),
-  occ: (logger) => new OccAgentClient({ logger }),
-  crewai: (logger) => new CrewAiAgentClient({ logger }),
-  gemini: (logger) => new GeminiAgentClient({ logger }),
+  occ: (logger, runtimeSettings) => new OccAgentClient({ logger, env: runtimeSettings?.env }),
+  crewai: (logger, runtimeSettings) =>
+    new CrewAiAgentClient({ logger, bridgeUrl: runtimeSettings?.env?.CREWAI_BRIDGE_URL }),
+  gemini: (logger, runtimeSettings) => new GeminiAgentClient({ logger, env: runtimeSettings?.env }),
 };
 
 function getProviderClientFactory(provider: string): ProviderClientFactory {

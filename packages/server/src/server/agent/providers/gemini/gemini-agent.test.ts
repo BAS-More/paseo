@@ -1,8 +1,10 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import type { Logger } from "pino";
+import { type ChildProcess } from "node:child_process";
 import { EventEmitter } from "node:events";
 
 import { GeminiAgentClient, GEMINI_PROVIDER_ID, GEMINI_CAPABILITIES } from "../gemini-agent.js";
+import * as spawnUtils from "../../../../utils/spawn.js";
 
 function createMockLogger(): Logger {
   return {
@@ -218,6 +220,50 @@ describe("GeminiAgentSession streaming", () => {
     expect(mockProcess.kill).toHaveBeenCalled();
   });
 
+  it("startTurn spawns a new process for each turn", async () => {
+    const mockProcess1 = createMockProcess();
+    const mockProcess2 = createMockProcess();
+    const mockSpawn = vi.fn().mockReturnValueOnce(mockProcess1).mockReturnValueOnce(mockProcess2);
+    const client = new GeminiAgentClient({
+      logger: createMockLogger(),
+      _spawnForTest: mockSpawn,
+    });
+    const session = await client.createSession({
+      provider: GEMINI_PROVIDER_ID,
+      cwd: ".",
+    });
+
+    expect(mockSpawn).toHaveBeenCalledTimes(1);
+
+    await session.startTurn("Second turn");
+    expect(mockSpawn).toHaveBeenCalledTimes(2);
+    const secondCallArgs = mockSpawn.mock.calls[1][1] as string[];
+    expect(secondCallArgs).toContain("--prompt");
+    expect(secondCallArgs).toContain("Second turn");
+    expect(secondCallArgs).toContain("--output-format");
+  });
+
+  it("run resolves when process exits cleanly", async () => {
+    const mockProcess1 = createMockProcess();
+    const mockProcess2 = createMockProcess();
+    const mockSpawn = vi.fn().mockReturnValueOnce(mockProcess1).mockReturnValueOnce(mockProcess2);
+    const client = new GeminiAgentClient({
+      logger: createMockLogger(),
+      _spawnForTest: mockSpawn,
+    });
+    const session = await client.createSession({
+      provider: GEMINI_PROVIDER_ID,
+      cwd: ".",
+    });
+
+    const runPromise = session.run("test prompt");
+    await new Promise((r) => setTimeout(r, 10));
+    mockProcess2.emit("close", 0);
+
+    const result = await runPromise;
+    expect(result.sessionId).toBeTruthy();
+  });
+
   it("getRuntimeInfo returns provider and model", async () => {
     const mockProcess = createMockProcess();
     const mockSpawn = vi.fn().mockReturnValue(mockProcess);
@@ -233,5 +279,106 @@ describe("GeminiAgentSession streaming", () => {
     const info = await session.getRuntimeInfo();
     expect(info.provider).toBe(GEMINI_PROVIDER_ID);
     expect(info.model).toBe("gemini-2.5-pro");
+  });
+});
+
+describe("GeminiAgentClient uses spawnProcess by default", () => {
+  it("calls spawnProcess from utils when no _spawnForTest provided", async () => {
+    const mockProcess = createMockProcess();
+    const spy = vi
+      .spyOn(spawnUtils, "spawnProcess")
+      .mockReturnValue(mockProcess as unknown as ChildProcess);
+
+    const client = new GeminiAgentClient({ logger: createMockLogger() });
+    await client.createSession({
+      provider: GEMINI_PROVIDER_ID,
+      cwd: ".",
+    });
+
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(spy.mock.calls[0][0]).toBe("gemini");
+    spy.mockRestore();
+  });
+});
+
+describe("GeminiAgentClient MCP config injection", () => {
+  it("passes --mcp-config when ~/.gemini.json has mcpServers", async () => {
+    const mockProcess = createMockProcess();
+    const mockSpawn = vi.fn().mockReturnValue(mockProcess);
+    const client = new GeminiAgentClient({
+      logger: createMockLogger(),
+      _spawnForTest: mockSpawn,
+      _readFileForTest: async () =>
+        JSON.stringify({ mcpServers: { myServer: { command: "node", args: ["server.js"] } } }),
+    });
+
+    await client.createSession({
+      provider: GEMINI_PROVIDER_ID,
+      cwd: ".",
+    });
+
+    const spawnArgs = mockSpawn.mock.calls[0][1] as string[];
+    expect(spawnArgs).toContain("--mcp-config");
+  });
+
+  it("does not pass --mcp-config when ~/.gemini.json has no mcpServers", async () => {
+    const mockProcess = createMockProcess();
+    const mockSpawn = vi.fn().mockReturnValue(mockProcess);
+    const client = new GeminiAgentClient({
+      logger: createMockLogger(),
+      _spawnForTest: mockSpawn,
+      _readFileForTest: async () => JSON.stringify({}),
+    });
+
+    await client.createSession({
+      provider: GEMINI_PROVIDER_ID,
+      cwd: ".",
+    });
+
+    const spawnArgs = mockSpawn.mock.calls[0][1] as string[];
+    expect(spawnArgs).not.toContain("--mcp-config");
+  });
+
+  it("does not pass --mcp-config when ~/.gemini.json does not exist", async () => {
+    const mockProcess = createMockProcess();
+    const mockSpawn = vi.fn().mockReturnValue(mockProcess);
+    const client = new GeminiAgentClient({
+      logger: createMockLogger(),
+      _spawnForTest: mockSpawn,
+      _readFileForTest: async () => {
+        throw new Error("ENOENT");
+      },
+    });
+
+    await client.createSession({
+      provider: GEMINI_PROVIDER_ID,
+      cwd: ".",
+    });
+
+    const spawnArgs = mockSpawn.mock.calls[0][1] as string[];
+    expect(spawnArgs).not.toContain("--mcp-config");
+  });
+
+  it("detects project-specific mcpServers in geminiProjects", async () => {
+    const mockProcess = createMockProcess();
+    const mockSpawn = vi.fn().mockReturnValue(mockProcess);
+    const client = new GeminiAgentClient({
+      logger: createMockLogger(),
+      _spawnForTest: mockSpawn,
+      _readFileForTest: async () =>
+        JSON.stringify({
+          geminiProjects: {
+            "/my/project": { mcpServers: { db: { command: "sqlite-mcp" } } },
+          },
+        }),
+    });
+
+    await client.createSession({
+      provider: GEMINI_PROVIDER_ID,
+      cwd: "/my/project",
+    });
+
+    const spawnArgs = mockSpawn.mock.calls[0][1] as string[];
+    expect(spawnArgs).toContain("--mcp-config");
   });
 });
