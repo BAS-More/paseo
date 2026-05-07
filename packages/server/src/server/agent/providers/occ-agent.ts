@@ -1,4 +1,4 @@
-import { spawn, type ChildProcess, type SpawnOptions } from "node:child_process";
+import { type ChildProcess, type SpawnOptions } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { EventEmitter } from "node:events";
 import type { Logger } from "pino";
@@ -24,6 +24,7 @@ import type {
   AgentStreamEvent,
   ListModelsOptions,
 } from "../agent-sdk-types.js";
+import { spawnProcess } from "../../../utils/spawn.js";
 import { mapOccEventToStreamEvents, type OccStreamEvent } from "./occ/event-mapper.js";
 
 export const OCC_PROVIDER_ID: AgentProvider = "occ";
@@ -61,12 +62,12 @@ const OCC_MODELS: AgentModelDefinition[] = [
 
 type SpawnFn = (command: string, args?: readonly string[], options?: SpawnOptions) => ChildProcess;
 
-function nodeSpawn(
+function defaultSpawn(
   command: string,
   args?: readonly string[],
   options?: SpawnOptions,
 ): ChildProcess {
-  return spawn(command, args as string[], options ?? {});
+  return spawnProcess(command, (args as string[]) ?? [], options);
 }
 
 export interface OccAgentClientOptions {
@@ -92,7 +93,7 @@ export class OccAgentClient implements AgentClient {
     this.occPath = options.occPath ?? process.env.OCC_PATH ?? "occ";
     this.agentsPath = options.agentsPath ?? process.env.OCC_AGENTS_PATH;
     this.baseEnv = options.env ?? {};
-    this.spawnFn = options._spawnForTest ?? nodeSpawn;
+    this.spawnFn = options._spawnForTest ?? defaultSpawn;
   }
 
   async isAvailable(): Promise<boolean> {

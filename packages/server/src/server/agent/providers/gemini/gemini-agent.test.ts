@@ -1,8 +1,10 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import type { Logger } from "pino";
+import { type ChildProcess } from "node:child_process";
 import { EventEmitter } from "node:events";
 
 import { GeminiAgentClient, GEMINI_PROVIDER_ID, GEMINI_CAPABILITIES } from "../gemini-agent.js";
+import * as spawnUtils from "../../../../utils/spawn.js";
 
 function createMockLogger(): Logger {
   return {
@@ -277,5 +279,24 @@ describe("GeminiAgentSession streaming", () => {
     const info = await session.getRuntimeInfo();
     expect(info.provider).toBe(GEMINI_PROVIDER_ID);
     expect(info.model).toBe("gemini-2.5-pro");
+  });
+});
+
+describe("GeminiAgentClient uses spawnProcess by default", () => {
+  it("calls spawnProcess from utils when no _spawnForTest provided", async () => {
+    const mockProcess = createMockProcess();
+    const spy = vi
+      .spyOn(spawnUtils, "spawnProcess")
+      .mockReturnValue(mockProcess as unknown as ChildProcess);
+
+    const client = new GeminiAgentClient({ logger: createMockLogger() });
+    await client.createSession({
+      provider: GEMINI_PROVIDER_ID,
+      cwd: ".",
+    });
+
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(spy.mock.calls[0][0]).toBe("gemini");
+    spy.mockRestore();
   });
 });

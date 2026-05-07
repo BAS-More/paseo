@@ -6,6 +6,7 @@ import type { Logger } from "pino";
 
 import type { AgentStreamEvent } from "../../agent-sdk-types.js";
 import { OccAgentClient, OCC_PROVIDER_ID, OCC_CAPABILITIES } from "../occ-agent.js";
+import * as spawnUtils from "../../../../utils/spawn.js";
 
 function createMockLogger(): Logger {
   return {
@@ -376,5 +377,39 @@ describe("OccAgentSession", () => {
 
     await runPromise;
     expect(events.some((e) => e.type === "turn_failed")).toBe(true);
+  });
+});
+
+describe("OccAgentClient uses spawnProcess by default", () => {
+  it("calls spawnProcess from utils when no _spawnForTest provided", async () => {
+    const mockProc = createMockProcess();
+    const spy = vi
+      .spyOn(spawnUtils, "spawnProcess")
+      .mockReturnValue(mockProc as unknown as ChildProcess);
+
+    const client = new OccAgentClient({ logger: createMockLogger() });
+    await client.createSession({
+      provider: OCC_PROVIDER_ID,
+      cwd: "/test",
+    });
+
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(spy.mock.calls[0][0]).toBe("occ");
+    spy.mockRestore();
+  });
+
+  it("uses spawnProcess for isAvailable check", async () => {
+    const mockProc = createMockProcess();
+    const spy = vi
+      .spyOn(spawnUtils, "spawnProcess")
+      .mockReturnValue(mockProc as unknown as ChildProcess);
+
+    const client = new OccAgentClient({ logger: createMockLogger() });
+    const availablePromise = client.isAvailable();
+    mockProc.emit("close", 0);
+    await availablePromise;
+
+    expect(spy).toHaveBeenCalledTimes(1);
+    spy.mockRestore();
   });
 });

@@ -1,5 +1,4 @@
 import {
-  spawn,
   spawnSync,
   type ChildProcess,
   type SpawnOptions,
@@ -30,6 +29,7 @@ import type {
   AgentStreamEvent,
   ListModelsOptions,
 } from "../agent-sdk-types.js";
+import { spawnProcess } from "../../../utils/spawn.js";
 import { mapGeminiEventToStreamEvents, type GeminiStreamEvent } from "./gemini/event-mapper.js";
 
 export const GEMINI_PROVIDER_ID: AgentProvider = "gemini";
@@ -66,12 +66,12 @@ type SpawnSyncFn = (
   options?: SpawnOptions,
 ) => SpawnSyncReturns<string>;
 
-function nodeSpawn(
+function defaultSpawn(
   command: string,
   args?: readonly string[],
   options?: SpawnOptions,
 ): ChildProcess {
-  return spawn(command, args as string[], options ?? {});
+  return spawnProcess(command, (args as string[]) ?? [], options);
 }
 
 function nodeSpawnSync(
@@ -104,7 +104,7 @@ export class GeminiAgentClient implements AgentClient {
     this.logger = options.logger.child({ provider: GEMINI_PROVIDER_ID });
     this.geminiPath = options.geminiPath ?? process.env.GEMINI_PATH ?? "gemini";
     this.baseEnv = options.env ?? {};
-    this.spawnFn = options._spawnForTest ?? nodeSpawn;
+    this.spawnFn = options._spawnForTest ?? defaultSpawn;
     this.spawnSyncFn = options._spawnSyncForTest ?? nodeSpawnSync;
   }
 
