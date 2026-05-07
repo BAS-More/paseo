@@ -175,8 +175,25 @@ export class OccAgentClient implements AgentClient {
       model: config.model ?? OCC_MODELS[0].id,
       process: proc,
       logger: this.logger,
+      spawnContext: {
+        occPath: this.occPath,
+        agentsPath: this.agentsPath,
+        cwd: config.cwd ?? ".",
+        env: spawnEnv,
+        model: config.model,
+        spawnFn: this.spawnFn,
+      },
     });
   }
+}
+
+interface OccSpawnContext {
+  occPath: string;
+  agentsPath?: string;
+  cwd: string;
+  env: Record<string, string>;
+  model?: string;
+  spawnFn: SpawnFn;
 }
 
 interface OccSessionOptions {
@@ -185,6 +202,7 @@ interface OccSessionOptions {
   model: string;
   process: ChildProcess;
   logger: Logger;
+  spawnContext: OccSpawnContext;
 }
 
 class OccAgentSession implements AgentSession {
@@ -196,6 +214,7 @@ class OccAgentSession implements AgentSession {
   private model: string;
   private proc: ChildProcess;
   private logger: Logger;
+  private spawnContext: OccSpawnContext;
   private emitter = new EventEmitter();
   private lineBuffer = "";
   private turnId: string;
@@ -208,8 +227,15 @@ class OccAgentSession implements AgentSession {
     this.model = options.model;
     this.proc = options.process;
     this.logger = options.logger;
+    this.spawnContext = options.spawnContext;
     this.turnId = randomUUID();
 
+    this.attachToProcess(this.proc);
+  }
+
+  private attachToProcess(proc: ChildProcess): void {
+    this.proc = proc;
+    this.lineBuffer = "";
     this.setupStdoutParsing();
     this.setupStderrParsing();
     this.setupProcessLifecycle();
@@ -217,6 +243,46 @@ class OccAgentSession implements AgentSession {
     if (this.proc.stdin) {
       this.proc.stdin.end();
     }
+  }
+
+  private detachFromProcess(): void {
+    this.proc.stdout?.removeAllListeners("data");
+    this.proc.stderr?.removeAllListeners("data");
+    this.proc.removeAllListeners("close");
+    this.proc.removeAllListeners("error");
+  }
+
+  private extractPromptText(prompt: AgentPromptInput): string {
+    if (typeof prompt === "string") return prompt;
+    return prompt
+      .filter((b) => b.type === "text")
+      .map((b) => (b as { type: "text"; text: string }).text)
+      .join("\n");
+  }
+
+  private spawnForTurn(promptText: string): void {
+    this.detachFromProcess();
+
+    const ctx = this.spawnContext;
+    const args: string[] = ["-p", promptText];
+    if (this.sessionId) {
+      args.push("--resume", this.sessionId);
+    }
+    if (ctx.model) {
+      args.push("--model", ctx.model);
+    }
+    if (ctx.agentsPath) {
+      args.push("--agents", ctx.agentsPath);
+    }
+    args.push("--output-format", "stream-json");
+
+    const proc = ctx.spawnFn(ctx.occPath, args, {
+      cwd: ctx.cwd,
+      env: ctx.env,
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+
+    this.attachToProcess(proc);
   }
 
   private setupStdoutParsing(): void {
@@ -291,6 +357,12 @@ class OccAgentSession implements AgentSession {
           error: `OCC process exited with code ${code}`,
           turnId: this.turnId,
         } satisfies AgentStreamEvent);
+      } else {
+        this.emitter.emit("event", {
+          type: "turn_completed",
+          provider: this.provider,
+          turnId: this.turnId,
+        } satisfies AgentStreamEvent);
       }
     });
 
@@ -310,17 +382,7 @@ class OccAgentSession implements AgentSession {
   }
 
   async run(prompt: AgentPromptInput, _options?: AgentRunOptions): Promise<AgentRunResult> {
-    const promptText =
-      typeof prompt === "string"
-        ? prompt
-        : prompt
-            .filter((b) => b.type === "text")
-            .map((b) => (b as { type: "text"; text: string }).text)
-            .join("\n");
-
-    if (this.proc.stdin?.writable) {
-      this.proc.stdin.write(promptText + "\n");
-    }
+    await this.startTurn(prompt);
 
     return new Promise<AgentRunResult>((resolve) => {
       const onEvent = (event: AgentStreamEvent) => {
@@ -342,17 +404,10 @@ class OccAgentSession implements AgentSession {
     _options?: AgentRunOptions,
   ): Promise<{ turnId: string }> {
     this.turnId = randomUUID();
+    const promptText = this.extractPromptText(prompt);
 
-    const promptText =
-      typeof prompt === "string"
-        ? prompt
-        : prompt
-            .filter((b) => b.type === "text")
-            .map((b) => (b as { type: "text"; text: string }).text)
-            .join("\n");
-
-    if (this.proc.stdin?.writable) {
-      this.proc.stdin.write(promptText + "\n");
+    if (promptText) {
+      this.spawnForTurn(promptText);
     }
 
     this.emitter.emit("event", {

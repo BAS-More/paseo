@@ -306,4 +306,75 @@ describe("OccAgentSession", () => {
     expect(info.provider).toBe(OCC_PROVIDER_ID);
     expect(info.model).toBe("claude-sonnet-4-20250514");
   });
+
+  it("startTurn spawns a new process for each turn", async () => {
+    const mockProc1 = createMockProcess();
+    const mockProc2 = createMockProcess();
+    const mockSpawn = vi.fn().mockReturnValueOnce(mockProc1).mockReturnValueOnce(mockProc2);
+    const client = new OccAgentClient({
+      logger,
+      _spawnForTest: mockSpawn,
+    });
+
+    const session = await client.createSession({
+      provider: OCC_PROVIDER_ID,
+      cwd: "/test",
+    });
+
+    expect(mockSpawn).toHaveBeenCalledTimes(1);
+
+    await session.startTurn("Second turn");
+    expect(mockSpawn).toHaveBeenCalledTimes(2);
+    const secondCallArgs = mockSpawn.mock.calls[1][1] as string[];
+    expect(secondCallArgs).toContain("-p");
+    expect(secondCallArgs).toContain("Second turn");
+    expect(secondCallArgs).toContain("--output-format");
+  });
+
+  it("run resolves when process exits cleanly", async () => {
+    const mockProc1 = createMockProcess();
+    const mockProc2 = createMockProcess();
+    const mockSpawn = vi.fn().mockReturnValueOnce(mockProc1).mockReturnValueOnce(mockProc2);
+    const client = new OccAgentClient({
+      logger,
+      _spawnForTest: mockSpawn,
+    });
+
+    const session = await client.createSession({
+      provider: OCC_PROVIDER_ID,
+      cwd: "/test",
+    });
+
+    const runPromise = session.run("test prompt");
+    await new Promise((r) => setTimeout(r, 10));
+    mockProc2.emit("close", 0);
+
+    const result = await runPromise;
+    expect(result.sessionId).toBeTruthy();
+  });
+
+  it("run resolves with turn_failed on non-zero exit", async () => {
+    const mockProc1 = createMockProcess();
+    const mockProc2 = createMockProcess();
+    const mockSpawn = vi.fn().mockReturnValueOnce(mockProc1).mockReturnValueOnce(mockProc2);
+    const client = new OccAgentClient({
+      logger,
+      _spawnForTest: mockSpawn,
+    });
+
+    const session = await client.createSession({
+      provider: OCC_PROVIDER_ID,
+      cwd: "/test",
+    });
+
+    const events: AgentStreamEvent[] = [];
+    session.subscribe((e) => events.push(e));
+
+    const runPromise = session.run("test prompt");
+    await new Promise((r) => setTimeout(r, 10));
+    mockProc2.emit("close", 1);
+
+    await runPromise;
+    expect(events.some((e) => e.type === "turn_failed")).toBe(true);
+  });
 });

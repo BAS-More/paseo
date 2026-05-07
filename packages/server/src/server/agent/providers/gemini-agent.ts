@@ -179,8 +179,23 @@ export class GeminiAgentClient implements AgentClient {
       model: config.model ?? GEMINI_MODELS[0].id,
       process: proc,
       logger: this.logger,
+      spawnContext: {
+        geminiPath: this.geminiPath,
+        cwd: config.cwd ?? ".",
+        env: spawnEnv,
+        model: config.model,
+        spawnFn: this.spawnFn,
+      },
     });
   }
+}
+
+interface GeminiSpawnContext {
+  geminiPath: string;
+  cwd: string;
+  env: Record<string, string>;
+  model?: string;
+  spawnFn: SpawnFn;
 }
 
 interface GeminiSessionOptions {
@@ -189,6 +204,7 @@ interface GeminiSessionOptions {
   model: string;
   process: ChildProcess;
   logger: Logger;
+  spawnContext: GeminiSpawnContext;
 }
 
 class GeminiAgentSession implements AgentSession {
@@ -200,6 +216,7 @@ class GeminiAgentSession implements AgentSession {
   private model: string;
   private proc: ChildProcess;
   private logger: Logger;
+  private spawnContext: GeminiSpawnContext;
   private emitter = new EventEmitter();
   private lineBuffer = "";
   private turnId: string;
@@ -211,8 +228,15 @@ class GeminiAgentSession implements AgentSession {
     this.model = options.model;
     this.proc = options.process;
     this.logger = options.logger;
+    this.spawnContext = options.spawnContext;
     this.turnId = randomUUID();
 
+    this.attachToProcess(this.proc);
+  }
+
+  private attachToProcess(proc: ChildProcess): void {
+    this.proc = proc;
+    this.lineBuffer = "";
     this.setupStdoutParsing();
     this.setupStderrHandling();
     this.setupProcessLifecycle();
@@ -220,6 +244,13 @@ class GeminiAgentSession implements AgentSession {
     if (this.proc.stdin) {
       (this.proc.stdin as NodeJS.WritableStream).end();
     }
+  }
+
+  private detachFromProcess(): void {
+    this.proc.stdout?.removeAllListeners("data");
+    this.proc.stderr?.removeAllListeners("data");
+    this.proc.removeAllListeners("close");
+    this.proc.removeAllListeners("error");
   }
 
   private setupStdoutParsing(): void {
@@ -286,6 +317,12 @@ class GeminiAgentSession implements AgentSession {
           error: `Gemini process exited with code ${code}`,
           turnId: this.turnId,
         } satisfies AgentStreamEvent);
+      } else {
+        this.emitter.emit("event", {
+          type: "turn_completed",
+          provider: this.provider,
+          turnId: this.turnId,
+        } satisfies AgentStreamEvent);
       }
     });
 
@@ -302,6 +339,36 @@ class GeminiAgentSession implements AgentSession {
   subscribe(callback: (event: AgentStreamEvent) => void): () => void {
     this.emitter.on("event", callback);
     return () => this.emitter.off("event", callback);
+  }
+
+  private extractPromptText(prompt: AgentPromptInput): string {
+    if (typeof prompt === "string") return prompt;
+    return prompt
+      .filter((b) => b.type === "text")
+      .map((b) => (b as { type: "text"; text: string }).text)
+      .join("\n");
+  }
+
+  private spawnForTurn(promptText: string): void {
+    this.detachFromProcess();
+
+    const args: string[] = ["--prompt", promptText];
+    if (this.sessionId) {
+      args.push("--resume", this.sessionId);
+    }
+    if (this.model) {
+      args.push("--model", this.model);
+    }
+    args.push("--output-format", "stream-json");
+
+    const ctx = this.spawnContext;
+    const proc = ctx.spawnFn(ctx.geminiPath, args, {
+      cwd: ctx.cwd,
+      env: ctx.env,
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+
+    this.attachToProcess(proc);
   }
 
   async run(prompt: AgentPromptInput, _options?: AgentRunOptions): Promise<AgentRunResult> {
@@ -323,10 +390,15 @@ class GeminiAgentSession implements AgentSession {
   }
 
   async startTurn(
-    _prompt: AgentPromptInput,
+    prompt: AgentPromptInput,
     _options?: AgentRunOptions,
   ): Promise<{ turnId: string }> {
     this.turnId = randomUUID();
+    const promptText = this.extractPromptText(prompt);
+
+    if (promptText) {
+      this.spawnForTurn(promptText);
+    }
 
     this.emitter.emit("event", {
       type: "turn_started",
