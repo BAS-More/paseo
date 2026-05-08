@@ -31,7 +31,7 @@ import Animated, {
   withRepeat,
   withTiming,
 } from "react-native-reanimated";
-import { Check, ChevronDown, X } from "lucide-react-native";
+import { Check, ChevronDown, RefreshCw, ThumbsUp, ThumbsDown, X } from "lucide-react-native";
 import { usePanelStore } from "@/stores/panel-store";
 import {
   AssistantMessage,
@@ -46,6 +46,7 @@ import {
   type InlinePathTarget,
 } from "./message";
 import { PlanCard } from "./plan-card";
+import { SuggestionCards } from "./suggestion-cards";
 import type { StreamItem } from "@/types/stream";
 import type { PendingPermission } from "@/types/shared";
 import type {
@@ -435,13 +436,13 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
         });
         const isLastInSequence = nextItem?.kind !== "tool_call" && nextItem?.kind !== "thought";
         return (
-          <ToolCallSlot
+          <ThinkingSlot
             itemId={item.id}
-            onInlineDetailsExpandedChangeByItemId={setInlineDetailsExpanded}
-            toolName="thinking"
-            args={item.text}
+            timestamp={item.timestamp}
             status={item.status === "ready" ? "completed" : "executing"}
+            text={item.text}
             isLastInSequence={isLastInSequence}
+            onInlineDetailsExpandedChangeByItemId={setInlineDetailsExpanded}
           />
         );
       },
@@ -657,7 +658,7 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
 
       return (
         <View style={emptyStateStyle}>
-          <Text style={stylesheet.emptyStateText}>Start chatting with this agent...</Text>
+          <SuggestionCards />
         </View>
       );
     }, [renderModel, emptyStateStyle]);
@@ -893,8 +894,52 @@ function TurnCopyButtonSlot({ strategy, items, startIndex }: TurnCopyButtonSlotP
       }),
     [strategy, items, startIndex],
   );
-  return <TurnCopyButton getContent={getContent} />;
+  return <TurnActionBar getContent={getContent} />;
 }
+
+function TurnActionBar({ getContent }: { getContent: () => string }) {
+  const [hovered, setHovered] = useState(false);
+  const handleHoverIn = useCallback(() => setHovered(true), []);
+  const handleHoverOut = useCallback(() => setHovered(false), []);
+
+  return (
+    <View
+      style={turnActionStyles.container}
+      onPointerEnter={handleHoverIn}
+      onPointerLeave={handleHoverOut}
+    >
+      <TurnCopyButton getContent={getContent} />
+      {hovered ? (
+        <>
+          <Pressable style={turnActionStyles.button} accessibilityLabel="Retry">
+            <RefreshCw size={16} color={turnActionStyles.iconColor.color} />
+          </Pressable>
+          <Pressable style={turnActionStyles.button} accessibilityLabel="Good response">
+            <ThumbsUp size={16} color={turnActionStyles.iconColor.color} />
+          </Pressable>
+          <Pressable style={turnActionStyles.button} accessibilityLabel="Bad response">
+            <ThumbsDown size={16} color={turnActionStyles.iconColor.color} />
+          </Pressable>
+        </>
+      ) : null}
+    </View>
+  );
+}
+
+const turnActionStyles = StyleSheet.create((theme) => ({
+  container: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: theme.spacing[1],
+  },
+  button: {
+    padding: theme.spacing[1],
+    borderRadius: theme.borderRadius.sm,
+  },
+  iconColor: {
+    color: theme.colors.foregroundMuted,
+  },
+}));
 
 interface ToolCallSlotProps extends Omit<
   ComponentProps<typeof ToolCall>,
@@ -914,6 +959,68 @@ function ToolCallSlot({
     [onInlineDetailsExpandedChangeByItemId, itemId],
   );
   return <ToolCall {...rest} onInlineDetailsExpandedChange={handleExpandedChange} />;
+}
+
+function formatThinkingDuration(ms: number): string {
+  const seconds = Math.round(ms / 1000);
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  const remaining = seconds % 60;
+  return remaining > 0 ? `${minutes}m ${remaining}s` : `${minutes}m`;
+}
+
+interface ThinkingSlotProps {
+  itemId: string;
+  timestamp: Date;
+  status: "executing" | "completed";
+  text: string;
+  isLastInSequence: boolean;
+  onInlineDetailsExpandedChangeByItemId: (itemId: string, expanded: boolean) => void;
+}
+
+function ThinkingSlot({
+  itemId,
+  timestamp,
+  status,
+  text,
+  isLastInSequence,
+  onInlineDetailsExpandedChangeByItemId,
+}: ThinkingSlotProps) {
+  const [elapsed, setElapsed] = useState(() => Date.now() - timestamp.getTime());
+  const frozenElapsed = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (status === "completed") {
+      if (frozenElapsed.current === null) {
+        frozenElapsed.current = Date.now() - timestamp.getTime();
+      }
+      setElapsed(frozenElapsed.current);
+      return;
+    }
+    const interval = setInterval(() => setElapsed(Date.now() - timestamp.getTime()), 1000);
+    return () => clearInterval(interval);
+  }, [status, timestamp]);
+
+  const durationLabel =
+    status === "completed"
+      ? `Thought for ${formatThinkingDuration(elapsed)}`
+      : `${formatThinkingDuration(elapsed)}`;
+
+  const handleExpandedChange = useCallback(
+    (expanded: boolean) => onInlineDetailsExpandedChangeByItemId(itemId, expanded),
+    [onInlineDetailsExpandedChangeByItemId, itemId],
+  );
+
+  return (
+    <ToolCall
+      toolName="thinking"
+      args={text}
+      status={status}
+      isLastInSequence={isLastInSequence}
+      overrideSecondaryLabel={durationLabel}
+      onInlineDetailsExpandedChange={handleExpandedChange}
+    />
+  );
 }
 
 const ThemedActivityIndicator = withUnistyles(ActivityIndicator);

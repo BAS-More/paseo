@@ -1,6 +1,7 @@
 import {
   View,
   Text,
+  TextInput,
   Pressable,
   Image,
   Platform,
@@ -41,12 +42,17 @@ import {
   FolderGit2,
   GitPullRequest,
   Globe,
+  Pencil,
+  Pin,
+  PinOff,
+  Search,
   Settings,
   SquareTerminal,
   Monitor,
   MoreVertical,
   Plus,
   Trash2,
+  X,
 } from "lucide-react-native";
 import { NestableScrollContainer } from "react-native-draggable-flatlist";
 import { DraggableList, type DraggableRenderItemInfo } from "./draggable-list";
@@ -65,6 +71,8 @@ import {
   type SidebarWorkspaceEntry,
 } from "@/hooks/use-sidebar-workspaces-list";
 import { useSidebarOrderStore } from "@/stores/sidebar-order-store";
+import { useSidebarPinStore } from "@/stores/sidebar-pin-store";
+import { useSidebarRenameStore } from "@/stores/sidebar-rename-store";
 import { useShowShortcutBadges } from "@/hooks/use-show-shortcut-badges";
 import {
   ContextMenu,
@@ -114,6 +122,8 @@ import {
 import { WorkspaceHoverCard } from "@/components/workspace-hover-card";
 import { GitHubIcon } from "@/components/icons/github-icon";
 import { isWeb as platformIsWeb, isNative as platformIsNative } from "@/constants/platform";
+
+const NOOP = () => {};
 
 function toProjectIconDataUri(icon: { mimeType: string; data: string } | null): string | null {
   if (!icon) {
@@ -176,6 +186,11 @@ const ThemedTrash2 = withUnistyles(Trash2);
 const ThemedSettings = withUnistyles(Settings);
 const ThemedCopy = withUnistyles(Copy);
 const ThemedArchive = withUnistyles(Archive);
+const ThemedPin = withUnistyles(Pin);
+const ThemedPinOff = withUnistyles(PinOff);
+const ThemedPencil = withUnistyles(Pencil);
+const ThemedSearch = withUnistyles(Search);
+const ThemedX = withUnistyles(X);
 
 const foregroundColorMapping = (theme: Theme) => ({ color: theme.colors.foreground });
 const foregroundMutedColorMapping = (theme: Theme) => ({
@@ -230,6 +245,14 @@ interface ProjectHeaderRowProps {
   serverId: string | null;
   canCreateWorktree: boolean;
   isProjectActive?: boolean;
+  pinned: boolean;
+  isRenaming: boolean;
+  renameValue: string;
+  onTogglePin: () => void;
+  onStartRename: () => void;
+  onRenameChange: (value: string) => void;
+  onRenameSubmit: () => void;
+  onRenameCancel: () => void;
   onWorkspacePress?: () => void;
   onWorktreeCreated?: (workspaceId: string) => void;
   shortcutNumber?: number | null;
@@ -548,6 +571,9 @@ function ProjectRowTrailingActions({
   isHovered,
   isMobileBreakpoint,
   isProjectActive,
+  pinned,
+  onTogglePin,
+  onRename,
   onBeginWorkspaceSetup,
   onRemoveProject,
   removeProjectStatus,
@@ -558,6 +584,9 @@ function ProjectRowTrailingActions({
   isHovered: boolean;
   isMobileBreakpoint: boolean;
   isProjectActive: boolean;
+  pinned: boolean;
+  onTogglePin: () => void;
+  onRename: () => void;
   onBeginWorkspaceSetup: () => void;
   onRemoveProject?: () => void;
   removeProjectStatus: "idle" | "pending" | "success";
@@ -581,6 +610,9 @@ function ProjectRowTrailingActions({
         >
           <ProjectKebabMenu
             projectKey={project.projectKey}
+            pinned={pinned}
+            onTogglePin={onTogglePin}
+            onRename={onRename}
             onRemoveProject={onRemoveProject}
             removeProjectStatus={removeProjectStatus}
           />
@@ -594,6 +626,9 @@ const trash2LeadingIcon = <ThemedTrash2 size={14} uniProps={foregroundMutedColor
 const settingsLeadingIcon = <ThemedSettings size={14} uniProps={foregroundMutedColorMapping} />;
 const copyLeadingIcon = <ThemedCopy size={14} uniProps={foregroundMutedColorMapping} />;
 const archiveLeadingIcon = <ThemedArchive size={14} uniProps={foregroundMutedColorMapping} />;
+const pinLeadingIcon = <ThemedPin size={14} uniProps={foregroundMutedColorMapping} />;
+const unpinLeadingIcon = <ThemedPinOff size={14} uniProps={foregroundMutedColorMapping} />;
+const renameLeadingIcon = <ThemedPencil size={14} uniProps={foregroundMutedColorMapping} />;
 
 function renderKebabTriggerIcon({ hovered }: { hovered?: boolean }) {
   return (
@@ -606,10 +641,16 @@ function renderKebabTriggerIcon({ hovered }: { hovered?: boolean }) {
 
 function ProjectKebabMenu({
   projectKey,
+  pinned,
+  onTogglePin,
+  onRename,
   onRemoveProject,
   removeProjectStatus,
 }: {
   projectKey: string;
+  pinned: boolean;
+  onTogglePin: () => void;
+  onRename: () => void;
   onRemoveProject: () => void;
   removeProjectStatus: "idle" | "pending" | "success";
 }) {
@@ -630,6 +671,20 @@ function ProjectKebabMenu({
         {renderKebabTriggerIcon}
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" width={220}>
+        <DropdownMenuItem
+          testID={`sidebar-project-menu-pin-${projectKey}`}
+          leading={pinned ? unpinLeadingIcon : pinLeadingIcon}
+          onSelect={onTogglePin}
+        >
+          {pinned ? "Unpin project" : "Pin project"}
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          testID={`sidebar-project-menu-rename-${projectKey}`}
+          leading={renameLeadingIcon}
+          onSelect={onRename}
+        >
+          Rename project
+        </DropdownMenuItem>
         {canOpenProjectSettings ? (
           <DropdownMenuItem
             testID={`sidebar-project-menu-open-settings-${projectKey}`}
@@ -1183,6 +1238,14 @@ function ProjectHeaderRow({
   serverId,
   canCreateWorktree,
   isProjectActive = false,
+  pinned,
+  isRenaming,
+  renameValue,
+  onTogglePin,
+  onStartRename,
+  onRenameChange,
+  onRenameSubmit,
+  onRenameCancel,
   onWorkspacePress,
   onWorktreeCreated: _onWorktreeCreated,
   shortcutNumber = null,
@@ -1249,9 +1312,21 @@ function ProjectHeaderRow({
         />
 
         <View style={styles.projectTitleGroup}>
-          <Text style={styles.projectTitle} numberOfLines={1}>
-            {displayName}
-          </Text>
+          {isRenaming ? (
+            <TextInput
+              style={styles.projectTitleRenaming}
+              value={renameValue}
+              onChangeText={onRenameChange}
+              onSubmitEditing={onRenameSubmit}
+              onBlur={onRenameCancel}
+              autoFocus
+              selectTextOnFocus
+            />
+          ) : (
+            <Text style={styles.projectTitle} numberOfLines={1}>
+              {displayName}
+            </Text>
+          )}
         </View>
       </View>
       <ProjectRowTrailingActions
@@ -1261,6 +1336,9 @@ function ProjectHeaderRow({
         isHovered={isHovered}
         isMobileBreakpoint={isMobileBreakpoint}
         isProjectActive={isProjectActive}
+        pinned={pinned}
+        onTogglePin={onTogglePin}
+        onRename={onStartRename}
         onBeginWorkspaceSetup={handleBeginWorkspaceSetup}
         onRemoveProject={onRemoveProject}
         removeProjectStatus={removeProjectStatus}
@@ -1754,6 +1832,14 @@ function NonGitProjectRowWithMenuContent({
         onPress={onPress}
         serverId={null}
         canCreateWorktree={false}
+        pinned={false}
+        isRenaming={false}
+        renameValue=""
+        onTogglePin={NOOP}
+        onStartRename={NOOP}
+        onRenameChange={NOOP}
+        onRenameSubmit={NOOP}
+        onRenameCancel={NOOP}
         shortcutNumber={shortcutNumber}
         showShortcutBadge={showShortcutBadge}
         drag={drag}
@@ -1809,6 +1895,14 @@ function FlattenedProjectRow({
   rowModel,
   onPress,
   serverId,
+  pinned,
+  isRenaming,
+  renameValue,
+  onTogglePin,
+  onStartRename,
+  onRenameChange,
+  onRenameSubmit,
+  onRenameCancel,
   onWorkspacePress,
   onWorktreeCreated,
   shortcutNumber,
@@ -1827,6 +1921,14 @@ function FlattenedProjectRow({
   rowModel: Extract<ReturnType<typeof buildSidebarProjectRowModel>, { kind: "workspace_link" }>;
   onPress: () => void;
   serverId: string | null;
+  pinned: boolean;
+  isRenaming: boolean;
+  renameValue: string;
+  onTogglePin: () => void;
+  onStartRename: () => void;
+  onRenameChange: (value: string) => void;
+  onRenameSubmit: () => void;
+  onRenameCancel: () => void;
   onWorkspacePress?: () => void;
   onWorktreeCreated?: (workspaceId: string) => void;
   shortcutNumber: number | null;
@@ -1880,6 +1982,14 @@ function FlattenedProjectRow({
       serverId={serverId}
       canCreateWorktree={rowModel.trailingAction === "new_worktree"}
       isProjectActive={isProjectActive}
+      pinned={pinned}
+      isRenaming={isRenaming}
+      renameValue={renameValue}
+      onTogglePin={onTogglePin}
+      onStartRename={onStartRename}
+      onRenameChange={onRenameChange}
+      onRenameSubmit={onRenameSubmit}
+      onRenameCancel={onRenameCancel}
       onWorkspacePress={onWorkspacePress}
       onWorktreeCreated={onWorktreeCreated}
       shortcutNumber={shortcutNumber}
@@ -2007,6 +2117,14 @@ function ProjectBlock({
   showShortcutBadges,
   shortcutIndexByWorkspaceKey,
   parentGestureRef,
+  pinned,
+  isRenaming,
+  renameValue,
+  onTogglePin,
+  onStartRename,
+  onRenameChange,
+  onRenameSubmit,
+  onRenameCancel,
   onToggleCollapsed,
   onWorkspacePress,
   onWorkspaceReorder,
@@ -2027,6 +2145,14 @@ function ProjectBlock({
   showShortcutBadges: boolean;
   shortcutIndexByWorkspaceKey: Map<string, number>;
   parentGestureRef?: MutableRefObject<GestureType | undefined>;
+  pinned: boolean;
+  isRenaming: boolean;
+  renameValue: string;
+  onTogglePin: () => void;
+  onStartRename: () => void;
+  onRenameChange: (value: string) => void;
+  onRenameSubmit: () => void;
+  onRenameCancel: () => void;
   onToggleCollapsed: (projectKey: string) => void;
   onWorkspacePress?: () => void;
   onWorkspaceReorder: (projectKey: string, workspaces: SidebarWorkspaceEntry[]) => void;
@@ -2206,6 +2332,14 @@ function ProjectBlock({
           rowModel={rowModel}
           onPress={handleFlattenedRowPress}
           serverId={serverId}
+          pinned={pinned}
+          isRenaming={isRenaming}
+          renameValue={renameValue}
+          onTogglePin={onTogglePin}
+          onStartRename={onStartRename}
+          onRenameChange={onRenameChange}
+          onRenameSubmit={onRenameSubmit}
+          onRenameCancel={onRenameCancel}
           onWorkspacePress={onWorkspacePress}
           onWorktreeCreated={onWorktreeCreated}
           shortcutNumber={shortcutIndexByWorkspaceKey.get(rowModel.workspace.workspaceKey) ?? null}
@@ -2231,6 +2365,14 @@ function ProjectBlock({
             serverId={serverId}
             canCreateWorktree={rowModel.trailingAction === "new_worktree"}
             isProjectActive={isProjectActive}
+            pinned={pinned}
+            isRenaming={isRenaming}
+            renameValue={renameValue}
+            onTogglePin={onTogglePin}
+            onStartRename={onStartRename}
+            onRenameChange={onRenameChange}
+            onRenameSubmit={onRenameSubmit}
+            onRenameCancel={onRenameCancel}
             onWorkspacePress={onWorkspacePress}
             onWorktreeCreated={onWorktreeCreated}
             drag={drag}
@@ -2282,10 +2424,46 @@ export function SidebarWorkspaceList({
   );
   const showShortcutBadges = useShowShortcutBadges();
 
+  const [searchQuery, setSearchQuery] = useState("");
+  const clearSearchQuery = useCallback(() => setSearchQuery(""), []);
+  const [renamingProjectKey, setRenamingProjectKey] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState("");
+  const searchInputRef = useRef<TextInput>(null);
+
   const getProjectOrder = useSidebarOrderStore((state) => state.getProjectOrder);
   const setProjectOrder = useSidebarOrderStore((state) => state.setProjectOrder);
   const getWorkspaceOrder = useSidebarOrderStore((state) => state.getWorkspaceOrder);
   const setWorkspaceOrder = useSidebarOrderStore((state) => state.setWorkspaceOrder);
+
+  const isPinned = useSidebarPinStore((state) => state.isPinned);
+  const togglePin = useSidebarPinStore((state) => state.togglePin);
+
+  const getCustomName = useSidebarRenameStore((state) => state.getCustomName);
+  const setCustomName = useSidebarRenameStore((state) => state.setCustomName);
+
+  const filteredProjects = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
+    if (!query) return projects;
+    return projects.filter((project) => {
+      if (project.projectName.toLowerCase().includes(query)) return true;
+      return project.workspaces.some((ws) => ws.name.toLowerCase().includes(query));
+    });
+  }, [projects, searchQuery]);
+
+  const { pinnedProjects, unpinnedProjects } = useMemo(() => {
+    if (!serverId)
+      return { pinnedProjects: filteredProjects, unpinnedProjects: [] as SidebarProjectEntry[] };
+    const pinned: SidebarProjectEntry[] = [];
+    const unpinned: SidebarProjectEntry[] = [];
+    for (const project of filteredProjects) {
+      if (isPinned(serverId, project.projectKey)) {
+        pinned.push(project);
+      } else {
+        unpinned.push(project);
+      }
+    }
+    return { pinnedProjects: pinned, unpinnedProjects: unpinned };
+  }, [filteredProjects, serverId, isPinned]);
 
   const isWorkspaceRoute = useMemo(
     () => Boolean(pathname && parseHostWorkspaceRouteFromPathname(pathname)),
@@ -2488,19 +2666,47 @@ export function SidebarWorkspaceList({
     );
   }, []);
 
+  const handleStartRename = useCallback((projectKey: string, currentName: string) => {
+    setRenamingProjectKey(projectKey);
+    setRenameValue(currentName);
+  }, []);
+
+  const handleRenameSubmit = useCallback(() => {
+    if (renamingProjectKey && renameValue.trim()) {
+      setCustomName(renamingProjectKey, renameValue.trim());
+    }
+    setRenamingProjectKey(null);
+  }, [renamingProjectKey, renameValue, setCustomName]);
+
+  const handleRenameCancel = useCallback(() => {
+    setRenamingProjectKey(null);
+  }, []);
+
   const renderProject = useCallback(
     ({ item, drag, isActive, dragHandleProps }: DraggableRenderItemInfo<SidebarProjectEntry>) => {
+      const resolvedName = getCustomName(item.projectKey) ?? item.projectName;
+      const projectPinned = serverId ? isPinned(serverId, item.projectKey) : false;
       return (
         <ProjectBlock
           project={item}
           collapsed={collapsedProjectKeys.has(item.projectKey)}
-          displayName={item.projectName}
+          displayName={resolvedName}
           iconDataUri={projectIconByProjectKey.get(item.projectKey) ?? null}
           serverId={serverId}
           selectionEnabled={selectionEnabled}
           showShortcutBadges={showShortcutBadges}
           shortcutIndexByWorkspaceKey={shortcutIndexByWorkspaceKey}
           parentGestureRef={parentGestureRef}
+          pinned={projectPinned}
+          isRenaming={renamingProjectKey === item.projectKey}
+          renameValue={renameValue}
+          // oxlint-disable-next-line react-perf/jsx-no-new-function-as-prop -- render-item closures over `item`
+          onTogglePin={() => serverId && togglePin(serverId, item.projectKey)}
+          // oxlint-disable-next-line react-perf/jsx-no-new-function-as-prop
+          onStartRename={() => handleStartRename(item.projectKey, resolvedName)}
+          onRenameChange={setRenameValue}
+          onRenameSubmit={handleRenameSubmit}
+          onRenameCancel={handleRenameCancel}
           onToggleCollapsed={onToggleProjectCollapsed}
           onWorkspacePress={onWorkspacePress}
           onWorkspaceReorder={handleWorkspaceReorder}
@@ -2516,24 +2722,60 @@ export function SidebarWorkspaceList({
     },
     [
       collapsedProjectKeys,
+      getCustomName,
+      handleRenameCancel,
+      handleRenameSubmit,
+      handleStartRename,
       handleWorktreeCreated,
       handleWorkspaceReorder,
+      isPinned,
       onWorkspacePress,
       onToggleProjectCollapsed,
       parentGestureRef,
       pathname,
       projectIconByProjectKey,
+      renamingProjectKey,
+      renameValue,
       selectionEnabled,
       serverId,
       shortcutIndexByWorkspaceKey,
       showShortcutBadges,
+      togglePin,
       creatingWorkspaceIds,
     ],
   );
 
   const content = (
     <>
-      {projects.length === 0 ? (
+      {projects.length > 0 && (
+        <View style={styles.searchContainer}>
+          <View style={styles.searchIconWrapper}>
+            <ThemedSearch size={14} uniProps={foregroundMutedColorMapping} />
+          </View>
+          <TextInput
+            ref={searchInputRef}
+            style={styles.searchInput}
+            placeholder="Search projects..."
+            placeholderTextColor="#9ca3af"
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+            autoCapitalize="none"
+            autoCorrect={false}
+          />
+          {searchQuery.length > 0 && (
+            <Pressable onPress={clearSearchQuery} style={styles.searchClearButton}>
+              <ThemedX size={14} uniProps={foregroundMutedColorMapping} />
+            </Pressable>
+          )}
+        </View>
+      )}
+      {filteredProjects.length === 0 && projects.length > 0 && (
+        <View style={styles.emptyContainer}>
+          <Text style={styles.emptyTitle}>No matches</Text>
+          <Text style={styles.emptyText}>Try a different search term</Text>
+        </View>
+      )}
+      {projects.length === 0 && (
         <View style={styles.emptyContainer}>
           <Text style={styles.emptyTitle}>No projects yet</Text>
           <Text style={styles.emptyText}>Add a project to get started</Text>
@@ -2541,19 +2783,44 @@ export function SidebarWorkspaceList({
             Add project
           </Button>
         </View>
-      ) : (
-        <DraggableList
-          testID="sidebar-project-list"
-          data={projects}
-          keyExtractor={projectKeyExtractor}
-          renderItem={renderProject}
-          onDragEnd={handleProjectDragEnd}
-          scrollEnabled={false}
-          useDragHandle
-          nestable={platformIsNative}
-          simultaneousGestureRef={parentGestureRef}
-          containerStyle={styles.projectListContainer}
-        />
+      )}
+      {filteredProjects.length > 0 && (
+        <>
+          {pinnedProjects.length > 0 && (
+            <>
+              <Text style={styles.sectionLabel}>Pinned</Text>
+              <DraggableList
+                testID="sidebar-pinned-project-list"
+                data={pinnedProjects}
+                keyExtractor={projectKeyExtractor}
+                renderItem={renderProject}
+                onDragEnd={handleProjectDragEnd}
+                scrollEnabled={false}
+                useDragHandle
+                nestable={platformIsNative}
+                simultaneousGestureRef={parentGestureRef}
+                containerStyle={styles.projectListContainer}
+              />
+            </>
+          )}
+          {pinnedProjects.length > 0 && unpinnedProjects.length > 0 && (
+            <Text style={styles.sectionLabel}>Projects</Text>
+          )}
+          {unpinnedProjects.length > 0 && (
+            <DraggableList
+              testID="sidebar-project-list"
+              data={pinnedProjects.length > 0 ? unpinnedProjects : filteredProjects}
+              keyExtractor={projectKeyExtractor}
+              renderItem={renderProject}
+              onDragEnd={handleProjectDragEnd}
+              scrollEnabled={false}
+              useDragHandle
+              nestable={platformIsNative}
+              simultaneousGestureRef={parentGestureRef}
+              containerStyle={styles.projectListContainer}
+            />
+          )}
+        </>
       )}
       {listFooterComponent}
     </>
@@ -2595,6 +2862,64 @@ const styles = StyleSheet.create((theme) => ({
     paddingHorizontal: theme.spacing[2],
     paddingTop: theme.spacing[2],
     paddingBottom: theme.spacing[4],
+  },
+  searchContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginHorizontal: theme.spacing[2],
+    marginBottom: theme.spacing[2],
+    paddingHorizontal: theme.spacing[2],
+    height: 32,
+    borderRadius: theme.borderRadius.md,
+    backgroundColor: theme.colors.surface0,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+  },
+  searchIconWrapper: {
+    marginRight: theme.spacing[2],
+  },
+  searchInput: {
+    flex: 1,
+    fontSize: theme.fontSize.sm,
+    color: theme.colors.foreground,
+    paddingVertical: 0,
+  },
+  searchClearButton: {
+    padding: theme.spacing[1],
+    marginLeft: theme.spacing[1],
+  },
+  sectionLabel: {
+    fontSize: theme.fontSize.xs,
+    fontWeight: theme.fontWeight.semibold,
+    color: theme.colors.foregroundMuted,
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+    paddingHorizontal: theme.spacing[2],
+    paddingVertical: theme.spacing[1],
+    marginTop: theme.spacing[1],
+  },
+  renameInput: {
+    flex: 1,
+    paddingVertical: 2,
+    paddingHorizontal: theme.spacing[1],
+    borderRadius: theme.borderRadius.sm,
+    borderWidth: 1,
+    borderColor: theme.colors.palette.blue[500],
+    backgroundColor: theme.colors.surface0,
+  },
+  projectTitleRenaming: {
+    color: theme.colors.foreground,
+    fontSize: theme.fontSize.sm,
+    fontWeight: "400",
+    minWidth: 0,
+    flexShrink: 1,
+    flex: 1,
+    paddingVertical: 2,
+    paddingHorizontal: theme.spacing[1],
+    borderRadius: theme.borderRadius.sm,
+    borderWidth: 1,
+    borderColor: theme.colors.palette.blue[500],
+    backgroundColor: theme.colors.surface0,
   },
   projectListContainer: {
     width: "100%",

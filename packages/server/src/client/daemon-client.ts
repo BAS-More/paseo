@@ -3179,9 +3179,9 @@ export class DaemonClient {
     return this.sendCorrelatedSessionRequest({
       requestId,
       message: {
-        type: "soifer_backend_status_request",
+        type: "soifer_backend_status_request" as SessionInboundMessage["type"],
       },
-      responseType: "soifer_backend_status_response",
+      responseType: "soifer_backend_status_response" as CorrelatedResponseType,
       timeout: 15000,
     });
   }

@@ -298,16 +298,18 @@ function GeneralSection({
                 />
               ))}
               <DropdownMenuSeparator />
-              {(["zinc", "midnight", "claude", "ghostty"] as const).map((t) => (
-                <ThemeMenuItem
-                  key={t}
-                  themeValue={t}
-                  selected={settings.theme === t}
-                  iconSize={iconSize}
-                  iconColor={iconColor}
-                  onChange={handleThemeChange}
-                />
-              ))}
+              {(["zinc", "midnight", "claude", "ghostty", "soifer", "soifer-dark"] as const).map(
+                (t) => (
+                  <ThemeMenuItem
+                    key={t}
+                    themeValue={t}
+                    selected={settings.theme === t}
+                    iconSize={iconSize}
+                    iconColor={iconColor}
+                    onChange={handleThemeChange}
+                  />
+                ),
+              )}
             </DropdownMenuContent>
           </DropdownMenu>
         </View>

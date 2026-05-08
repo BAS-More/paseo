@@ -52,3 +52,24 @@ export function matchesSearch(row: SelectorModelRow, normalizedQuery: string): b
     value.toLowerCase().includes(normalizedQuery),
   );
 }
+
+export type ModelCapabilityTier = "flagship" | "balanced" | "fast" | null;
+
+const CAPABILITY_PATTERNS: Array<{ pattern: RegExp; tier: ModelCapabilityTier }> = [
+  { pattern: /opus|o[13]-pro|gpt-4o(?!-mini)/i, tier: "flagship" },
+  { pattern: /sonnet|gpt-4o-mini|gemini.*pro|codex/i, tier: "balanced" },
+  { pattern: /haiku|gpt-3|flash|lite|mini/i, tier: "fast" },
+];
+
+export function getModelCapabilityTier(modelId: string): ModelCapabilityTier {
+  for (const { pattern, tier } of CAPABILITY_PATTERNS) {
+    if (pattern.test(modelId)) return tier;
+  }
+  return null;
+}
+
+export const CAPABILITY_LABELS: Record<Exclude<ModelCapabilityTier, null>, string> = {
+  flagship: "Most capable",
+  balanced: "Balanced",
+  fast: "Fast",
+};

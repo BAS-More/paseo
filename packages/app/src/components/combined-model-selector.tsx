@@ -59,6 +59,8 @@ import {
   buildSelectedTriggerLabel,
   matchesSearch,
   resolveProviderLabel,
+  getModelCapabilityTier,
+  CAPABILITY_LABELS,
   type SelectorModelRow,
 } from "./combined-model-selector.utils";
 
@@ -247,11 +249,14 @@ function ModelRow({
   );
 
   const showDescription = row.description && PROVIDERS_WITH_MODEL_DESCRIPTIONS.has(row.provider);
+  const capabilityTier = getModelCapabilityTier(row.modelId);
+  const capabilityLabel = capabilityTier ? CAPABILITY_LABELS[capabilityTier] : undefined;
+  const effectiveDescription = showDescription ? row.description : capabilityLabel;
 
   return (
     <ComboboxItem
       label={row.modelLabel}
-      description={showDescription ? row.description : undefined}
+      description={effectiveDescription}
       selected={isSelected}
       disabled={disabled}
       elevated={elevated}

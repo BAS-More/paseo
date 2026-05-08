@@ -2176,6 +2176,13 @@ export class Session {
   }
 
   private async dispatchMiscMessage(msg: SessionInboundMessage): Promise<void> {
+    const rawType = (msg as Record<string, unknown>).type as string;
+    if (rawType === "soifer_backend_status_request") {
+      await this.handleSoiferBackendStatusRequest(
+        (msg as Record<string, unknown>).requestId as string,
+      );
+      return;
+    }
     switch (msg.type) {
       case "list_commands_request":
         await this.handleListCommandsRequest(msg);
@@ -2185,9 +2192,6 @@ export class Session {
         return;
       case "nine_router_status_request":
         await this.handleNineRouterStatusRequest(msg.requestId);
-        return;
-      case "soifer_backend_status_request":
-        await this.handleSoiferBackendStatusRequest(msg.requestId);
         return;
     }
   }
@@ -2214,7 +2218,7 @@ export class Session {
     this.emit({
       type: "soifer_backend_status_response",
       payload: { requestId, reachable: health.reachable, ...status },
-    });
+    } as unknown as SessionOutboundMessage);
   }
 
   public resetPeakInflight(): void {

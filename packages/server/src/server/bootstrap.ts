@@ -9,6 +9,7 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 import type { Logger } from "pino";
 import { createBranchChangeRouteHandler } from "./script-route-branch-handler.js";
+import { autoImportClaudeCodeSessions } from "./claude-session-auto-import.js";
 
 export type ListenTarget =
   | { type: "tcp"; host: string; port: number }
@@ -469,6 +470,17 @@ export async function createPaseoDaemon(
   );
   await agentStorage.initialize();
   logger.info({ elapsed: elapsed() }, "Agent storage initialized");
+  const autoImported = await autoImportClaudeCodeSessions({
+    agentManager,
+    agentStorage,
+    logger,
+  });
+  if (autoImported > 0) {
+    logger.info(
+      { elapsed: elapsed(), count: autoImported },
+      `Auto-imported ${autoImported} Claude Code session${autoImported === 1 ? "" : "s"} from disk`,
+    );
+  }
   await bootstrapWorkspaceRegistries({
     paseoHome: config.paseoHome,
     agentStorage,

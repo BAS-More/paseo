@@ -32,6 +32,7 @@ import Markdown, {
 } from "react-native-markdown-display";
 import { useQuery } from "@tanstack/react-query";
 import MaskedView from "@react-native-masked-view/masked-view";
+import { MermaidBlock, LatexBlock } from "./rich-code-block";
 import {
   Circle,
   Info,
@@ -104,6 +105,15 @@ import { isWeb, isNative } from "@/constants/platform";
 export type { InlinePathTarget } from "@/utils/inline-path";
 
 type MarkdownStyles = Record<string, TextStyle & ViewStyle & { [key: string]: unknown }>;
+
+function formatMessageTimestamp(ts: number): string {
+  const d = new Date(ts);
+  const h = d.getHours();
+  const m = d.getMinutes();
+  const ampm = h >= 12 ? "PM" : "AM";
+  const h12 = h % 12 || 12;
+  return `${h12}:${m.toString().padStart(2, "0")} ${ampm}`;
+}
 
 interface UserMessageProps {
   message: string;
@@ -407,6 +417,13 @@ const userMessageStylesheet = StyleSheet.create((theme) => ({
   copyButtonVisible: {
     opacity: 1,
   },
+  timestamp: {
+    fontSize: theme.fontSize.xs,
+    color: theme.colors.foregroundMuted,
+    alignSelf: "flex-end",
+    marginTop: theme.spacing[1],
+    paddingHorizontal: theme.spacing[2],
+  },
 }));
 
 function UserMessageAttachmentThumbnail({ image }: { image: UserMessageImageAttachment }) {
@@ -439,7 +456,7 @@ export const UserMessage = memo(function UserMessage({
   message,
   images = [],
   attachments = [],
-  timestamp: _timestamp,
+  timestamp,
   isFirstInGroup = true,
   isLastInGroup = true,
   disableOuterSpacing,
@@ -538,6 +555,9 @@ export const UserMessage = memo(function UserMessage({
           />
         ) : null}
       </Pressable>
+      {isLastInGroup && timestamp > 0 ? (
+        <Text style={userMessageStylesheet.timestamp}>{formatMessageTimestamp(timestamp)}</Text>
+      ) : null}
     </View>
   );
 });
@@ -1528,15 +1548,26 @@ export const AssistantMessage = memo(function AssistantMessage({
         _parent: ASTNode[],
         styles: MarkdownStyles,
         inheritedStyles: TextStyle = {},
-      ) => (
-        <MarkdownInheritedText
-          key={node.key}
-          inheritedStyles={inheritedStyles}
-          textStyle={styles.fence}
-        >
-          {node.content}
-        </MarkdownInheritedText>
-      ),
+      ) => {
+        const lang = ((node as unknown as Record<string, string>).sourceInfo ?? "")
+          .toLowerCase()
+          .trim();
+        if (lang === "mermaid") {
+          return <MermaidBlock key={node.key} code={node.content ?? ""} />;
+        }
+        if (lang === "latex" || lang === "tex" || lang === "math") {
+          return <LatexBlock key={node.key} code={node.content ?? ""} />;
+        }
+        return (
+          <MarkdownInheritedText
+            key={node.key}
+            inheritedStyles={inheritedStyles}
+            textStyle={styles.fence}
+          >
+            {node.content}
+          </MarkdownInheritedText>
+        );
+      },
       code_inline: (
         node: ASTNode,
         _children: ReactNode[],
@@ -2818,6 +2849,7 @@ interface ToolCallProps {
   metadata?: Record<string, unknown>;
   isLastInSequence?: boolean;
   disableOuterSpacing?: boolean;
+  overrideSecondaryLabel?: string;
   onInlineDetailsHoverChange?: (hovered: boolean) => void;
   onInlineDetailsExpandedChange?: (expanded: boolean) => void;
   onOpenFilePath?: (filePath: string) => void;
@@ -2834,6 +2866,7 @@ export const ToolCall = memo(function ToolCall({
   metadata,
   isLastInSequence = false,
   disableOuterSpacing,
+  overrideSecondaryLabel,
   onInlineDetailsHoverChange,
   onInlineDetailsExpandedChange,
   onOpenFilePath,
@@ -2889,7 +2922,7 @@ export const ToolCall = memo(function ToolCall({
     status,
     error,
   });
-  const secondaryLabel = summary;
+  const secondaryLabel = overrideSecondaryLabel ?? summary;
 
   // Check if there's any content to display
   const hasDetails = Boolean(error) || hasMeaningfulToolCallDetail(effectiveDetail);
@@ -3011,6 +3044,7 @@ function areToolCallPropsEqual(previous: ToolCallProps, next: ToolCallProps) {
   if (previous.metadata !== next.metadata) return false;
   if (previous.isLastInSequence !== next.isLastInSequence) return false;
   if (previous.disableOuterSpacing !== next.disableOuterSpacing) return false;
+  if (previous.overrideSecondaryLabel !== next.overrideSecondaryLabel) return false;
   if (previous.onOpenFilePath !== next.onOpenFilePath) return false;
   return true;
 }

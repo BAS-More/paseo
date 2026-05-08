@@ -1301,7 +1301,7 @@ export class ClaudeAgentClient implements AgentClient {
     if (!(await pathExists(projectsRoot))) {
       return [];
     }
-    const limit = options?.limit ?? 20;
+    const limit = options?.limit ?? 200;
     const candidates = await collectRecentClaudeSessions(projectsRoot, limit * 3);
     const parsed = await Promise.all(
       candidates.map((candidate) => parseClaudeSessionDescriptor(candidate.path, candidate.mtime)),
