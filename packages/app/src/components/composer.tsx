@@ -22,7 +22,7 @@ import {
 } from "lucide-react-native";
 import Animated from "react-native-reanimated";
 import { useQuery } from "@tanstack/react-query";
-import { FOOTER_HEIGHT, MAX_CONTENT_WIDTH } from "@/constants/layout";
+import { FOOTER_HEIGHT, MAX_CONTENT_WIDTH, useMaxContentWidth } from "@/constants/layout";
 import {
   AgentStatusBar,
   DraftAgentStatusBar,
@@ -859,6 +859,7 @@ export function Composer({
   });
 
   const { settings: appSettings } = useAppSettings();
+  const maxContentWidth = useMaxContentWidth();
 
   const agentState = useSessionStore(useShallow(buildAgentStateSelector(serverId, agentId)));
 
@@ -1530,12 +1531,17 @@ export function Composer({
     ? "Searching..."
     : "No results found.";
 
+  const inputAreaContentStyle = useMemo(
+    () => [styles.inputAreaContent, { maxWidth: maxContentWidth }],
+    [maxContentWidth],
+  );
+
   return (
     <Animated.View style={composerContainerStyle}>
       <AttachmentLightbox metadata={lightboxMetadata} onClose={handleLightboxClose} />
       {/* Input area */}
       <View style={inputAreaContainerStyle}>
-        <View style={styles.inputAreaContent}>
+        <View style={inputAreaContentStyle}>
           {queueList}
           {sendErrorNode}
 

@@ -3,7 +3,7 @@ import { View, Text } from "react-native";
 import { StyleSheet } from "react-native-unistyles";
 import Animated from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { FOOTER_HEIGHT, MAX_CONTENT_WIDTH } from "@/constants/layout";
+import { FOOTER_HEIGHT, MAX_CONTENT_WIDTH, useMaxContentWidth } from "@/constants/layout";
 import { useHostRuntimeClient, useHostRuntimeIsConnected } from "@/runtime/host-runtime";
 import { useKeyboardShiftStyle } from "@/hooks/use-keyboard-shift-style";
 import { Button } from "@/components/ui/button";
@@ -15,12 +15,18 @@ interface ArchivedAgentCalloutProps {
 }
 
 export function ArchivedAgentCallout({ serverId, agentId }: ArchivedAgentCalloutProps) {
+  const maxContentWidth = useMaxContentWidth();
   const insets = useSafeAreaInsets();
   const client = useHostRuntimeClient(serverId);
   const isConnected = useHostRuntimeIsConnected(serverId);
   const [isUnarchiving, setIsUnarchiving] = useState(false);
 
   const { style: keyboardAnimatedStyle } = useKeyboardShiftStyle({ mode: "translate" });
+
+  const inputAreaContentStyle = useMemo(
+    () => [styles.inputAreaContent, { maxWidth: maxContentWidth }],
+    [maxContentWidth],
+  );
 
   const containerStyle = useMemo(
     () => [styles.container, { paddingBottom: insets.bottom }, keyboardAnimatedStyle],
@@ -41,7 +47,7 @@ export function ArchivedAgentCallout({ serverId, agentId }: ArchivedAgentCallout
   return (
     <Animated.View style={containerStyle}>
       <View style={styles.inputAreaContainer}>
-        <View style={styles.inputAreaContent}>
+        <View style={inputAreaContentStyle}>
           <View style={styles.callout}>
             <Text style={styles.calloutText}>This agent is archived</Text>
             <Button

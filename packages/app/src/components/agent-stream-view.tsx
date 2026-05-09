@@ -79,7 +79,7 @@ import {
   type BottomAnchorLocalRequest,
   type BottomAnchorRouteRequest,
 } from "./use-bottom-anchor-controller";
-import { MAX_CONTENT_WIDTH } from "@/constants/layout";
+import { MAX_CONTENT_WIDTH, useMaxContentWidth } from "@/constants/layout";
 import { normalizeInlinePathTarget } from "@/utils/inline-path";
 import { resolveWorkspaceIdByExecutionDirectory } from "@/utils/workspace-execution";
 import { navigateToPreparedWorkspaceTab } from "@/utils/workspace-navigation";
@@ -134,6 +134,7 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
     ref,
   ) {
     const viewportRef = useRef<StreamViewportHandle | null>(null);
+    const maxContentWidth = useMaxContentWidth();
     const isMobile = useIsCompactFormFactor();
     const streamRenderStrategy = useMemo(
       () =>
@@ -584,7 +585,7 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
         }
 
         return (
-          <StreamItemWrapper gapBelow={gapBelow}>
+          <StreamItemWrapper gapBelow={gapBelow} maxWidth={maxContentWidth}>
             {content}
             {footer}
           </StreamItemWrapper>
@@ -596,6 +597,7 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
         agent.status,
         streamRenderStrategy,
         inlineWorkingIndicatorItemId,
+        maxContentWidth,
       ],
     );
 
@@ -643,7 +645,10 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
       };
     }, [baseRenderModel, getGapBetween, pendingPermissionsNode, workingIndicatorNode]);
 
-    const emptyStateStyle = useMemo(() => [stylesheet.emptyState, stylesheet.contentWrapper], []);
+    const emptyStateStyle = useMemo(
+      () => [stylesheet.emptyState, stylesheet.contentWrapper, { maxWidth: maxContentWidth }],
+      [maxContentWidth],
+    );
     const listEmptyComponent = useMemo(() => {
       if (
         renderModel.boundary.hasVirtualizedHistory ||
@@ -712,19 +717,32 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
       else headerPadding = { paddingTop: looseGap };
       return [stylesheet.listHeaderContent, headerPadding];
     }, [boundary.hasLiveHead, streamRenderStrategy, looseGap]);
+    const contentWrapperStyle = useMemo(
+      () => [stylesheet.contentWrapper, { maxWidth: maxContentWidth }],
+      [maxContentWidth],
+    );
+    const scrollToBottomInnerStyle = useMemo(
+      () => [stylesheet.scrollToBottomInner, { maxWidth: maxContentWidth }],
+      [maxContentWidth],
+    );
     const renderLiveAuxiliary = useCallback<StreamSegmentRenderers["renderLiveAuxiliary"]>(() => {
       if (!auxiliary.pendingPermissions && !auxiliary.workingIndicator) {
         return null;
       }
       return (
-        <View style={stylesheet.contentWrapper}>
+        <View style={contentWrapperStyle}>
           <View style={liveAuxiliaryHeaderStyle}>
             {auxiliary.pendingPermissions}
             {auxiliary.workingIndicator}
           </View>
         </View>
       );
-    }, [auxiliary.pendingPermissions, auxiliary.workingIndicator, liveAuxiliaryHeaderStyle]);
+    }, [
+      auxiliary.pendingPermissions,
+      auxiliary.workingIndicator,
+      liveAuxiliaryHeaderStyle,
+      contentWrapperStyle,
+    ]);
 
     const renderers = useMemo<StreamSegmentRenderers>(
       () => ({
@@ -774,7 +792,7 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
               entering={scrollIndicatorFadeIn}
               exiting={scrollIndicatorFadeOut}
             >
-              <View style={stylesheet.scrollToBottomInner}>
+              <View style={scrollToBottomInnerStyle}>
                 <Pressable
                   style={stylesheet.scrollToBottomButton}
                   onPress={scrollToBottom}
@@ -1393,13 +1411,17 @@ const optionTextPrimaryStyle = [permissionStyles.optionText, permissionStyles.op
 
 interface StreamItemWrapperProps {
   gapBelow: number;
+  maxWidth?: number;
   children: ReactNode;
 }
 
-function StreamItemWrapper({ gapBelow, children }: StreamItemWrapperProps) {
+function StreamItemWrapper({ gapBelow, maxWidth, children }: StreamItemWrapperProps) {
   const wrapperStyle = useMemo(
-    () => [stylesheet.streamItemWrapper, { marginBottom: gapBelow }],
-    [gapBelow],
+    () => [
+      stylesheet.streamItemWrapper,
+      { marginBottom: gapBelow, ...(maxWidth != null && { maxWidth }) },
+    ],
+    [gapBelow, maxWidth],
   );
   return <View style={wrapperStyle}>{children}</View>;
 }

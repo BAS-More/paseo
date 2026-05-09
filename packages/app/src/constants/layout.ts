@@ -1,5 +1,6 @@
 import { useUnistyles } from "react-native-unistyles";
 import { isWeb } from "@/constants/platform";
+import { useAppSettings } from "@/hooks/use-settings";
 
 export const FOOTER_HEIGHT = 75;
 
@@ -27,6 +28,20 @@ export {
   getIsElectron as getIsElectronRuntime,
   getIsElectronMac as getIsElectronRuntimeMac,
 } from "./platform";
+
+// Narrower column in claude-desktop mode to match Claude Desktop App feel.
+const CLAUDE_DESKTOP_CONTENT_WIDTH = 680;
+
+/**
+ * Returns the max content width for chat/composer.
+ * 680px in claude-desktop layout, 820px in workspace layout.
+ */
+export function useMaxContentWidth(): number {
+  const { settings } = useAppSettings();
+  return settings.layoutMode === "claude-desktop"
+    ? CLAUDE_DESKTOP_CONTENT_WIDTH
+    : MAX_CONTENT_WIDTH;
+}
 
 /**
  * Reactive hook — re-renders the component when the breakpoint changes.
