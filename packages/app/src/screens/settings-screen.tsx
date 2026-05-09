@@ -38,6 +38,7 @@ import {
   useAppSettings,
   useSettings,
   type AppSettings,
+  type LayoutMode,
   type SendBehavior,
   type ServiceUrlBehavior,
   type Settings as EffectiveSettings,
@@ -186,6 +187,11 @@ const SEND_BEHAVIOR_OPTIONS = [
   { value: "queue" as const, label: "Queue" },
 ];
 
+const LAYOUT_MODE_OPTIONS = [
+  { value: "workspace" as const, label: "Workspace" },
+  { value: "claude-desktop" as const, label: "Claude Desktop" },
+];
+
 const RELEASE_CHANNEL_OPTIONS = [
   { value: "stable" as const, label: "Stable" },
   { value: "beta" as const, label: "Beta" },
@@ -209,6 +215,7 @@ interface GeneralSectionProps {
   handleThemeChange: (theme: AppSettings["theme"]) => void;
   handleSendBehaviorChange: (behavior: SendBehavior) => void;
   handleServiceUrlBehaviorChange: (behavior: ServiceUrlBehavior) => void;
+  handleLayoutModeChange: (mode: LayoutMode) => void;
 }
 
 interface ThemeMenuItemProps {
@@ -267,6 +274,7 @@ function GeneralSection({
   handleThemeChange,
   handleSendBehaviorChange,
   handleServiceUrlBehaviorChange,
+  handleLayoutModeChange,
 }: GeneralSectionProps) {
   const { theme } = useUnistyles();
   const iconSize = theme.iconSize.md;
@@ -309,6 +317,20 @@ function GeneralSection({
               ))}
             </DropdownMenuContent>
           </DropdownMenu>
+        </View>
+        <View style={ROW_WITH_BORDER_STYLE}>
+          <View style={settingsStyles.rowContent}>
+            <Text style={settingsStyles.rowTitle}>Layout</Text>
+            <Text style={settingsStyles.rowHint}>
+              Switch between multi-pane workspace and single-pane Claude Desktop style
+            </Text>
+          </View>
+          <SegmentedControl
+            size="sm"
+            value={settings.layoutMode}
+            onValueChange={handleLayoutModeChange}
+            options={LAYOUT_MODE_OPTIONS}
+          />
         </View>
         <View style={ROW_WITH_BORDER_STYLE}>
           <View style={settingsStyles.rowContent}>
@@ -835,6 +857,13 @@ export default function SettingsScreen({ view }: SettingsScreenProps) {
     [updateSettings],
   );
 
+  const handleLayoutModeChange = useCallback(
+    (mode: LayoutMode) => {
+      void updateSettings({ layoutMode: mode });
+    },
+    [updateSettings],
+  );
+
   const handlePlaybackTest = useCallback(async () => {
     if (!voiceAudioEngine || isPlaybackTestRunning) {
       return;
@@ -1016,6 +1045,7 @@ export default function SettingsScreen({ view }: SettingsScreenProps) {
               handleThemeChange={handleThemeChange}
               handleSendBehaviorChange={handleSendBehaviorChange}
               handleServiceUrlBehaviorChange={handleServiceUrlBehaviorChange}
+              handleLayoutModeChange={handleLayoutModeChange}
             />
           );
         case "shortcuts":
