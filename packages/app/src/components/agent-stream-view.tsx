@@ -80,6 +80,8 @@ import {
   type BottomAnchorRouteRequest,
 } from "./use-bottom-anchor-controller";
 import { MAX_CONTENT_WIDTH, useMaxContentWidth } from "@/constants/layout";
+import { useAppSettings } from "@/hooks/use-settings";
+import { Sparkles } from "lucide-react-native";
 import { normalizeInlinePathTarget } from "@/utils/inline-path";
 import { resolveWorkspaceIdByExecutionDirectory } from "@/utils/workspace-execution";
 import { navigateToPreparedWorkspaceTab } from "@/utils/workspace-navigation";
@@ -135,6 +137,8 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
   ) {
     const viewportRef = useRef<StreamViewportHandle | null>(null);
     const maxContentWidth = useMaxContentWidth();
+    const { settings: appSettings } = useAppSettings();
+    const isClaudeDesktop = appSettings.layoutMode === "claude-desktop";
     const isMobile = useIsCompactFormFactor();
     const streamRenderStrategy = useMemo(
       () =>
@@ -660,12 +664,23 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
         return null;
       }
 
+      if (isClaudeDesktop) {
+        return (
+          <View style={emptyStateStyle}>
+            <View style={stylesheet.welcomeAvatar}>
+              <Sparkles size={28} color="#fff" />
+            </View>
+            <Text style={stylesheet.welcomeTitle}>How can I help you today?</Text>
+          </View>
+        );
+      }
+
       return (
         <View style={emptyStateStyle}>
           <Text style={stylesheet.emptyStateText}>Start chatting with this agent...</Text>
         </View>
       );
-    }, [renderModel, emptyStateStyle]);
+    }, [renderModel, emptyStateStyle, isClaudeDesktop]);
 
     const historyItems = renderModel.history;
     const _liveHeadItems = renderModel.segments.liveHead;
@@ -1306,6 +1321,21 @@ const stylesheet = StyleSheet.create((theme) => ({
   emptyStateText: {
     color: theme.colors.foregroundMuted,
     fontSize: theme.fontSize.sm,
+    textAlign: "center",
+  },
+  welcomeAvatar: {
+    width: 48,
+    height: 48,
+    borderRadius: theme.borderRadius.full,
+    backgroundColor: theme.colors.accent,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: theme.spacing[4],
+  },
+  welcomeTitle: {
+    color: theme.colors.foreground,
+    fontSize: theme.fontSize["2xl"],
+    fontWeight: "500",
     textAlign: "center",
   },
   scrollToBottomContainer: {
