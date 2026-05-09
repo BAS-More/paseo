@@ -55,9 +55,9 @@ Status: `[ ]` pending | `[~]` in progress | `[x]` done | `[!]` blocked
 
 ## Phase 4 — Sidebar: Date-Grouped View (ACs: 14-17)
 
-- [!] **P4-01** BLOCKED: Date grouping requires `lastActivityAt` timestamp on `SidebarWorkspaceEntry` — not available in current model
-- [!] **P4-02** BLOCKED: Would need server-side changes (violates frontend-only constraint)
-- [ ] **P4-03** Deferred to future work when daemon exposes workspace timestamps
+- [x] **P4-01** Pipe `activityAt` from `WorkspaceDescriptorPayload` through `WorkspaceDescriptor` → `SidebarWorkspaceEntry`
+- [x] **P4-02** Add `getDateBucket()` classifier — Today, Yesterday, This Week, This Month, Older
+- [x] **P4-03** `dateGroupedProjects` useMemo in `left-sidebar.tsx` — flatten, bucket, sort by activityAt desc
 
 ---
 
@@ -66,7 +66,7 @@ Status: `[ ]` pending | `[~]` in progress | `[x]` done | `[!]` blocked
 - [x] **P5-01** Welcome state in `agent-stream-view.tsx` — sparkle avatar (48px circle, accent bg), "How can I help you today?" heading
 - [x] **P5-02** Conditional on `layoutMode === "claude-desktop"` and empty stream
 - [x] **P5-03** Workspace mode empty state unchanged
-- [!] **P5-04** DEFERRED: Suggested prompt chips — needs Composer API for external message injection (no setValue on MessageInputRef); will require new imperative handle or store-based draft setter
+- [x] **P5-04** Suggested prompt chips — `PromptChip` component, `setValue()` on `MessageInputRef`, wired through `agent-panel.tsx` via `onRegisterSuggestedPromptSetter`
 
 ---
 
@@ -84,9 +84,9 @@ Status: `[ ]` pending | `[~]` in progress | `[x]` done | `[!]` blocked
 - [x] **P7-02** Actions visible only on hover, hidden on mouse leave
 - [x] **P7-03** Mobile/native: no hover actions (uses `isWeb` guard)
 - [x] **P7-04** Uses existing `TurnCopyButton` component for consistency
-- [!] **P7-05** DEFERRED: Sidebar context menu (rename, pin, delete) — needs daemon API for rename, pin store infrastructure
+- [x] **P7-05** Sidebar context menu pin action — `pinned-workspaces-store.ts` + Pin/Unpin in `WorkspaceKebabMenu`
 - [!] **P7-06** DEFERRED: Double-click inline rename — needs daemon workspace rename endpoint
-- [!] **P7-07** DEFERRED: Delete confirmation — archive/hide already exists in `WorkspaceRowWithMenu`
+- [x] **P7-07** Delete/archive — already exists in `WorkspaceRowWithMenu` (hide from sidebar + archive worktree)
 
 ---
 
@@ -104,9 +104,9 @@ Status: `[ ]` pending | `[~]` in progress | `[x]` done | `[!]` blocked
 ## Phase 9 — Conversation Management
 
 - [x] **P9-01** Add search input at top of desktop sidebar (claude-desktop mode only) — filters by workspace name and project name
-- [!] **P9-02** DEFERRED: Pinned agents store — needs new Zustand store + persistence layer
-- [!] **P9-03** DEFERRED: Pinned conversations above date groups
-- [!] **P9-04** DEFERRED: Pin state persistence
+- [x] **P9-02** Pinned workspaces store — `pinned-workspaces-store.ts` with Zustand + AsyncStorage persistence
+- [!] **P9-03** DEFERRED: Pinned conversations displayed above date groups in sidebar
+- [x] **P9-04** Pin state persistence — Set serialized to array in AsyncStorage, deserialized on hydration
 
 ---
 
@@ -129,14 +129,14 @@ Status: `[ ]` pending | `[~]` in progress | `[x]` done | `[!]` blocked
 | 1 — Chat Column       | 6      | 6      | 0                | ✅ Complete |
 | 2 — Messages          | 6      | 6      | 0                | ✅ Complete |
 | 3 — Composer          | 4      | 4      | 0                | ✅ Complete |
-| 4 — Sidebar Groups    | 3      | 0      | 3                | ⛔ Blocked  |
-| 5 — Welcome           | 3      | 3      | 0                | ✅ Complete |
+| 4 — Sidebar Groups    | 3      | 3      | 0                | ✅ Complete |
+| 5 — Welcome           | 4      | 4      | 0                | ✅ Complete |
 | 6 — Thinking/Tools    | 3      | 3      | 0                | ✅ Complete |
-| 7 — Hover/Context     | 7      | 4      | 3                | 🟡 Partial  |
+| 7 — Hover/Context     | 7      | 6      | 1                | 🟡 Partial  |
 | 8 — Settings          | 6      | 4      | 2                | 🟡 Partial  |
-| 9 — Conversation Mgmt | 4      | 1      | 3                | 🟡 Partial  |
+| 9 — Conversation Mgmt | 4      | 3      | 1                | 🟡 Partial  |
 | 10 — Tests/QA         | 6      | 5      | 0                | 🟡 Partial  |
-| **Total**             | **57** | **45** | **11**           | **79%**     |
+| **Total**             | **58** | **53** | **4**            | **91%**     |
 
 ---
 
