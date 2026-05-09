@@ -579,8 +579,8 @@ export const assistantMessageStylesheet = StyleSheet.create((theme) => ({
     gap: theme.spacing[3],
   },
   avatar: {
-    width: 24,
-    height: 24,
+    width: 28,
+    height: 28,
     borderRadius: theme.borderRadius.full,
     backgroundColor: theme.colors.accent,
     alignItems: "center",

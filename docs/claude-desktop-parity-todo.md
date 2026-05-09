@@ -95,6 +95,8 @@ Status: `[ ]` pending | `[~]` in progress | `[x]` done | `[!]` blocked
 - [x] **P8-02** Options: "Workspace" | "Claude Desktop"
 - [x] **P8-03** Handler persists `layoutMode` via `updateSettings()`
 - [x] **P8-04** All existing settings sections remain accessible
+- [!] **P8-05** DEFERRED: Settings as centered modal with backdrop blur — Paseo uses expo-router full-screen navigation; converting to modal overlay requires route restructuring + shared layout wrapper. Not a frontend-only change within current architecture.
+- [!] **P8-06** DEFERRED: Escape/backdrop dismiss for settings modal — depends on P8-05
 
 ---
 
@@ -130,10 +132,10 @@ Status: `[ ]` pending | `[~]` in progress | `[x]` done | `[!]` blocked
 | 5 — Welcome           | 3      | 3      | 0                | ✅ Complete |
 | 6 — Thinking/Tools    | 3      | 3      | 0                | ✅ Complete |
 | 7 — Hover/Context     | 7      | 4      | 3                | 🟡 Partial  |
-| 8 — Settings          | 4      | 4      | 0                | ✅ Complete |
+| 8 — Settings          | 6      | 4      | 2                | 🟡 Partial  |
 | 9 — Conversation Mgmt | 4      | 1      | 3                | 🟡 Partial  |
 | 10 — Tests/QA         | 6      | 5      | 0                | 🟡 Partial  |
-| **Total**             | **55** | **45** | **9**            | **82%**     |
+| **Total**             | **57** | **45** | **11**           | **79%**     |
 
 ---
 
@@ -162,6 +164,7 @@ Status: `[ ]` pending | `[~]` in progress | `[x]` done | `[!]` blocked
 | Sidebar rename (P7-05/06)                     | No daemon API for workspace rename                                              | Server endpoint + UI: ~1 day                                |
 | Sidebar pin (P9-02–04)                        | Needs new Zustand store + AsyncStorage persistence                              | Frontend-only: ~0.5 day                                     |
 | Retry button on last message (P7-02 extended) | Needs agent session replay plumbing                                             | Requires agent-manager changes: ~1 day                      |
+| Settings modal overlay (P8-05/06)             | Paseo uses expo-router full-screen navigation; modal requires route restructure | Route architecture change: ~1 day                           |
 | Visual QA (P10-06)                            | Manual — run app in browser and compare screenshots                             | ~0.5 day manual                                             |
 
 ### Risk Assessment

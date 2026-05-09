@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { lightClaudeTheme, THEME_TO_UNISTYLES, THEME_SWATCHES } from "./theme";
+import { lightClaudeTheme, darkClaudeTheme, THEME_TO_UNISTYLES, THEME_SWATCHES } from "./theme";
 
 describe("lightClaudeTheme", () => {
   it("has light color scheme", () => {
@@ -43,6 +43,42 @@ describe("lightClaudeTheme", () => {
   it("has terminal colors", () => {
     expect(lightClaudeTheme.colors.terminal).toBeDefined();
     expect(lightClaudeTheme.colors.terminal.background).toBe("#FAF9F5");
+  });
+});
+
+describe("darkClaudeTheme", () => {
+  it("has dark color scheme", () => {
+    expect(darkClaudeTheme.colorScheme).toBe("dark");
+  });
+
+  it("has userBubble set to surface2 value", () => {
+    expect(darkClaudeTheme.colors.userBubble).toBe("#2f2d2b");
+  });
+
+  it("has accent color matching claude orange", () => {
+    expect(darkClaudeTheme.colors.accent).toBe("#d97757");
+  });
+
+  it("has surface tokens", () => {
+    expect(darkClaudeTheme.colors.surface0).toBe("#1f1f1e");
+    expect(darkClaudeTheme.colors.surface1).toBe("#262523");
+    expect(darkClaudeTheme.colors.surface2).toBe("#2f2d2b");
+  });
+});
+
+describe("lightClaudeTheme exact values", () => {
+  it("has accent color matching claude orange", () => {
+    expect(lightClaudeTheme.colors.accent).toBe("#D97757");
+  });
+
+  it("has destructive color", () => {
+    expect(lightClaudeTheme.colors.destructive).toBeDefined();
+    expect(typeof lightClaudeTheme.colors.destructive).toBe("string");
+  });
+
+  it("has success color", () => {
+    expect(lightClaudeTheme.colors.success).toBeDefined();
+    expect(typeof lightClaudeTheme.colors.success).toBe("string");
   });
 });
 

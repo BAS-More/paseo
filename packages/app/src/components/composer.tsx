@@ -1641,6 +1641,7 @@ const styles = StyleSheet.create((theme: Theme) => ({
     borderRadius: theme.borderRadius["2xl"],
     backgroundColor: theme.colors.surface1,
     width: "auto",
+    ...theme.shadow.md,
   },
   inputAreaLocked: {
     opacity: 0.6,
