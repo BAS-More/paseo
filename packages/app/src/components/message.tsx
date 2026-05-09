@@ -592,6 +592,23 @@ export const assistantMessageStylesheet = StyleSheet.create((theme) => ({
     flex: 1,
     minWidth: 0,
   },
+  hoverWrapper: {
+    position: "relative",
+  },
+  hoverActions: {
+    position: "absolute",
+    top: 0,
+    right: 0,
+    flexDirection: "row",
+    zIndex: 10,
+  },
+  hoverActionsHidden: {
+    opacity: 0,
+    pointerEvents: "none",
+  },
+  hoverActionsVisible: {
+    opacity: 1,
+  },
   containerCompactTop: {
     paddingTop: 0,
   },
@@ -1477,9 +1494,15 @@ export const AssistantMessage = memo(function AssistantMessage({
 }: AssistantMessageProps) {
   const { settings: appSettings } = useAppSettings();
   const isClaudeDesktop = appSettings.layoutMode === "claude-desktop";
+  const [messageHovered, setMessageHovered] = useState(false);
+  const [copyHovered, setCopyHovered] = useState(false);
   const resolvedDisableOuterSpacing = useDisableOuterSpacing(
     disableOuterSpacing ?? spacing !== "default",
   );
+  const handleHoverIn = useCallback(() => setMessageHovered(true), []);
+  const handleHoverOut = useCallback(() => setMessageHovered(false), []);
+  const getMessageContent = useCallback(() => message, [message]);
+  const showCopyButton = isWeb && (messageHovered || copyHovered);
 
   const markdownParser = useMemo(() => {
     const parser = MarkdownIt({ typographer: true, linkify: true });
@@ -1742,6 +1765,16 @@ export const AssistantMessage = memo(function AssistantMessage({
     [assistantContainerStyle, isClaudeDesktop],
   );
 
+  const hoverActionsStyle = useMemo(
+    () => [
+      assistantMessageStylesheet.hoverActions,
+      showCopyButton
+        ? assistantMessageStylesheet.hoverActionsVisible
+        : assistantMessageStylesheet.hoverActionsHidden,
+    ],
+    [showCopyButton],
+  );
+
   const renderedBlocks = keyedBlocks.map(({ key, block }, index) => (
     <AssistantMessageBlockContainer
       key={key}
@@ -1758,18 +1791,43 @@ export const AssistantMessage = memo(function AssistantMessage({
   ));
 
   return (
-    <View testID="assistant-message" style={outerStyle}>
+    <Pressable
+      testID="assistant-message"
+      style={outerStyle}
+      onHoverIn={handleHoverIn}
+      onHoverOut={handleHoverOut}
+    >
       {isClaudeDesktop ? (
         <>
           <View style={assistantMessageStylesheet.avatar}>
             <Sparkles size={14} color="#fff" />
           </View>
-          <View style={assistantMessageStylesheet.avatarContent}>{renderedBlocks}</View>
+          <View style={assistantMessageStylesheet.avatarContent}>
+            <View style={assistantMessageStylesheet.hoverWrapper}>
+              <View style={hoverActionsStyle}>
+                <TurnCopyButton
+                  getContent={getMessageContent}
+                  accessibilityLabel="Copy message"
+                  onHoverChange={setCopyHovered}
+                />
+              </View>
+              {renderedBlocks}
+            </View>
+          </View>
         </>
       ) : (
-        renderedBlocks
+        <View style={assistantMessageStylesheet.hoverWrapper}>
+          <View style={hoverActionsStyle}>
+            <TurnCopyButton
+              getContent={getMessageContent}
+              accessibilityLabel="Copy message"
+              onHoverChange={setCopyHovered}
+            />
+          </View>
+          {renderedBlocks}
+        </View>
       )}
-    </View>
+    </Pressable>
   );
 });
 
