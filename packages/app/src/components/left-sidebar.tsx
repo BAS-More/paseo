@@ -1,5 +1,5 @@
 import { router, usePathname } from "expo-router";
-import { FolderPlus, MessagesSquare, Settings } from "lucide-react-native";
+import { FolderPlus, MessagesSquare, Search, Settings } from "lucide-react-native";
 import {
   type Dispatch,
   memo,
@@ -16,6 +16,7 @@ import {
   Pressable,
   StyleSheet as RNStyleSheet,
   Text,
+  TextInput,
   useWindowDimensions,
   View,
   type PressableStateCallbackType,
@@ -38,6 +39,7 @@ import { Combobox, ComboboxItem, type ComboboxOption } from "@/components/ui/com
 import { Shortcut } from "@/components/ui/shortcut";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useIsCompactFormFactor } from "@/constants/layout";
+import { useAppSettings } from "@/hooks/use-settings";
 import { isWeb } from "@/constants/platform";
 import { useSidebarAnimation } from "@/contexts/sidebar-animation-context";
 import { useOpenProjectPicker } from "@/hooks/use-open-project-picker";
@@ -748,6 +750,29 @@ function DesktopSidebar({
   const padding = useWindowControlsPadding("sidebar");
   const sidebarWidth = usePanelStore((state) => state.sidebarWidth);
   const setSidebarWidth = usePanelStore((state) => state.setSidebarWidth);
+  const { settings: appSettings } = useAppSettings();
+  const isClaudeDesktop = appSettings.layoutMode === "claude-desktop";
+  const [searchQuery, setSearchQuery] = useState("");
+
+  const searchInputStyle = useMemo(
+    () => [styles.searchInput, isWeb && ({ outlineStyle: "none" } as Record<string, unknown>)],
+    [],
+  );
+
+  const filteredProjects = useMemo(() => {
+    if (!searchQuery.trim()) return projects;
+    const query = searchQuery.toLowerCase();
+    return projects
+      .map((project) => ({
+        ...project,
+        workspaces: project.workspaces.filter(
+          (ws) =>
+            ws.name.toLowerCase().includes(query) ||
+            project.projectName.toLowerCase().includes(query),
+        ),
+      }))
+      .filter((project) => project.workspaces.length > 0);
+  }, [projects, searchQuery]);
   const { width: viewportWidth } = useWindowDimensions();
   const hostStatusDotStyle = useMemo(
     () => [styles.hostStatusDot, { backgroundColor: activeHostStatusColor }],
@@ -819,6 +844,21 @@ function DesktopSidebar({
           />
         </View>
 
+        {isClaudeDesktop ? (
+          <View style={styles.searchContainer}>
+            <Search size={14} color={theme.colors.foregroundMuted} />
+            <TextInput
+              style={searchInputStyle}
+              placeholder="Search sessions…"
+              placeholderTextColor={theme.colors.foregroundMuted}
+              value={searchQuery}
+              onChangeText={setSearchQuery}
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
+          </View>
+        ) : null}
+
         {isInitialLoad ? (
           <SidebarAgentListSkeleton />
         ) : (
@@ -827,7 +867,7 @@ function DesktopSidebar({
             collapsedProjectKeys={collapsedProjectKeys}
             onToggleProjectCollapsed={toggleProjectCollapsed}
             shortcutIndexByWorkspaceKey={shortcutIndexByWorkspaceKey}
-            projects={projects}
+            projects={isClaudeDesktop ? filteredProjects : projects}
             isRefreshing={isManualRefresh && isRevalidating}
             onRefresh={handleRefresh}
             onAddProject={handleOpenProject}
@@ -900,6 +940,25 @@ const styles = StyleSheet.create((theme) => ({
   },
   sidebarDragArea: {
     position: "relative",
+  },
+  searchContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: theme.spacing[2],
+    marginHorizontal: theme.spacing[3],
+    marginBottom: theme.spacing[2],
+    paddingHorizontal: theme.spacing[3],
+    paddingVertical: theme.spacing[1.5],
+    borderRadius: theme.borderRadius.lg,
+    backgroundColor: theme.colors.surface1,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+  },
+  searchInput: {
+    flex: 1,
+    fontSize: theme.fontSize.sm,
+    color: theme.colors.foreground,
+    padding: 0,
   },
   hostTrigger: {
     flexDirection: "row",
