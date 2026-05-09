@@ -98,6 +98,41 @@ const isUserMessageItem = (item?: StreamItem) => item?.kind === "user_message";
 const isToolSequenceItem = (item?: StreamItem) =>
   item?.kind === "tool_call" || item?.kind === "thought" || item?.kind === "todo_list";
 
+const SUGGESTED_PROMPTS = [
+  "Summarize this project",
+  "Find and fix bugs",
+  "Write tests for recent changes",
+];
+
+function PromptChip({ prompt, onPress }: { prompt: string; onPress: (prompt: string) => void }) {
+  const handlePress = useCallback(() => onPress(prompt), [onPress, prompt]);
+  return (
+    <Pressable
+      style={promptChipStylesheet.chip}
+      onPress={handlePress}
+      accessibilityRole="button"
+      accessibilityLabel={prompt}
+    >
+      <Text style={promptChipStylesheet.chipText}>{prompt}</Text>
+    </Pressable>
+  );
+}
+
+const promptChipStylesheet = StyleSheet.create((theme) => ({
+  chip: {
+    paddingHorizontal: theme.spacing[4],
+    paddingVertical: theme.spacing[2],
+    borderRadius: theme.borderRadius.full,
+    borderWidth: theme.borderWidth[1],
+    borderColor: theme.colors.border,
+    backgroundColor: theme.colors.surface1,
+  },
+  chipText: {
+    color: theme.colors.foreground,
+    fontSize: theme.fontSize.sm,
+  },
+}));
+
 interface StreamItemBoundarySeams {
   aboveItem?: StreamItem | null;
   belowItem?: StreamItem | null;
@@ -118,6 +153,7 @@ export interface AgentStreamViewProps {
   isAuthoritativeHistoryReady?: boolean;
   toast?: ToastApi | null;
   onOpenWorkspaceFile?: (input: { filePath: string }) => void;
+  onSuggestedPrompt?: (prompt: string) => void;
 }
 
 const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamViewProps>(
@@ -132,6 +168,7 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
       isAuthoritativeHistoryReady = true,
       toast,
       onOpenWorkspaceFile,
+      onSuggestedPrompt,
     },
     ref,
   ) {
@@ -671,6 +708,13 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
               <Sparkles size={28} color="#fff" />
             </View>
             <Text style={stylesheet.welcomeTitle}>How can I help you today?</Text>
+            {onSuggestedPrompt ? (
+              <View style={stylesheet.promptChips}>
+                {SUGGESTED_PROMPTS.map((prompt) => (
+                  <PromptChip key={prompt} prompt={prompt} onPress={onSuggestedPrompt} />
+                ))}
+              </View>
+            ) : null}
           </View>
         );
       }
@@ -680,7 +724,7 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
           <Text style={stylesheet.emptyStateText}>Start chatting with this agent...</Text>
         </View>
       );
-    }, [renderModel, emptyStateStyle, isClaudeDesktop]);
+    }, [renderModel, emptyStateStyle, isClaudeDesktop, onSuggestedPrompt]);
 
     const historyItems = renderModel.history;
     const _liveHeadItems = renderModel.segments.liveHead;
@@ -1337,6 +1381,13 @@ const stylesheet = StyleSheet.create((theme) => ({
     fontSize: theme.fontSize["2xl"],
     fontWeight: "500",
     textAlign: "center",
+  },
+  promptChips: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    justifyContent: "center",
+    gap: theme.spacing[2],
+    marginTop: theme.spacing[4],
   },
   scrollToBottomContainer: {
     position: "absolute",

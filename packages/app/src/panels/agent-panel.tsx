@@ -601,6 +601,16 @@ function ChatAgentContent({
     routeKey: string;
     reason: "initial-entry" | "resume";
   } | null>(null);
+  const suggestedPromptSetterRef = useRef<((text: string) => void) | null>(null);
+  const handleSuggestedPrompt = useCallback((prompt: string) => {
+    suggestedPromptSetterRef.current?.(prompt);
+  }, []);
+  const handleRegisterSuggestedPromptSetter = useCallback(
+    (setter: ((text: string) => void) | null) => {
+      suggestedPromptSetterRef.current = setter;
+    },
+    [],
+  );
   const handleFilesDropped = useCallback((files: ImageAttachment[]) => {
     addImagesRef.current?.(files);
   }, []);
@@ -966,6 +976,7 @@ function ChatAgentContent({
                 hasAppliedAuthoritativeHistory={hasAppliedAuthoritativeHistory}
                 toast={panelToast.api}
                 onOpenWorkspaceFile={onOpenWorkspaceFile}
+                onSuggestedPrompt={handleSuggestedPrompt}
               />
             </ReanimatedAnimated.View>
           </View>
@@ -983,6 +994,7 @@ function ChatAgentContent({
             onAddImages={handleAddImagesCallback}
             onComposerHeightChange={handleComposerHeightChange}
             onMessageSent={handleMessageSent}
+            onRegisterSuggestedPromptSetter={handleRegisterSuggestedPromptSetter}
           />
 
           {viewState.tag === "ready" &&
@@ -1024,6 +1036,7 @@ function AgentStreamSection({
   hasAppliedAuthoritativeHistory,
   toast,
   onOpenWorkspaceFile,
+  onSuggestedPrompt,
 }: {
   streamViewRef: React.RefObject<AgentStreamViewHandle | null>;
   serverId: string;
@@ -1036,6 +1049,7 @@ function AgentStreamSection({
   hasAppliedAuthoritativeHistory: boolean;
   toast: ReturnType<typeof useToastHost>["api"];
   onOpenWorkspaceFile?: (input: { filePath: string }) => void;
+  onSuggestedPrompt?: (prompt: string) => void;
 }) {
   const streamItemsRaw = useSessionStore((state) =>
     agentId ? state.sessions[serverId]?.agentStreamTail?.get(agentId) : undefined,
@@ -1171,6 +1185,7 @@ function AgentStreamSection({
       isAuthoritativeHistoryReady={hasAppliedAuthoritativeHistory}
       toast={toast}
       onOpenWorkspaceFile={onOpenWorkspaceFile}
+      onSuggestedPrompt={onSuggestedPrompt}
     />
   );
 }
@@ -1188,6 +1203,7 @@ function AgentComposerSection({
   onAddImages,
   onComposerHeightChange,
   onMessageSent,
+  onRegisterSuggestedPromptSetter,
 }: {
   agentId?: string;
   serverId: string;
@@ -1201,6 +1217,7 @@ function AgentComposerSection({
   onAddImages: (addImages: (images: ImageAttachment[]) => void) => void;
   onComposerHeightChange: (height: number) => void;
   onMessageSent: () => void;
+  onRegisterSuggestedPromptSetter: (setter: ((text: string) => void) | null) => void;
 }) {
   if (!agentId) {
     return null;
@@ -1224,6 +1241,7 @@ function AgentComposerSection({
       onAddImages={onAddImages}
       onComposerHeightChange={onComposerHeightChange}
       onMessageSent={onMessageSent}
+      onRegisterSuggestedPromptSetter={onRegisterSuggestedPromptSetter}
     />
   );
 }
@@ -1239,6 +1257,7 @@ function ActiveAgentComposer({
   onAddImages,
   onComposerHeightChange,
   onMessageSent,
+  onRegisterSuggestedPromptSetter,
 }: {
   agentId: string;
   serverId: string;
@@ -1250,6 +1269,7 @@ function ActiveAgentComposer({
   onAddImages: (addImages: (images: ImageAttachment[]) => void) => void;
   onComposerHeightChange: (height: number) => void;
   onMessageSent: () => void;
+  onRegisterSuggestedPromptSetter: (setter: ((text: string) => void) | null) => void;
 }) {
   const insets = useSafeAreaInsets();
   const isCompact = useIsCompactFormFactor();
@@ -1261,6 +1281,11 @@ function ActiveAgentComposer({
     }),
     initialCwd,
   });
+  useEffect(() => {
+    onRegisterSuggestedPromptSetter(agentInputDraft.setText);
+    return () => onRegisterSuggestedPromptSetter(null);
+  }, [onRegisterSuggestedPromptSetter, agentInputDraft.setText]);
+
   const workspaceAttachmentScopeKey = useWorkspaceAttachmentScopeKey({
     serverId,
     cwd: agentInputDraft.cwd,

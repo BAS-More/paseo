@@ -131,6 +131,8 @@ export interface MessageInputRef {
   focus: () => void;
   blur: () => void;
   runKeyboardAction: (action: MessageInputKeyboardActionKind) => boolean;
+  /** Set the input text value programmatically. */
+  setValue: (text: string) => void;
   /**
    * Web-only: return the underlying DOM element for focus assertions/retries.
    * May return null if not mounted or on native.
@@ -1217,6 +1219,10 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
           voice,
         }),
       getNativeElement: () => (isWeb ? getTextInputNativeElement(textInputRef.current) : null),
+      setValue: (text: string) => {
+        onChangeText(text);
+        textInputRef.current?.focus();
+      },
     }));
     const inputHeightRef = useRef(MIN_INPUT_HEIGHT);
     const overlayTransition = useSharedValue(0);
