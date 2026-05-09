@@ -58,3 +58,10 @@ export function useIsCompactFormFactor(): boolean {
 export function supportsDesktopPaneSplits(): boolean {
   return isWeb;
 }
+
+// Reactive: checks both platform support AND layout mode.
+// Returns false in claude-desktop layout to force single-pane chat.
+export function useCanRenderDesktopPaneSplits(): boolean {
+  const { settings } = useAppSettings();
+  return supportsDesktopPaneSplits() && settings.layoutMode !== "claude-desktop";
+}
