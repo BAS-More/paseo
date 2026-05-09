@@ -47,6 +47,7 @@ import { useShortcutKeys } from "@/hooks/use-shortcut-keys";
 import { useSidebarShortcutModel } from "@/hooks/use-sidebar-shortcut-model";
 import {
   type SidebarProjectEntry,
+  type SidebarWorkspaceEntry,
   useSidebarWorkspacesList,
 } from "@/hooks/use-sidebar-workspaces-list";
 import { useHostRuntimeSnapshot, useHosts } from "@/runtime/host-runtime";
@@ -69,6 +70,34 @@ import { SidebarCalloutSlot } from "./sidebar-callout-slot";
 import { SidebarWorkspaceList } from "./sidebar-workspace-list";
 
 const MIN_CHAT_WIDTH = 400;
+
+type DateBucket = "today" | "yesterday" | "this-week" | "this-month" | "older";
+
+function getDateBucket(activityAt: string | null): DateBucket {
+  if (!activityAt) return "older";
+  const date = new Date(activityAt);
+  if (isNaN(date.getTime())) return "older";
+  const now = new Date();
+  const diffMs = now.getTime() - date.getTime();
+  const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+  if (diffDays === 0 && date.toDateString() === now.toDateString()) return "today";
+  const yesterday = new Date(now);
+  yesterday.setDate(yesterday.getDate() - 1);
+  if (date.toDateString() === yesterday.toDateString()) return "yesterday";
+  if (diffDays < 7) return "this-week";
+  if (diffDays < 30) return "this-month";
+  return "older";
+}
+
+const DATE_BUCKET_LABELS: Record<DateBucket, string> = {
+  today: "Today",
+  yesterday: "Yesterday",
+  "this-week": "This Week",
+  "this-month": "This Month",
+  older: "Older",
+};
+
+const DATE_BUCKET_ORDER: DateBucket[] = ["today", "yesterday", "this-week", "this-month", "older"];
 
 type SidebarShortcutModel = ReturnType<typeof useSidebarShortcutModel>;
 type SidebarTheme = ReturnType<typeof useUnistyles>["theme"];
@@ -773,6 +802,50 @@ function DesktopSidebar({
       }))
       .filter((project) => project.workspaces.length > 0);
   }, [projects, searchQuery]);
+
+  const dateGroupedProjects = useMemo((): SidebarProjectEntry[] => {
+    if (!isClaudeDesktop) return filteredProjects;
+
+    const allWorkspaces: SidebarWorkspaceEntry[] = [];
+    for (const project of filteredProjects) {
+      for (const ws of project.workspaces) {
+        allWorkspaces.push(ws);
+      }
+    }
+
+    const bucketMap = new Map<DateBucket, SidebarWorkspaceEntry[]>();
+    for (const ws of allWorkspaces) {
+      const bucket = getDateBucket(ws.activityAt);
+      let list = bucketMap.get(bucket);
+      if (!list) {
+        list = [];
+        bucketMap.set(bucket, list);
+      }
+      list.push(ws);
+    }
+
+    for (const list of bucketMap.values()) {
+      list.sort((a, b) => {
+        const aTime = a.activityAt ? new Date(a.activityAt).getTime() : 0;
+        const bTime = b.activityAt ? new Date(b.activityAt).getTime() : 0;
+        return bTime - aTime;
+      });
+    }
+
+    const result: SidebarProjectEntry[] = [];
+    for (const bucket of DATE_BUCKET_ORDER) {
+      const workspaces = bucketMap.get(bucket);
+      if (!workspaces || workspaces.length === 0) continue;
+      result.push({
+        projectKey: `__date_bucket__${bucket}`,
+        projectName: DATE_BUCKET_LABELS[bucket],
+        projectKind: "directory",
+        iconWorkingDir: "",
+        workspaces,
+      });
+    }
+    return result;
+  }, [isClaudeDesktop, filteredProjects]);
   const { width: viewportWidth } = useWindowDimensions();
   const hostStatusDotStyle = useMemo(
     () => [styles.hostStatusDot, { backgroundColor: activeHostStatusColor }],
@@ -867,7 +940,7 @@ function DesktopSidebar({
             collapsedProjectKeys={collapsedProjectKeys}
             onToggleProjectCollapsed={toggleProjectCollapsed}
             shortcutIndexByWorkspaceKey={shortcutIndexByWorkspaceKey}
-            projects={isClaudeDesktop ? filteredProjects : projects}
+            projects={isClaudeDesktop ? dateGroupedProjects : projects}
             isRefreshing={isManualRefresh && isRevalidating}
             onRefresh={handleRefresh}
             onAddProject={handleOpenProject}

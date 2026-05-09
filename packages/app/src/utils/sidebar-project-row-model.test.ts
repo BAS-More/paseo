@@ -24,6 +24,7 @@ function workspace(overrides: Partial<SidebarWorkspaceEntry> = {}): SidebarWorks
     hasRunningScripts: false,
     ...overrides,
     archivingAt: overrides.archivingAt ?? null,
+    activityAt: overrides.activityAt ?? null,
   };
 }
 

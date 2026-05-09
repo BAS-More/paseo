@@ -24,6 +24,7 @@ function workspace(input: {
     name: input.name,
     statusBucket: "done",
     archivingAt: null,
+    activityAt: null,
     diffStat: null,
     scripts: [],
     hasRunningScripts: false,
