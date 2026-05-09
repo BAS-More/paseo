@@ -41,6 +41,8 @@ import {
   FolderGit2,
   GitPullRequest,
   Globe,
+  Pin,
+  PinOff,
   Settings,
   SquareTerminal,
   Monitor,
@@ -64,6 +66,7 @@ import {
   type SidebarProjectEntry,
   type SidebarWorkspaceEntry,
 } from "@/hooks/use-sidebar-workspaces-list";
+import { usePinnedWorkspacesStore } from "@/stores/pinned-workspaces-store";
 import { useSidebarOrderStore } from "@/stores/sidebar-order-store";
 import { useShowShortcutBadges } from "@/hooks/use-show-shortcut-badges";
 import {
@@ -176,6 +179,8 @@ const ThemedTrash2 = withUnistyles(Trash2);
 const ThemedSettings = withUnistyles(Settings);
 const ThemedCopy = withUnistyles(Copy);
 const ThemedArchive = withUnistyles(Archive);
+const ThemedPin = withUnistyles(Pin);
+const ThemedPinOff = withUnistyles(PinOff);
 
 const foregroundColorMapping = (theme: Theme) => ({ color: theme.colors.foreground });
 const foregroundMutedColorMapping = (theme: Theme) => ({
@@ -255,6 +260,8 @@ interface WorkspaceRowInnerProps {
   isCreating?: boolean;
   dragHandleProps?: DraggableListDragHandleProps;
   menuController: ReturnType<typeof useContextMenu> | null;
+  isPinned: boolean;
+  onTogglePin: () => void;
   archiveLabel?: string;
   archiveStatus?: "idle" | "pending" | "success";
   archivePendingLabel?: string;
@@ -593,6 +600,8 @@ function ProjectRowTrailingActions({
 const trash2LeadingIcon = <ThemedTrash2 size={14} uniProps={foregroundMutedColorMapping} />;
 const settingsLeadingIcon = <ThemedSettings size={14} uniProps={foregroundMutedColorMapping} />;
 const copyLeadingIcon = <ThemedCopy size={14} uniProps={foregroundMutedColorMapping} />;
+const pinLeadingIcon = <ThemedPin size={14} uniProps={foregroundMutedColorMapping} />;
+const unpinLeadingIcon = <ThemedPinOff size={14} uniProps={foregroundMutedColorMapping} />;
 const archiveLeadingIcon = <ThemedArchive size={14} uniProps={foregroundMutedColorMapping} />;
 
 function renderKebabTriggerIcon({ hovered }: { hovered?: boolean }) {
@@ -662,6 +671,8 @@ function WorkspaceRowRightGroup({
   isCreating,
   showShortcutBadge,
   shortcutNumber,
+  isPinned,
+  onTogglePin,
   archiveLabel,
   archiveStatus,
   archivePendingLabel,
@@ -678,6 +689,8 @@ function WorkspaceRowRightGroup({
   isCreating: boolean;
   showShortcutBadge: boolean;
   shortcutNumber: number | null;
+  isPinned: boolean;
+  onTogglePin: () => void;
   archiveLabel?: string;
   archiveStatus?: "idle" | "pending" | "success";
   archivePendingLabel?: string;
@@ -702,6 +715,8 @@ function WorkspaceRowRightGroup({
       {showKebab && onArchive ? (
         <WorkspaceKebabMenu
           workspaceKey={workspace.workspaceKey}
+          isPinned={isPinned}
+          onTogglePin={onTogglePin}
           onCopyPath={onCopyPath}
           onCopyBranchName={onCopyBranchName}
           onArchive={onArchive}
@@ -728,6 +743,8 @@ function WorkspaceRowRightGroup({
 
 function WorkspaceKebabMenu({
   workspaceKey,
+  isPinned,
+  onTogglePin,
   onCopyPath,
   onCopyBranchName,
   onArchive,
@@ -737,6 +754,8 @@ function WorkspaceKebabMenu({
   archiveShortcutKeys,
 }: {
   workspaceKey: string;
+  isPinned: boolean;
+  onTogglePin: () => void;
   onCopyPath?: () => void;
   onCopyBranchName?: () => void;
   onArchive: () => void;
@@ -779,6 +798,13 @@ function WorkspaceKebabMenu({
             Copy branch name
           </DropdownMenuItem>
         ) : null}
+        <DropdownMenuItem
+          testID={`sidebar-workspace-menu-pin-${workspaceKey}`}
+          leading={isPinned ? unpinLeadingIcon : pinLeadingIcon}
+          onSelect={onTogglePin}
+        >
+          {isPinned ? "Unpin" : "Pin"}
+        </DropdownMenuItem>
         <DropdownMenuItem
           testID={`sidebar-workspace-menu-archive-${workspaceKey}`}
           leading={archiveLeadingIcon}
@@ -1331,6 +1357,8 @@ function WorkspaceRowInner({
   isCreating = false,
   dragHandleProps,
   menuController,
+  isPinned,
+  onTogglePin,
   archiveLabel,
   archiveStatus = "idle",
   archivePendingLabel,
@@ -1434,6 +1462,8 @@ function WorkspaceRowInner({
               isCreating={isCreating}
               showShortcutBadge={showShortcutBadge}
               shortcutNumber={shortcutNumber}
+              isPinned={isPinned}
+              onTogglePin={onTogglePin}
               archiveLabel={archiveLabel}
               archiveStatus={archiveStatus}
               archivePendingLabel={archivePendingLabel}
@@ -1482,6 +1512,11 @@ function WorkspaceRowWithMenu({
   const activeWorkspaceSelection = useActiveWorkspaceSelection();
   const archiveWorktree = useCheckoutGitActionsStore((state) => state.archiveWorktree);
   const [isArchivingWorkspace, setIsArchivingWorkspace] = useState(false);
+  const isPinned = usePinnedWorkspacesStore((state) => state.isPinned(workspace.workspaceKey));
+  const togglePin = usePinnedWorkspacesStore((state) => state.togglePin);
+  const handleTogglePin = useCallback(() => {
+    togglePin(workspace.workspaceKey);
+  }, [togglePin, workspace.workspaceKey]);
   const workspaceDirectory = resolveWorkspaceExecutionDirectory({
     workspaceDirectory: workspace.workspaceDirectory,
   });
@@ -1654,6 +1689,8 @@ function WorkspaceRowWithMenu({
       onCopyBranchName={canCopyBranchName ? handleCopyBranchName : undefined}
       onCopyPath={handleCopyPath}
       archiveShortcutKeys={selected ? archiveShortcutKeys : null}
+      isPinned={isPinned}
+      onTogglePin={handleTogglePin}
     />
   );
 }
