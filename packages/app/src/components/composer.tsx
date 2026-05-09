@@ -1494,9 +1494,14 @@ export function Composer({
     () => [styles.container, keyboardAnimatedStyle],
     [keyboardAnimatedStyle],
   );
+  const isClaudeDesktop = appSettings.layoutMode === "claude-desktop";
   const inputAreaContainerStyle = useMemo(
-    () => [styles.inputAreaContainer, isComposerLocked && styles.inputAreaLocked],
-    [isComposerLocked],
+    () => [
+      styles.inputAreaContainer,
+      isClaudeDesktop && styles.inputAreaContainerPill,
+      isComposerLocked && styles.inputAreaLocked,
+    ],
+    [isComposerLocked, isClaudeDesktop],
   );
 
   const attachmentPreviewList = useMemo(
@@ -1628,6 +1633,14 @@ const styles = StyleSheet.create((theme: Theme) => ({
     width: "100%",
     overflow: "visible",
     padding: theme.spacing[4],
+  },
+  inputAreaContainerPill: {
+    marginHorizontal: theme.spacing[4],
+    borderWidth: theme.borderWidth[1],
+    borderColor: theme.colors.border,
+    borderRadius: theme.borderRadius["2xl"],
+    backgroundColor: theme.colors.surface1,
+    width: "auto",
   },
   inputAreaLocked: {
     opacity: 0.6,
