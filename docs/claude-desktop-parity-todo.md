@@ -66,6 +66,7 @@ Status: `[ ]` pending | `[~]` in progress | `[x]` done | `[!]` blocked
 - [x] **P5-01** Welcome state in `agent-stream-view.tsx` — sparkle avatar (48px circle, accent bg), "How can I help you today?" heading
 - [x] **P5-02** Conditional on `layoutMode === "claude-desktop"` and empty stream
 - [x] **P5-03** Workspace mode empty state unchanged
+- [!] **P5-04** DEFERRED: Suggested prompt chips — needs Composer API for external message injection (no setValue on MessageInputRef); will require new imperative handle or store-based draft setter
 
 ---
 

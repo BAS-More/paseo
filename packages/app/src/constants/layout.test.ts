@@ -36,13 +36,10 @@ describe("layout constants", () => {
   });
 
   it("exports CLAUDE_DESKTOP_CONTENT_WIDTH as 680", async () => {
-    // The constant is not exported, but useMaxContentWidth uses it.
-    // We verify the workspace default is 820 (not 680) to confirm the split exists.
     const mod = await import("./layout");
+    expect(mod.CLAUDE_DESKTOP_CONTENT_WIDTH).toBe(680);
     expect(mod.MAX_CONTENT_WIDTH).toBe(820);
-    // The hook useMaxContentWidth returns 680 in claude-desktop mode,
-    // but that requires React context to test. We verify the constant split
-    // is present by checking the function exists and is exported.
+    // Hooks exist and are exported
     expect(typeof mod.useMaxContentWidth).toBe("function");
     expect(typeof mod.useCanRenderDesktopPaneSplits).toBe("function");
   });

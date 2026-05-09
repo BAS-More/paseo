@@ -1790,6 +1790,24 @@ export const AssistantMessage = memo(function AssistantMessage({
     </AssistantMessageBlockContainer>
   ));
 
+  if (!isWeb) {
+    // Native: no hover actions, no Pressable wrapper — preserves original behavior
+    return (
+      <View testID="assistant-message" style={outerStyle}>
+        {isClaudeDesktop ? (
+          <>
+            <View style={assistantMessageStylesheet.avatar}>
+              <Sparkles size={14} color="#fff" />
+            </View>
+            <View style={assistantMessageStylesheet.avatarContent}>{renderedBlocks}</View>
+          </>
+        ) : (
+          renderedBlocks
+        )}
+      </View>
+    );
+  }
+
   return (
     <Pressable
       testID="assistant-message"

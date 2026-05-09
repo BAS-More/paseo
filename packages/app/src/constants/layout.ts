@@ -30,7 +30,7 @@ export {
 } from "./platform";
 
 // Narrower column in claude-desktop mode to match Claude Desktop App feel.
-const CLAUDE_DESKTOP_CONTENT_WIDTH = 680;
+export const CLAUDE_DESKTOP_CONTENT_WIDTH = 680;
 
 /**
  * Returns the max content width for chat/composer.
