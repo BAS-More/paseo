@@ -18,14 +18,17 @@ const APP_SETTINGS_QUERY_KEY = ["app-settings"];
 export type SendBehavior = "interrupt" | "queue";
 export type ReleaseChannel = "stable" | "beta";
 export type ServiceUrlBehavior = "ask" | "in-app" | "external";
+export type LayoutMode = "workspace" | "claude-desktop";
 
 const VALID_THEMES = new Set<string>([...Object.keys(THEME_TO_UNISTYLES), "auto"]);
 const VALID_SERVICE_URL_BEHAVIORS = new Set<ServiceUrlBehavior>(["ask", "in-app", "external"]);
+const VALID_LAYOUT_MODES = new Set<LayoutMode>(["workspace", "claude-desktop"]);
 
 export interface AppSettings {
   theme: ThemeName | "auto";
   sendBehavior: SendBehavior;
   serviceUrlBehavior: ServiceUrlBehavior;
+  layoutMode: LayoutMode;
 }
 
 export interface Settings extends AppSettings {
@@ -37,6 +40,7 @@ export const DEFAULT_CLIENT_SETTINGS: AppSettings = {
   theme: "auto",
   sendBehavior: "interrupt",
   serviceUrlBehavior: "ask",
+  layoutMode: "workspace",
 };
 
 export const DEFAULT_APP_SETTINGS: Settings = {
@@ -121,6 +125,9 @@ export function useSettings(): UseSettingsReturn {
       }
       if (updates.serviceUrlBehavior !== undefined) {
         appUpdates.serviceUrlBehavior = updates.serviceUrlBehavior;
+      }
+      if (updates.layoutMode !== undefined) {
+        appUpdates.layoutMode = updates.layoutMode;
       }
 
       const promises: Promise<void>[] = [];
@@ -245,6 +252,9 @@ function pickAppSettings(stored: Partial<AppSettings>): Partial<AppSettings> {
     VALID_SERVICE_URL_BEHAVIORS.has(stored.serviceUrlBehavior)
   ) {
     result.serviceUrlBehavior = stored.serviceUrlBehavior;
+  }
+  if (typeof stored.layoutMode === "string" && VALID_LAYOUT_MODES.has(stored.layoutMode)) {
+    result.layoutMode = stored.layoutMode;
   }
   return result;
 }
