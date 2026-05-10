@@ -85,7 +85,7 @@ Status: `[ ]` pending | `[~]` in progress | `[x]` done | `[!]` blocked
 - [x] **P7-03** Mobile/native: no hover actions (uses `isWeb` guard)
 - [x] **P7-04** Uses existing `TurnCopyButton` component for consistency
 - [x] **P7-05** Sidebar context menu pin action — `pinned-workspaces-store.ts` + Pin/Unpin in `WorkspaceKebabMenu`
-- [!] **P7-06** DEFERRED: Double-click inline rename — needs daemon workspace rename endpoint
+- [x] **P7-06** Double-click inline rename — daemon `rename_workspace_request` endpoint (`981e2b9c`) + TextInput swap on double-click (`7c0232c0`)
 - [x] **P7-07** Delete/archive — already exists in `WorkspaceRowWithMenu` (hide from sidebar + archive worktree)
 
 ---
@@ -96,8 +96,8 @@ Status: `[ ]` pending | `[~]` in progress | `[x]` done | `[!]` blocked
 - [x] **P8-02** Options: "Workspace" | "Claude Desktop"
 - [x] **P8-03** Handler persists `layoutMode` via `updateSettings()`
 - [x] **P8-04** All existing settings sections remain accessible
-- [!] **P8-05** DEFERRED: Settings as centered modal with backdrop blur — Paseo uses expo-router full-screen navigation; converting to modal overlay requires route restructuring + shared layout wrapper. Not a frontend-only change within current architecture.
-- [!] **P8-06** DEFERRED: Escape/backdrop dismiss for settings modal — depends on P8-05
+- [x] **P8-05** Settings as centered modal with backdrop blur — wraps desktop settings body in `modalStyles.backdrop` + `modalStyles.card` when claude-desktop mode (web only, `7c0232c0`)
+- [x] **P8-06** Escape/backdrop dismiss — `useEffect` keydown listener for Escape, `Pressable` backdrop `onPress` → `handleBackToWorkspace()` (`7c0232c0`)
 
 ---
 
@@ -132,11 +132,11 @@ Status: `[ ]` pending | `[~]` in progress | `[x]` done | `[!]` blocked
 | 4 — Sidebar Groups    | 3      | 3      | 0                | ✅ Complete |
 | 5 — Welcome           | 4      | 4      | 0                | ✅ Complete |
 | 6 — Thinking/Tools    | 3      | 3      | 0                | ✅ Complete |
-| 7 — Hover/Context     | 7      | 6      | 1                | 🟡 Partial  |
-| 8 — Settings          | 6      | 4      | 2                | 🟡 Partial  |
+| 7 — Hover/Context     | 7      | 7      | 0                | ✅ Complete |
+| 8 — Settings          | 6      | 6      | 0                | ✅ Complete |
 | 9 — Conversation Mgmt | 4      | 4      | 0                | ✅ Complete |
 | 10 — Tests/QA         | 6      | 6      | 0                | ✅ Complete |
-| **Total**             | **58** | **55** | **3**            | **95%**     |
+| **Total**             | **58** | **58** | **0**            | **100%**    |
 
 ---
 
