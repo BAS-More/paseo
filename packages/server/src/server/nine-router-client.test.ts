@@ -196,6 +196,469 @@ describe("NineRouterClient.getStatus", () => {
   });
 });
 
+// ─── Phase 1: Deep Client Tests (TDD RED) ─────────────────────────────────
+
+describe("NineRouterClient.getKeys", () => {
+  it("returns parsed key list from /api/keys", async () => {
+    const keys = [
+      {
+        id: "7e15ba66-4cba-4af7-ad04-c9cf7419cdab",
+        name: "Claude Code",
+        key: "sk-24e8fd7f-ue2itw-4ec08b64",
+        machineId: "24e8fd7fbdd1cb74",
+        isActive: true,
+        createdAt: "2026-04-19T14:23:47.005Z",
+      },
+    ];
+    const fetchFn = mockFetchOk({ keys });
+    const client = new NineRouterClient({ _fetchForTest: fetchFn });
+    const result = await client.getKeys();
+    expect(result).toEqual(keys);
+    expect(fetchFn).toHaveBeenCalledWith(expect.stringContaining("/api/keys"), expect.anything());
+  });
+
+  it("returns empty array on error", async () => {
+    const client = new NineRouterClient({ _fetchForTest: mockFetchError() });
+    const result = await client.getKeys();
+    expect(result).toEqual([]);
+  });
+
+  it("returns empty array on non-ok response", async () => {
+    const client = new NineRouterClient({ _fetchForTest: mockFetchNotOk() });
+    const result = await client.getKeys();
+    expect(result).toEqual([]);
+  });
+});
+
+describe("NineRouterClient.createKey", () => {
+  it("posts to /api/keys and returns new key", async () => {
+    const newKey = {
+      id: "new-id",
+      name: "Test Key",
+      key: "sk-new-key",
+      machineId: "abc123",
+      isActive: true,
+      createdAt: "2026-05-11T00:00:00.000Z",
+    };
+    const fetchFn = mockFetchOk(newKey);
+    const client = new NineRouterClient({ _fetchForTest: fetchFn });
+    const result = await client.createKey("Test Key");
+    expect(result).toEqual(newKey);
+    expect(fetchFn).toHaveBeenCalledWith(
+      expect.stringContaining("/api/keys"),
+      expect.objectContaining({
+        method: "POST",
+        headers: expect.objectContaining({ "Content-Type": "application/json" }),
+        body: JSON.stringify({ name: "Test Key" }),
+      }),
+    );
+  });
+
+  it("returns null on error", async () => {
+    const client = new NineRouterClient({ _fetchForTest: mockFetchError() });
+    const result = await client.createKey("Fail");
+    expect(result).toBeNull();
+  });
+});
+
+describe("NineRouterClient.deleteKey", () => {
+  it("sends DELETE to /api/keys/:id", async () => {
+    const fetchFn = mockFetchOk({ success: true });
+    const client = new NineRouterClient({ _fetchForTest: fetchFn });
+    const result = await client.deleteKey("key-123");
+    expect(result).toBe(true);
+    expect(fetchFn).toHaveBeenCalledWith(
+      expect.stringContaining("/api/keys/key-123"),
+      expect.objectContaining({ method: "DELETE" }),
+    );
+  });
+
+  it("returns false on error", async () => {
+    const client = new NineRouterClient({ _fetchForTest: mockFetchError() });
+    const result = await client.deleteKey("key-123");
+    expect(result).toBe(false);
+  });
+
+  it("returns false on non-ok response", async () => {
+    const client = new NineRouterClient({ _fetchForTest: mockFetchNotOk() });
+    const result = await client.deleteKey("key-123");
+    expect(result).toBe(false);
+  });
+});
+
+describe("NineRouterClient.getModels", () => {
+  it("returns model list from /api/models", async () => {
+    const models = [
+      {
+        provider: "cc",
+        model: "claude-sonnet-4-6",
+        name: "Claude Sonnet 4.6",
+        fullModel: "cc/claude-sonnet-4-6",
+        alias: "claude-sonnet-4-6",
+      },
+      {
+        provider: "cx",
+        model: "gpt-5.5",
+        name: "GPT 5.5",
+        fullModel: "cx/gpt-5.5",
+        alias: "gpt-5.5",
+      },
+    ];
+    const fetchFn = mockFetchOk({ models });
+    const client = new NineRouterClient({ _fetchForTest: fetchFn });
+    const result = await client.getModels();
+    expect(result).toEqual(models);
+    expect(fetchFn).toHaveBeenCalledWith(expect.stringContaining("/api/models"), expect.anything());
+  });
+
+  it("returns empty array on error", async () => {
+    const client = new NineRouterClient({ _fetchForTest: mockFetchError() });
+    const result = await client.getModels();
+    expect(result).toEqual([]);
+  });
+});
+
+describe("NineRouterClient.testModel", () => {
+  it("posts to /api/models/test and returns result", async () => {
+    const testResult = { success: true, latencyMs: 320, provider: "cc" };
+    const fetchFn = mockFetchOk(testResult);
+    const client = new NineRouterClient({ _fetchForTest: fetchFn });
+    const result = await client.testModel("cc/claude-sonnet-4-6");
+    expect(result).toEqual(testResult);
+    expect(fetchFn).toHaveBeenCalledWith(
+      expect.stringContaining("/api/models/test"),
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ model: "cc/claude-sonnet-4-6" }),
+      }),
+    );
+  });
+
+  it("returns failure result on error", async () => {
+    const client = new NineRouterClient({ _fetchForTest: mockFetchError() });
+    const result = await client.testModel("bad-model");
+    expect(result).toEqual({ success: false, latencyMs: 0, provider: "" });
+  });
+});
+
+describe("NineRouterClient.getModelAliases", () => {
+  it("returns alias map from /api/models/alias", async () => {
+    const aliases = {
+      free: "openrouter/openrouter/free",
+      "qwen3-coder:free": "openrouter/qwen/qwen3-coder:free",
+    };
+    const fetchFn = mockFetchOk({ aliases });
+    const client = new NineRouterClient({ _fetchForTest: fetchFn });
+    const result = await client.getModelAliases();
+    expect(result).toEqual(aliases);
+    expect(fetchFn).toHaveBeenCalledWith(
+      expect.stringContaining("/api/models/alias"),
+      expect.anything(),
+    );
+  });
+
+  it("returns empty object on error", async () => {
+    const client = new NineRouterClient({ _fetchForTest: mockFetchError() });
+    const result = await client.getModelAliases();
+    expect(result).toEqual({});
+  });
+});
+
+describe("NineRouterClient.setModelAlias", () => {
+  it("posts alias mapping to /api/models/alias", async () => {
+    const fetchFn = mockFetchOk({ success: true });
+    const client = new NineRouterClient({ _fetchForTest: fetchFn });
+    const result = await client.setModelAlias("my-alias", "cc/claude-sonnet-4-6");
+    expect(result).toBe(true);
+    expect(fetchFn).toHaveBeenCalledWith(
+      expect.stringContaining("/api/models/alias"),
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ alias: "my-alias", target: "cc/claude-sonnet-4-6" }),
+      }),
+    );
+  });
+
+  it("returns false on error", async () => {
+    const client = new NineRouterClient({ _fetchForTest: mockFetchError() });
+    const result = await client.setModelAlias("x", "y");
+    expect(result).toBe(false);
+  });
+});
+
+describe("NineRouterClient.getProviders", () => {
+  it("returns provider connections from /api/providers", async () => {
+    const connections = [
+      {
+        id: "conn-1",
+        provider: "claude",
+        authType: "oauth",
+        name: "avi770",
+        priority: 1,
+        isActive: true,
+        testStatus: "active",
+      },
+    ];
+    const fetchFn = mockFetchOk({ connections });
+    const client = new NineRouterClient({ _fetchForTest: fetchFn });
+    const result = await client.getProviders();
+    expect(result).toEqual(connections);
+    expect(fetchFn).toHaveBeenCalledWith(
+      expect.stringMatching(/\/api\/providers$/),
+      expect.anything(),
+    );
+  });
+
+  it("returns empty array on error", async () => {
+    const client = new NineRouterClient({ _fetchForTest: mockFetchError() });
+    const result = await client.getProviders();
+    expect(result).toEqual([]);
+  });
+});
+
+describe("NineRouterClient.validateProvider", () => {
+  it("posts to /api/providers/validate", async () => {
+    const validationResult = { valid: true, models: 5, latencyMs: 200 };
+    const fetchFn = mockFetchOk(validationResult);
+    const client = new NineRouterClient({ _fetchForTest: fetchFn });
+    const result = await client.validateProvider("conn-1");
+    expect(result).toEqual(validationResult);
+    expect(fetchFn).toHaveBeenCalledWith(
+      expect.stringContaining("/api/providers/validate"),
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ id: "conn-1" }),
+      }),
+    );
+  });
+
+  it("returns invalid on error", async () => {
+    const client = new NineRouterClient({ _fetchForTest: mockFetchError() });
+    const result = await client.validateProvider("bad");
+    expect(result).toEqual({ valid: false, models: 0, latencyMs: 0 });
+  });
+});
+
+describe("NineRouterClient.getSettings", () => {
+  it("returns settings from /api/settings", async () => {
+    const settings = {
+      cloudEnabled: false,
+      tunnelEnabled: false,
+      fallbackStrategy: "round-robin",
+      mitmEnabled: false,
+      observabilityEnabled: true,
+    };
+    const fetchFn = mockFetchOk(settings);
+    const client = new NineRouterClient({ _fetchForTest: fetchFn });
+    const result = await client.getSettings();
+    expect(result).toEqual(settings);
+    expect(fetchFn).toHaveBeenCalledWith(
+      expect.stringContaining("/api/settings"),
+      expect.anything(),
+    );
+  });
+
+  it("returns null on error", async () => {
+    const client = new NineRouterClient({ _fetchForTest: mockFetchError() });
+    const result = await client.getSettings();
+    expect(result).toBeNull();
+  });
+});
+
+describe("NineRouterClient.updateSettings", () => {
+  it("posts patch to /api/settings", async () => {
+    const fetchFn = mockFetchOk({ success: true });
+    const client = new NineRouterClient({ _fetchForTest: fetchFn });
+    const patch = { tunnelEnabled: true, tunnelUrl: "https://my.tunnel" };
+    const result = await client.updateSettings(patch);
+    expect(result).toBe(true);
+    expect(fetchFn).toHaveBeenCalledWith(
+      expect.stringContaining("/api/settings"),
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify(patch),
+      }),
+    );
+  });
+
+  it("returns false on error", async () => {
+    const client = new NineRouterClient({ _fetchForTest: mockFetchError() });
+    const result = await client.updateSettings({ foo: true });
+    expect(result).toBe(false);
+  });
+});
+
+describe("NineRouterClient.getCombos", () => {
+  it("returns combo list from /api/combos", async () => {
+    const combos = [
+      {
+        id: "combo-1",
+        name: "My-pool",
+        models: ["gh/claude-sonnet-4.5", "cx/gpt-5.3-codex-xhigh"],
+        createdAt: "2026-04-21T10:49:42.188Z",
+        updatedAt: "2026-04-21T10:49:42.188Z",
+      },
+    ];
+    const fetchFn = mockFetchOk({ combos });
+    const client = new NineRouterClient({ _fetchForTest: fetchFn });
+    const result = await client.getCombos();
+    expect(result).toEqual(combos);
+    expect(fetchFn).toHaveBeenCalledWith(expect.stringContaining("/api/combos"), expect.anything());
+  });
+
+  it("returns empty array on error", async () => {
+    const client = new NineRouterClient({ _fetchForTest: mockFetchError() });
+    const result = await client.getCombos();
+    expect(result).toEqual([]);
+  });
+});
+
+describe("NineRouterClient.createCombo", () => {
+  it("posts new combo to /api/combos", async () => {
+    const newCombo = {
+      id: "combo-new",
+      name: "Test Pool",
+      models: ["cc/claude-sonnet-4-6"],
+      createdAt: "2026-05-11T00:00:00.000Z",
+      updatedAt: "2026-05-11T00:00:00.000Z",
+    };
+    const fetchFn = mockFetchOk(newCombo);
+    const client = new NineRouterClient({ _fetchForTest: fetchFn });
+    const result = await client.createCombo({
+      name: "Test Pool",
+      models: ["cc/claude-sonnet-4-6"],
+    });
+    expect(result).toEqual(newCombo);
+    expect(fetchFn).toHaveBeenCalledWith(
+      expect.stringContaining("/api/combos"),
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ name: "Test Pool", models: ["cc/claude-sonnet-4-6"] }),
+      }),
+    );
+  });
+
+  it("returns null on error", async () => {
+    const client = new NineRouterClient({ _fetchForTest: mockFetchError() });
+    const result = await client.createCombo({ name: "x", models: [] });
+    expect(result).toBeNull();
+  });
+});
+
+describe("NineRouterClient.deleteCombo", () => {
+  it("sends DELETE to /api/combos/:id", async () => {
+    const fetchFn = mockFetchOk({ success: true });
+    const client = new NineRouterClient({ _fetchForTest: fetchFn });
+    const result = await client.deleteCombo("combo-123");
+    expect(result).toBe(true);
+    expect(fetchFn).toHaveBeenCalledWith(
+      expect.stringContaining("/api/combos/combo-123"),
+      expect.objectContaining({ method: "DELETE" }),
+    );
+  });
+
+  it("returns false on error", async () => {
+    const client = new NineRouterClient({ _fetchForTest: mockFetchError() });
+    const result = await client.deleteCombo("combo-123");
+    expect(result).toBe(false);
+  });
+});
+
+describe("NineRouterClient.getPricing", () => {
+  it("returns pricing map from /api/pricing", async () => {
+    const pricing = {
+      gh: { "gpt-5.3-codex": { input: 1.75, output: 14, cached: 0.175 } },
+    };
+    const fetchFn = mockFetchOk(pricing);
+    const client = new NineRouterClient({ _fetchForTest: fetchFn });
+    const result = await client.getPricing();
+    expect(result).toEqual(pricing);
+    expect(fetchFn).toHaveBeenCalledWith(
+      expect.stringContaining("/api/pricing"),
+      expect.anything(),
+    );
+  });
+
+  it("returns empty object on error", async () => {
+    const client = new NineRouterClient({ _fetchForTest: mockFetchError() });
+    const result = await client.getPricing();
+    expect(result).toEqual({});
+  });
+});
+
+describe("NineRouterClient.importOAuthToken", () => {
+  it("posts to /api/oauth/:provider/auto-import", async () => {
+    const importResult = { success: true, email: "user@test.com" };
+    const fetchFn = mockFetchOk(importResult);
+    const client = new NineRouterClient({ _fetchForTest: fetchFn });
+    const result = await client.importOAuthToken("cursor");
+    expect(result).toEqual(importResult);
+    expect(fetchFn).toHaveBeenCalledWith(
+      expect.stringContaining("/api/oauth/cursor/auto-import"),
+      expect.objectContaining({ method: "POST" }),
+    );
+  });
+
+  it("returns failure on error", async () => {
+    const client = new NineRouterClient({ _fetchForTest: mockFetchError() });
+    const result = await client.importOAuthToken("cursor");
+    expect(result).toEqual({ success: false });
+  });
+});
+
+describe("NineRouterClient.getCliToolSettings", () => {
+  it("returns settings for a CLI tool from /api/cli-tools/:tool-settings", async () => {
+    const settings = {
+      installed: true,
+      settings: { env: { ANTHROPIC_BASE_URL: "http://localhost:20128/v1" } },
+      has9Router: true,
+    };
+    const fetchFn = mockFetchOk(settings);
+    const client = new NineRouterClient({ _fetchForTest: fetchFn });
+    const result = await client.getCliToolSettings("claude");
+    expect(result).toEqual(settings);
+    expect(fetchFn).toHaveBeenCalledWith(
+      expect.stringContaining("/api/cli-tools/claude-settings"),
+      expect.anything(),
+    );
+  });
+
+  it("returns null on error", async () => {
+    const client = new NineRouterClient({ _fetchForTest: mockFetchError() });
+    const result = await client.getCliToolSettings("claude");
+    expect(result).toBeNull();
+  });
+
+  it("returns null on non-ok response", async () => {
+    const client = new NineRouterClient({ _fetchForTest: mockFetchNotOk() });
+    const result = await client.getCliToolSettings("claude");
+    expect(result).toBeNull();
+  });
+});
+
+describe("NineRouterClient.updateCliToolSettings", () => {
+  it("posts updated settings to /api/cli-tools/:tool-settings", async () => {
+    const fetchFn = mockFetchOk({ success: true });
+    const client = new NineRouterClient({ _fetchForTest: fetchFn });
+    const patch = { env: { ANTHROPIC_MODEL: "cc/claude-opus-4-7" } };
+    const result = await client.updateCliToolSettings("claude", patch);
+    expect(result).toBe(true);
+    expect(fetchFn).toHaveBeenCalledWith(
+      expect.stringContaining("/api/cli-tools/claude-settings"),
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify(patch),
+      }),
+    );
+  });
+
+  it("returns false on error", async () => {
+    const client = new NineRouterClient({ _fetchForTest: mockFetchError() });
+    const result = await client.updateCliToolSettings("claude", {});
+    expect(result).toBe(false);
+  });
+});
+
 describe("NineRouterClient configuration", () => {
   it("uses custom base URL", async () => {
     const fetchFn = mockFetchOk({ ok: true });
