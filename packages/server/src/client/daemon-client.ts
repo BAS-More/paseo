@@ -3175,6 +3175,111 @@ export class DaemonClient {
     });
   }
 
+  async getNineRouterKeys(requestId?: string): Promise<{
+    requestId: string;
+    keys: Array<{
+      id: string;
+      name: string;
+      key: string;
+      machineId: string;
+      isActive: boolean;
+      createdAt: string;
+    }>;
+  }> {
+    return this.sendCorrelatedSessionRequest({
+      requestId,
+      message: { type: "nine_router_keys_request" },
+      responseType: "nine_router_keys_response",
+      timeout: 10000,
+    });
+  }
+
+  async createNineRouterKey(
+    name: string,
+    requestId?: string,
+  ): Promise<{
+    requestId: string;
+    keys: Array<{
+      id: string;
+      name: string;
+      key: string;
+      machineId: string;
+      isActive: boolean;
+      createdAt: string;
+    }>;
+  }> {
+    return this.sendCorrelatedSessionRequest({
+      requestId,
+      message: { type: "nine_router_create_key_request", name },
+      responseType: "nine_router_keys_response",
+      timeout: 10000,
+    });
+  }
+
+  async deleteNineRouterKey(
+    keyId: string,
+    requestId?: string,
+  ): Promise<{
+    requestId: string;
+    keys: Array<{
+      id: string;
+      name: string;
+      key: string;
+      machineId: string;
+      isActive: boolean;
+      createdAt: string;
+    }>;
+  }> {
+    return this.sendCorrelatedSessionRequest({
+      requestId,
+      message: { type: "nine_router_delete_key_request", keyId },
+      responseType: "nine_router_keys_response",
+      timeout: 10000,
+    });
+  }
+
+  async getNineRouterModels(requestId?: string): Promise<{
+    requestId: string;
+    models: Array<{
+      provider: string;
+      model: string;
+      name: string;
+      fullModel: string;
+      alias: string;
+    }>;
+  }> {
+    return this.sendCorrelatedSessionRequest({
+      requestId,
+      message: { type: "nine_router_models_request" },
+      responseType: "nine_router_models_response",
+      timeout: 15000,
+    });
+  }
+
+  async getNineRouterProviders(requestId?: string): Promise<{
+    requestId: string;
+    providers: Array<{
+      id: string;
+      provider: string;
+      authType: string;
+      name: string;
+      priority: number;
+      isActive: boolean;
+      testStatus?: string;
+      email?: string;
+      expiresAt?: string;
+      lastUsedAt?: string;
+      lastError?: string;
+    }>;
+  }> {
+    return this.sendCorrelatedSessionRequest({
+      requestId,
+      message: { type: "nine_router_providers_request" },
+      responseType: "nine_router_providers_response",
+      timeout: 10000,
+    });
+  }
+
   async getSoiferBackendStatus(requestId?: string): Promise<{
     requestId: string;
     reachable: boolean;

@@ -9,6 +9,8 @@ import { AdaptiveTextInput } from "@/components/adaptive-modal-sheet";
 import { Button } from "@/components/ui/button";
 import { isWeb } from "@/constants/platform";
 import { SettingsSection } from "@/screens/settings/settings-section";
+import { NineRouterKeyManager } from "@/screens/settings/nine-router-key-manager";
+import { NineRouterProvidersPanel } from "@/screens/settings/nine-router-providers-panel";
 
 export interface NineRouterSectionProps {
   serverId: string | null;
@@ -185,12 +187,20 @@ export function NineRouterSection({ serverId }: NineRouterSectionProps) {
   }
 
   return (
-    <SettingsSection title="9Router">
-      <View style={settingsStyles.card}>
-        <CardContent status={status} isLoading={isLoading} error={error} />
-        <UrlConfigRow serverId={serverId} />
-      </View>
-    </SettingsSection>
+    <>
+      <SettingsSection title="9Router">
+        <View style={settingsStyles.card}>
+          <CardContent status={status} isLoading={isLoading} error={error} />
+          <UrlConfigRow serverId={serverId} />
+        </View>
+      </SettingsSection>
+      {status?.reachable ? (
+        <>
+          <NineRouterKeyManager serverId={serverId} />
+          <NineRouterProvidersPanel serverId={serverId} />
+        </>
+      ) : null}
+    </>
   );
 }
 

@@ -2188,6 +2188,21 @@ export class Session {
       case "nine_router_status_request":
         await this.handleNineRouterStatusRequest(msg.requestId);
         return;
+      case "nine_router_keys_request":
+        await this.handleNineRouterKeysRequest(msg.requestId);
+        return;
+      case "nine_router_create_key_request":
+        await this.handleNineRouterCreateKeyRequest(msg.requestId, msg.name);
+        return;
+      case "nine_router_delete_key_request":
+        await this.handleNineRouterDeleteKeyRequest(msg.requestId, msg.keyId);
+        return;
+      case "nine_router_models_request":
+        await this.handleNineRouterModelsRequest(msg.requestId);
+        return;
+      case "nine_router_providers_request":
+        await this.handleNineRouterProvidersRequest(msg.requestId);
+        return;
       case "soifer_backend_status_request":
         await this.handleSoiferBackendStatusRequest(msg.requestId);
         return;
@@ -2195,8 +2210,7 @@ export class Session {
   }
 
   private async handleNineRouterStatusRequest(requestId: string): Promise<void> {
-    const nineRouterUrl = this.daemonConfigStore.get().nineRouter?.url;
-    const client = new NineRouterClient(nineRouterUrl ? { baseUrl: nineRouterUrl } : undefined);
+    const client = this.createNineRouterClient();
     const status = await client.getStatus();
     this.emit({
       type: "nine_router_status_response",
@@ -2207,6 +2221,44 @@ export class Session {
         usage: status.usage,
       },
     });
+  }
+
+  private async handleNineRouterKeysRequest(requestId: string): Promise<void> {
+    const client = this.createNineRouterClient();
+    const keys = await client.getKeys();
+    this.emit({ type: "nine_router_keys_response", payload: { requestId, keys } });
+  }
+
+  private async handleNineRouterCreateKeyRequest(requestId: string, name: string): Promise<void> {
+    const client = this.createNineRouterClient();
+    await client.createKey(name);
+    // Re-fetch keys to return current list
+    const keys = await client.getKeys();
+    this.emit({ type: "nine_router_keys_response", payload: { requestId, keys } });
+  }
+
+  private async handleNineRouterDeleteKeyRequest(requestId: string, keyId: string): Promise<void> {
+    const client = this.createNineRouterClient();
+    await client.deleteKey(keyId);
+    const keys = await client.getKeys();
+    this.emit({ type: "nine_router_keys_response", payload: { requestId, keys } });
+  }
+
+  private async handleNineRouterModelsRequest(requestId: string): Promise<void> {
+    const client = this.createNineRouterClient();
+    const models = await client.getModels();
+    this.emit({ type: "nine_router_models_response", payload: { requestId, models } });
+  }
+
+  private async handleNineRouterProvidersRequest(requestId: string): Promise<void> {
+    const client = this.createNineRouterClient();
+    const providers = await client.getProviders();
+    this.emit({ type: "nine_router_providers_response", payload: { requestId, providers } });
+  }
+
+  private createNineRouterClient(): NineRouterClient {
+    const nineRouterUrl = this.daemonConfigStore.get().nineRouter?.url;
+    return new NineRouterClient(nineRouterUrl ? { baseUrl: nineRouterUrl } : undefined);
   }
 
   private async handleSoiferBackendStatusRequest(requestId: string): Promise<void> {
