@@ -51,6 +51,7 @@
     "test:ui": "vitest --ui",
     "test:e2e": "vitest run e2e.test.ts --maxWorkers=1 --minWorkers=1 --exclude \"**/*.real.e2e.test.ts\" --exclude \"**/*.local.e2e.test.ts\"",
     "test:e2e:all": "vitest run e2e.test.ts --maxWorkers=1 --minWorkers=1",
+    "test:e2e:providers": "vitest run --config vitest.config.e2e.ts",
     "test:e2e:real": "npm run test:integration:real",
     "test:e2e:local": "npm run test:integration:local",
     "test:e2e:ui": "vitest --ui e2e.test.ts"
