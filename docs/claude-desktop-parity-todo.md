@@ -105,7 +105,7 @@ Status: `[ ]` pending | `[~]` in progress | `[x]` done | `[!]` blocked
 
 - [x] **P9-01** Add search input at top of desktop sidebar (claude-desktop mode only) — filters by workspace name and project name
 - [x] **P9-02** Pinned workspaces store — `pinned-workspaces-store.ts` with Zustand + AsyncStorage persistence
-- [!] **P9-03** DEFERRED: Pinned conversations displayed above date groups in sidebar
+- [x] **P9-03** Pinned conversations displayed above date groups — "Pinned" section at top of `dateGroupedProjects`
 - [x] **P9-04** Pin state persistence — Set serialized to array in AsyncStorage, deserialized on hydration
 
 ---
@@ -134,9 +134,9 @@ Status: `[ ]` pending | `[~]` in progress | `[x]` done | `[!]` blocked
 | 6 — Thinking/Tools    | 3      | 3      | 0                | ✅ Complete |
 | 7 — Hover/Context     | 7      | 6      | 1                | 🟡 Partial  |
 | 8 — Settings          | 6      | 4      | 2                | 🟡 Partial  |
-| 9 — Conversation Mgmt | 4      | 3      | 1                | 🟡 Partial  |
+| 9 — Conversation Mgmt | 4      | 4      | 0                | ✅ Complete |
 | 10 — Tests/QA         | 6      | 5      | 0                | 🟡 Partial  |
-| **Total**             | **58** | **53** | **4**            | **91%**     |
+| **Total**             | **58** | **54** | **3**            | **93%**     |
 
 ---
 
