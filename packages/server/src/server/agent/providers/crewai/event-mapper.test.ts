@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { mapCrewAiSseToStreamEvents, type CrewAiSseEvent } from "./event-mapper.js";
+import { mapCrewAiSseToStreamEvents, parseSseLine, type CrewAiSseEvent } from "./event-mapper.js";
 
 const PROVIDER = "crewai";
 const TURN_ID = "turn-1";
@@ -65,5 +65,34 @@ describe("CrewAI event mapper", () => {
     const event = { type: "unknown_type" } as unknown as CrewAiSseEvent;
     const result = mapCrewAiSseToStreamEvents(event, { provider: PROVIDER, turnId: TURN_ID });
     expect(result).toEqual([]);
+  });
+});
+
+describe("parseSseLine", () => {
+  it("parses valid SSE data line", () => {
+    const result = parseSseLine('data: {"type":"status","message":"hello"}');
+    expect(result).toEqual({ type: "status", message: "hello" });
+  });
+
+  it("returns null for non-data lines", () => {
+    expect(parseSseLine("event: message")).toBeNull();
+    expect(parseSseLine("")).toBeNull();
+    expect(parseSseLine("   ")).toBeNull();
+    expect(parseSseLine("id: 123")).toBeNull();
+  });
+
+  it("parses [DONE] signal", () => {
+    const result = parseSseLine("data: [DONE]");
+    expect(result).toEqual({ type: "done" });
+  });
+
+  it("returns null for malformed JSON", () => {
+    const result = parseSseLine("data: {invalid json}");
+    expect(result).toBeNull();
+  });
+
+  it("handles whitespace around data line", () => {
+    const result = parseSseLine('  data: {"type":"error","message":"fail"}  ');
+    expect(result).toEqual({ type: "error", message: "fail" });
   });
 });

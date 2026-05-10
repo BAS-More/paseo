@@ -152,6 +152,27 @@ describe("OccAgentClient", () => {
       expect(capturedArgs).toContain("--output-format");
       expect(capturedArgs).toContain("stream-json");
     });
+
+    it("passes --agents flag when agentsPath is set", async () => {
+      let capturedArgs: string[] = [];
+      const mockProc = createMockProcess();
+      const c = new OccAgentClient({
+        logger,
+        agentsPath: "/path/to/agents.json",
+        _spawnForTest: (_cmd, args) => {
+          capturedArgs = args ?? [];
+          return mockProc;
+        },
+      });
+
+      await c.createSession({
+        provider: OCC_PROVIDER_ID,
+        cwd: "/test/project",
+      });
+
+      expect(capturedArgs).toContain("--agents");
+      expect(capturedArgs).toContain("/path/to/agents.json");
+    });
   });
 
   describe("resumeSession", () => {
@@ -377,6 +398,208 @@ describe("OccAgentSession", () => {
 
     await runPromise;
     expect(events.some((e) => e.type === "turn_failed")).toBe(true);
+  });
+});
+
+describe("OccAgentSession — gap-fill coverage", () => {
+  let logger: Logger;
+
+  beforeEach(() => {
+    logger = createMockLogger();
+  });
+
+  it("streamHistory yields nothing", async () => {
+    const mockProc = createMockProcess();
+    const client = new OccAgentClient({ logger, _spawnForTest: () => mockProc });
+    const session = await client.createSession({ provider: OCC_PROVIDER_ID, cwd: "/test" });
+    const events: AgentStreamEvent[] = [];
+    for await (const e of session.streamHistory()) {
+      events.push(e);
+    }
+    expect(events).toHaveLength(0);
+  });
+
+  it("getAvailableModes returns empty array", async () => {
+    const mockProc = createMockProcess();
+    const client = new OccAgentClient({ logger, _spawnForTest: () => mockProc });
+    const session = await client.createSession({ provider: OCC_PROVIDER_ID, cwd: "/test" });
+    expect(await session.getAvailableModes()).toEqual([]);
+  });
+
+  it("getCurrentMode returns null", async () => {
+    const mockProc = createMockProcess();
+    const client = new OccAgentClient({ logger, _spawnForTest: () => mockProc });
+    const session = await client.createSession({ provider: OCC_PROVIDER_ID, cwd: "/test" });
+    expect(await session.getCurrentMode()).toBeNull();
+  });
+
+  it("setMode is a no-op", async () => {
+    const mockProc = createMockProcess();
+    const client = new OccAgentClient({ logger, _spawnForTest: () => mockProc });
+    const session = await client.createSession({ provider: OCC_PROVIDER_ID, cwd: "/test" });
+    await expect(session.setMode("plan")).resolves.toBeUndefined();
+  });
+
+  it("getPendingPermissions returns empty initially", async () => {
+    const mockProc = createMockProcess();
+    const client = new OccAgentClient({ logger, _spawnForTest: () => mockProc });
+    const session = await client.createSession({ provider: OCC_PROVIDER_ID, cwd: "/test" });
+    expect(session.getPendingPermissions()).toEqual([]);
+  });
+
+  it("respondToPermission emits permission_resolved", async () => {
+    const mockProc = createMockProcess();
+    const client = new OccAgentClient({ logger, _spawnForTest: () => mockProc });
+    const session = await client.createSession({ provider: OCC_PROVIDER_ID, cwd: "/test" });
+
+    const events: AgentStreamEvent[] = [];
+    session.subscribe((e) => events.push(e));
+
+    await session.respondToPermission("req-1", { allow: true });
+    expect(events.some((e) => e.type === "permission_resolved")).toBe(true);
+  });
+
+  it("describePersistence returns provider and sessionId", async () => {
+    const mockProc = createMockProcess();
+    const client = new OccAgentClient({ logger, _spawnForTest: () => mockProc });
+    const session = await client.createSession({ provider: OCC_PROVIDER_ID, cwd: "/test" });
+    const handle = session.describePersistence();
+    expect(handle).not.toBeNull();
+    expect(handle!.provider).toBe(OCC_PROVIDER_ID);
+    expect(handle!.sessionId).toMatch(/^occ-/);
+  });
+
+  it("processLine with malformed JSON emits raw text as timeline", async () => {
+    const mockProc = createMockProcess();
+    const client = new OccAgentClient({ logger, _spawnForTest: () => mockProc });
+    const session = await client.createSession({ provider: OCC_PROVIDER_ID, cwd: "/test" });
+
+    const events: AgentStreamEvent[] = [];
+    session.subscribe((e) => events.push(e));
+
+    mockProc.stdout!.emit("data", Buffer.from("not valid json\n"));
+    await new Promise((r) => setTimeout(r, 10));
+
+    const textEvents = events.filter(
+      (e) => e.type === "timeline" && "item" in e && e.item.type === "assistant_message",
+    );
+    expect(textEvents.length).toBeGreaterThan(0);
+  });
+
+  it("extracts session ID from system/init event", async () => {
+    const mockProc = createMockProcess();
+    const client = new OccAgentClient({ logger, _spawnForTest: () => mockProc });
+    const session = await client.createSession({ provider: OCC_PROVIDER_ID, cwd: "/test" });
+
+    mockProc.stdout!.emit(
+      "data",
+      Buffer.from(
+        JSON.stringify({
+          type: "system",
+          subtype: "init",
+          session_id: "occ-custom-session-42",
+        }) + "\n",
+      ),
+    );
+
+    await new Promise((r) => setTimeout(r, 10));
+    const handle = session.describePersistence();
+    expect(handle!.sessionId).toBe("occ-custom-session-42");
+  });
+
+  it("startTurn with array prompt extracts text blocks", async () => {
+    const mockProc1 = createMockProcess();
+    const mockProc2 = createMockProcess();
+    const mockSpawn = vi.fn().mockReturnValueOnce(mockProc1).mockReturnValueOnce(mockProc2);
+    const client = new OccAgentClient({ logger, _spawnForTest: mockSpawn });
+    const session = await client.createSession({ provider: OCC_PROVIDER_ID, cwd: "/test" });
+
+    await session.startTurn([
+      { type: "text", text: "part 1" },
+      { type: "text", text: "part 2" },
+    ]);
+
+    const secondCallArgs = mockSpawn.mock.calls[1][1] as string[];
+    const promptIndex = secondCallArgs.indexOf("-p");
+    expect(secondCallArgs[promptIndex + 1]).toBe("part 1\npart 2");
+  });
+
+  it("process error event emits turn_failed", async () => {
+    const mockProc = createMockProcess();
+    const client = new OccAgentClient({ logger, _spawnForTest: () => mockProc });
+    const session = await client.createSession({ provider: OCC_PROVIDER_ID, cwd: "/test" });
+
+    const events: AgentStreamEvent[] = [];
+    session.subscribe((e) => events.push(e));
+
+    mockProc.emit("error", new Error("spawn ENOENT"));
+    await new Promise((r) => setTimeout(r, 10));
+
+    expect(events.some((e) => e.type === "turn_failed")).toBe(true);
+  });
+
+  it("remaining lineBuffer processed on close", async () => {
+    const mockProc = createMockProcess();
+    const client = new OccAgentClient({ logger, _spawnForTest: () => mockProc });
+    const session = await client.createSession({ provider: OCC_PROVIDER_ID, cwd: "/test" });
+
+    const events: AgentStreamEvent[] = [];
+    session.subscribe((e) => events.push(e));
+
+    // Send data without trailing newline (stays in buffer)
+    mockProc.stdout!.emit(
+      "data",
+      Buffer.from(JSON.stringify({ type: "stream_event", text: "buffered" })),
+    );
+    // Close should flush the buffer
+    mockProc.emit("close", 0);
+    await new Promise((r) => setTimeout(r, 10));
+
+    expect(events.some((e) => e.type === "timeline")).toBe(true);
+  });
+
+  it("permission_requested event is tracked in pendingPermissions", async () => {
+    const mockProc = createMockProcess();
+    const client = new OccAgentClient({ logger, _spawnForTest: () => mockProc });
+    const session = await client.createSession({ provider: OCC_PROVIDER_ID, cwd: "/test" });
+
+    const events: AgentStreamEvent[] = [];
+    session.subscribe((e) => events.push(e));
+
+    mockProc.stdout!.emit(
+      "data",
+      Buffer.from(
+        JSON.stringify({
+          type: "permission_request",
+          request_id: "req-1",
+          tool_name: "Bash",
+          input: { command: "ls" },
+        }) + "\n",
+      ),
+    );
+    await new Promise((r) => setTimeout(r, 10));
+
+    expect(events.some((e) => e.type === "permission_requested")).toBe(true);
+    expect(session.getPendingPermissions().length).toBe(1);
+    expect(session.getPendingPermissions()[0].id).toBe("req-1");
+  });
+
+  it("startTurn with agentsPath passes --agents to respawned process", async () => {
+    const mockProc1 = createMockProcess();
+    const mockProc2 = createMockProcess();
+    const mockSpawn = vi.fn().mockReturnValueOnce(mockProc1).mockReturnValueOnce(mockProc2);
+    const client = new OccAgentClient({
+      logger,
+      agentsPath: "/my/agents.json",
+      _spawnForTest: mockSpawn,
+    });
+    const session = await client.createSession({ provider: OCC_PROVIDER_ID, cwd: "/test" });
+
+    await session.startTurn("next prompt");
+
+    const secondCallArgs = mockSpawn.mock.calls[1][1] as string[];
+    expect(secondCallArgs).toContain("--agents");
+    expect(secondCallArgs).toContain("/my/agents.json");
   });
 });
 

@@ -301,6 +301,268 @@ describe("GeminiAgentClient uses spawnProcess by default", () => {
   });
 });
 
+describe("GeminiAgentSession — gap-fill coverage", () => {
+  let logger: Logger;
+
+  beforeEach(() => {
+    logger = createMockLogger();
+  });
+
+  it("streamHistory yields nothing", async () => {
+    const mockProc = createMockProcess();
+    const client = new GeminiAgentClient({ logger, _spawnForTest: () => mockProc });
+    const session = await client.createSession({ provider: GEMINI_PROVIDER_ID, cwd: "." });
+    const events: unknown[] = [];
+    for await (const e of session.streamHistory()) {
+      events.push(e);
+    }
+    expect(events).toHaveLength(0);
+  });
+
+  it("getAvailableModes returns empty array", async () => {
+    const mockProc = createMockProcess();
+    const client = new GeminiAgentClient({ logger, _spawnForTest: () => mockProc });
+    const session = await client.createSession({ provider: GEMINI_PROVIDER_ID, cwd: "." });
+    expect(await session.getAvailableModes()).toEqual([]);
+  });
+
+  it("getCurrentMode returns null", async () => {
+    const mockProc = createMockProcess();
+    const client = new GeminiAgentClient({ logger, _spawnForTest: () => mockProc });
+    const session = await client.createSession({ provider: GEMINI_PROVIDER_ID, cwd: "." });
+    expect(await session.getCurrentMode()).toBeNull();
+  });
+
+  it("setMode is a no-op", async () => {
+    const mockProc = createMockProcess();
+    const client = new GeminiAgentClient({ logger, _spawnForTest: () => mockProc });
+    const session = await client.createSession({ provider: GEMINI_PROVIDER_ID, cwd: "." });
+    await expect(session.setMode("plan")).resolves.toBeUndefined();
+  });
+
+  it("getPendingPermissions returns empty", async () => {
+    const mockProc = createMockProcess();
+    const client = new GeminiAgentClient({ logger, _spawnForTest: () => mockProc });
+    const session = await client.createSession({ provider: GEMINI_PROVIDER_ID, cwd: "." });
+    expect(session.getPendingPermissions()).toEqual([]);
+  });
+
+  it("respondToPermission is a no-op", async () => {
+    const mockProc = createMockProcess();
+    const client = new GeminiAgentClient({ logger, _spawnForTest: () => mockProc });
+    const session = await client.createSession({ provider: GEMINI_PROVIDER_ID, cwd: "." });
+    await expect(session.respondToPermission("req-1", { allow: true })).resolves.toBeUndefined();
+  });
+
+  it("describePersistence returns provider and sessionId", async () => {
+    const mockProc = createMockProcess();
+    const client = new GeminiAgentClient({ logger, _spawnForTest: () => mockProc });
+    const session = await client.createSession({ provider: GEMINI_PROVIDER_ID, cwd: "." });
+    const handle = session.describePersistence();
+    expect(handle).not.toBeNull();
+    expect(handle!.provider).toBe(GEMINI_PROVIDER_ID);
+    expect(handle!.sessionId).toMatch(/^gemini-/);
+  });
+
+  it("processLine with malformed JSON is silently ignored", async () => {
+    const mockProc = createMockProcess();
+    const client = new GeminiAgentClient({ logger, _spawnForTest: () => mockProc });
+    const session = await client.createSession({ provider: GEMINI_PROVIDER_ID, cwd: "." });
+
+    const events: unknown[] = [];
+    session.subscribe((e) => events.push(e));
+
+    mockProc.stdout.emit("data", Buffer.from("not valid json\n"));
+    await new Promise((r) => setTimeout(r, 10));
+
+    // Malformed JSON should NOT produce events (unlike OCC which emits raw text)
+    const failEvents = events.filter((e) => (e as Record<string, unknown>).type === "turn_failed");
+    expect(failEvents).toHaveLength(0);
+  });
+
+  it("stderr DeprecationWarning is filtered out", async () => {
+    const mockProc = createMockProcess();
+    const client = new GeminiAgentClient({ logger, _spawnForTest: () => mockProc });
+    const session = await client.createSession({ provider: GEMINI_PROVIDER_ID, cwd: "." });
+
+    const events: unknown[] = [];
+    session.subscribe((e) => events.push(e));
+
+    mockProc.stderr.emit("data", Buffer.from("DeprecationWarning: some old api\n"));
+    await new Promise((r) => setTimeout(r, 10));
+
+    const failEvents = events.filter((e) => (e as Record<string, unknown>).type === "turn_failed");
+    expect(failEvents).toHaveLength(0);
+  });
+
+  it("stderr 'Loaded cached credentials' is filtered out", async () => {
+    const mockProc = createMockProcess();
+    const client = new GeminiAgentClient({ logger, _spawnForTest: () => mockProc });
+    const session = await client.createSession({ provider: GEMINI_PROVIDER_ID, cwd: "." });
+
+    const events: unknown[] = [];
+    session.subscribe((e) => events.push(e));
+
+    mockProc.stderr.emit("data", Buffer.from("Loaded cached credentials for user\n"));
+    await new Promise((r) => setTimeout(r, 10));
+
+    const failEvents = events.filter((e) => (e as Record<string, unknown>).type === "turn_failed");
+    expect(failEvents).toHaveLength(0);
+  });
+
+  it("session ID extracted from init event", async () => {
+    const mockProc = createMockProcess();
+    const client = new GeminiAgentClient({ logger, _spawnForTest: () => mockProc });
+    const session = await client.createSession({ provider: GEMINI_PROVIDER_ID, cwd: "." });
+
+    mockProc.stdout.emit(
+      "data",
+      Buffer.from(JSON.stringify({ type: "init", session_id: "gemini-custom-42" }) + "\n"),
+    );
+    await new Promise((r) => setTimeout(r, 10));
+
+    const handle = session.describePersistence();
+    expect(handle!.sessionId).toBe("gemini-custom-42");
+  });
+
+  it("startTurn with array prompt extracts text blocks", async () => {
+    const mockProc1 = createMockProcess();
+    const mockProc2 = createMockProcess();
+    const mockSpawn = vi.fn().mockReturnValueOnce(mockProc1).mockReturnValueOnce(mockProc2);
+    const client = new GeminiAgentClient({ logger, _spawnForTest: mockSpawn });
+    const session = await client.createSession({ provider: GEMINI_PROVIDER_ID, cwd: "." });
+
+    await session.startTurn([
+      { type: "text", text: "part 1" },
+      { type: "text", text: "part 2" },
+    ]);
+
+    const secondCallArgs = mockSpawn.mock.calls[1][1] as string[];
+    const promptIndex = secondCallArgs.indexOf("--prompt");
+    expect(secondCallArgs[promptIndex + 1]).toBe("part 1\npart 2");
+  });
+
+  it("process error emits turn_failed", async () => {
+    const mockProc = createMockProcess();
+    const client = new GeminiAgentClient({ logger, _spawnForTest: () => mockProc });
+    const session = await client.createSession({ provider: GEMINI_PROVIDER_ID, cwd: "." });
+
+    const events: unknown[] = [];
+    session.subscribe((e) => events.push(e));
+
+    mockProc.emit("error", new Error("spawn ENOENT"));
+    await new Promise((r) => setTimeout(r, 10));
+
+    expect(events.some((e) => (e as Record<string, unknown>).type === "turn_failed")).toBe(true);
+  });
+
+  it("non-zero exit code emits turn_failed", async () => {
+    const mockProc = createMockProcess();
+    const client = new GeminiAgentClient({ logger, _spawnForTest: () => mockProc });
+    const session = await client.createSession({ provider: GEMINI_PROVIDER_ID, cwd: "." });
+
+    const events: unknown[] = [];
+    session.subscribe((e) => events.push(e));
+
+    mockProc.emit("close", 1);
+    await new Promise((r) => setTimeout(r, 10));
+
+    const failEvents = events.filter((e) => (e as Record<string, unknown>).type === "turn_failed");
+    expect(failEvents.length).toBeGreaterThan(0);
+  });
+
+  it("remaining lineBuffer flushed on close", async () => {
+    const mockProc = createMockProcess();
+    const client = new GeminiAgentClient({ logger, _spawnForTest: () => mockProc });
+    const session = await client.createSession({ provider: GEMINI_PROVIDER_ID, cwd: "." });
+
+    const events: unknown[] = [];
+    session.subscribe((e) => events.push(e));
+
+    // Send data without trailing newline (stays in buffer)
+    mockProc.stdout.emit(
+      "data",
+      Buffer.from(
+        JSON.stringify({ type: "message", role: "assistant", content: "buffered", delta: true }),
+      ),
+    );
+    // Close should flush the buffer
+    mockProc.emit("close", 0);
+    await new Promise((r) => setTimeout(r, 10));
+
+    expect(events.some((e) => (e as Record<string, unknown>).type === "timeline")).toBe(true);
+  });
+
+  it("run resolves on turn_failed too", async () => {
+    const mockProc1 = createMockProcess();
+    const mockProc2 = createMockProcess();
+    const mockSpawn = vi.fn().mockReturnValueOnce(mockProc1).mockReturnValueOnce(mockProc2);
+    const client = new GeminiAgentClient({ logger, _spawnForTest: mockSpawn });
+    const session = await client.createSession({ provider: GEMINI_PROVIDER_ID, cwd: "." });
+
+    const runPromise = session.run("test");
+    await new Promise((r) => setTimeout(r, 10));
+    mockProc2.emit("close", 1);
+
+    const result = await runPromise;
+    expect(result.sessionId).toBeTruthy();
+  });
+
+  it("isAvailable returns false when spawnSync throws", async () => {
+    const client = new GeminiAgentClient({
+      logger,
+      _spawnSyncForTest: () => {
+        throw new Error("ENOENT");
+      },
+    });
+    const available = await client.isAvailable();
+    expect(available).toBe(false);
+  });
+
+  it("resumeSession passes overrides", async () => {
+    const mockProc = createMockProcess();
+    const mockSpawn = vi.fn().mockReturnValue(mockProc);
+    const client = new GeminiAgentClient({ logger, _spawnForTest: mockSpawn });
+    const session = await client.resumeSession(
+      { provider: GEMINI_PROVIDER_ID, sessionId: "gemini-old" },
+      { model: "gemini-2.5-pro", cwd: "/project" },
+    );
+    expect(session.id).toBe("gemini-old");
+    const args = mockSpawn.mock.calls[0][1] as string[];
+    expect(args).toContain("--model");
+    expect(args).toContain("gemini-2.5-pro");
+  });
+
+  it("createSession with systemPrompt passes --prompt", async () => {
+    const mockProc = createMockProcess();
+    const mockSpawn = vi.fn().mockReturnValue(mockProc);
+    const client = new GeminiAgentClient({ logger, _spawnForTest: mockSpawn });
+    await client.createSession({
+      provider: GEMINI_PROVIDER_ID,
+      cwd: ".",
+      systemPrompt: "You are a helpful assistant",
+    });
+    const args = mockSpawn.mock.calls[0][1] as string[];
+    expect(args).toContain("--prompt");
+    expect(args).toContain("You are a helpful assistant");
+  });
+
+  it("empty stderr is ignored", async () => {
+    const mockProc = createMockProcess();
+    const client = new GeminiAgentClient({ logger, _spawnForTest: () => mockProc });
+    const session = await client.createSession({ provider: GEMINI_PROVIDER_ID, cwd: "." });
+
+    const events: unknown[] = [];
+    session.subscribe((e) => events.push(e));
+
+    mockProc.stderr.emit("data", Buffer.from("   \n"));
+    await new Promise((r) => setTimeout(r, 10));
+
+    const failEvents = events.filter((e) => (e as Record<string, unknown>).type === "turn_failed");
+    expect(failEvents).toHaveLength(0);
+  });
+});
+
 describe("GeminiAgentClient MCP config injection", () => {
   it("passes --mcp-config when ~/.gemini.json has mcpServers", async () => {
     const mockProcess = createMockProcess();

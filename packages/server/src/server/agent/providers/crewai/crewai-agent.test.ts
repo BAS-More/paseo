@@ -1,6 +1,6 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import type { Logger } from "pino";
-
+import type { AgentStreamEvent } from "../../agent-sdk-types.js";
 import { CrewAiAgentClient, CREWAI_PROVIDER_ID, CREWAI_CAPABILITIES } from "../crewai-agent.js";
 
 function createMockLogger(): Logger {
@@ -120,5 +120,212 @@ describe("CrewAiAgentClient with mock fetch", () => {
     const c = new CrewAiAgentClient({ logger, _fetchForTest: mockFetch });
     const models = await c.listModels({ cwd: ".", force: false });
     expect(models[0].isDefault).toBe(true);
+  });
+});
+
+function createSseStream(...lines: string[]) {
+  const encoder = new globalThis.TextEncoder();
+  const chunks = lines.map((l) => encoder.encode(l + "\n"));
+  let i = 0;
+  return new ReadableStream({
+    pull(controller) {
+      if (i < chunks.length) {
+        controller.enqueue(chunks[i]!);
+        i++;
+      } else {
+        controller.close();
+      }
+    },
+  });
+}
+
+describe("CrewAiAgentSession", () => {
+  let logger: Logger;
+
+  beforeEach(() => {
+    logger = createMockLogger();
+  });
+
+  it("createSession returns session with correct provider and id", async () => {
+    const mockFetch = vi.fn();
+    const client = new CrewAiAgentClient({ logger, _fetchForTest: mockFetch });
+    const session = await client.createSession({ model: "crew-1", systemPrompt: "", maxTurns: 1 });
+    expect(session.provider).toBe(CREWAI_PROVIDER_ID);
+    expect(session.id).toMatch(/^crewai-/);
+    await session.close();
+  });
+
+  it("startTurn emits turn_started and streams SSE events", async () => {
+    const stream = createSseStream(
+      'data: {"type":"status","message":"Starting crew run..."}',
+      'data: {"type":"result","output":"Done!"}',
+      "data: [DONE]",
+    );
+
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      body: stream,
+    });
+
+    const client = new CrewAiAgentClient({ logger, _fetchForTest: mockFetch });
+    const session = await client.createSession({ model: "crew-1", systemPrompt: "", maxTurns: 1 });
+
+    const events: AgentStreamEvent[] = [];
+    session.subscribe((e) => events.push(e));
+
+    await session.startTurn("test prompt");
+    // Wait for SSE processing
+    await new Promise((r) => setTimeout(r, 200));
+
+    expect(events[0]!.type).toBe("turn_started");
+    expect(events.some((e) => e.type === "timeline")).toBe(true);
+    expect(events.some((e) => e.type === "turn_completed")).toBe(true);
+
+    await session.close();
+  });
+
+  it("startTurn emits turn_failed on non-ok response", async () => {
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 404,
+      body: null,
+    });
+
+    const client = new CrewAiAgentClient({ logger, _fetchForTest: mockFetch });
+    const session = await client.createSession({ model: "crew-1", systemPrompt: "", maxTurns: 1 });
+
+    const events: AgentStreamEvent[] = [];
+    session.subscribe((e) => events.push(e));
+
+    await session.startTurn("test");
+    await new Promise((r) => setTimeout(r, 200));
+
+    expect(events.some((e) => e.type === "turn_failed")).toBe(true);
+    await session.close();
+  });
+
+  it("run resolves when turn_completed is emitted", async () => {
+    const stream = createSseStream('data: {"type":"result","output":"Answer"}', "data: [DONE]");
+
+    const mockFetch = vi.fn().mockResolvedValue({ ok: true, body: stream });
+
+    const client = new CrewAiAgentClient({ logger, _fetchForTest: mockFetch });
+    const session = await client.createSession({ model: "crew-1", systemPrompt: "", maxTurns: 1 });
+
+    const result = await session.run("test prompt");
+    expect(result.sessionId).toMatch(/^crewai-/);
+
+    await session.close();
+  });
+
+  it("interrupt aborts the stream", async () => {
+    function createAbortableFetch(_url: string, opts: { signal: AbortSignal }) {
+      return new Promise((_resolve, reject) => {
+        opts.signal.addEventListener("abort", () => reject(new Error("aborted")));
+      });
+    }
+    const mockFetch = vi.fn().mockImplementation(createAbortableFetch);
+
+    const client = new CrewAiAgentClient({ logger, _fetchForTest: mockFetch });
+    const session = await client.createSession({ model: "crew-1", systemPrompt: "", maxTurns: 1 });
+
+    await session.startTurn("long task");
+    await session.interrupt();
+    // Should not throw
+    await session.close();
+  });
+
+  it("streamHistory yields nothing", async () => {
+    const client = new CrewAiAgentClient({ logger, _fetchForTest: vi.fn() });
+    const session = await client.createSession({ model: "c", systemPrompt: "", maxTurns: 1 });
+    const events: AgentStreamEvent[] = [];
+    for await (const e of session.streamHistory()) {
+      events.push(e);
+    }
+    expect(events).toHaveLength(0);
+    await session.close();
+  });
+
+  it("getRuntimeInfo returns provider and session info", async () => {
+    const client = new CrewAiAgentClient({ logger, _fetchForTest: vi.fn() });
+    const session = await client.createSession({ model: "crew-x", systemPrompt: "", maxTurns: 1 });
+    const info = await session.getRuntimeInfo();
+    expect(info.provider).toBe(CREWAI_PROVIDER_ID);
+    expect(info.model).toBe("crew-x");
+    await session.close();
+  });
+
+  it("getAvailableModes returns empty array", async () => {
+    const client = new CrewAiAgentClient({ logger, _fetchForTest: vi.fn() });
+    const session = await client.createSession({ model: "c", systemPrompt: "", maxTurns: 1 });
+    expect(await session.getAvailableModes()).toEqual([]);
+    await session.close();
+  });
+
+  it("getCurrentMode returns null", async () => {
+    const client = new CrewAiAgentClient({ logger, _fetchForTest: vi.fn() });
+    const session = await client.createSession({ model: "c", systemPrompt: "", maxTurns: 1 });
+    expect(await session.getCurrentMode()).toBeNull();
+    await session.close();
+  });
+
+  it("setMode is a no-op", async () => {
+    const client = new CrewAiAgentClient({ logger, _fetchForTest: vi.fn() });
+    const session = await client.createSession({ model: "c", systemPrompt: "", maxTurns: 1 });
+    await expect(session.setMode("plan")).resolves.toBeUndefined();
+    await session.close();
+  });
+
+  it("getPendingPermissions returns empty", async () => {
+    const client = new CrewAiAgentClient({ logger, _fetchForTest: vi.fn() });
+    const session = await client.createSession({ model: "c", systemPrompt: "", maxTurns: 1 });
+    expect(session.getPendingPermissions()).toEqual([]);
+    await session.close();
+  });
+
+  it("respondToPermission is a no-op", async () => {
+    const client = new CrewAiAgentClient({ logger, _fetchForTest: vi.fn() });
+    const session = await client.createSession({ model: "c", systemPrompt: "", maxTurns: 1 });
+    await expect(session.respondToPermission("req-1", { allow: true })).resolves.toBeUndefined();
+    await session.close();
+  });
+
+  it("describePersistence returns null", async () => {
+    const client = new CrewAiAgentClient({ logger, _fetchForTest: vi.fn() });
+    const session = await client.createSession({ model: "c", systemPrompt: "", maxTurns: 1 });
+    expect(session.describePersistence()).toBeNull();
+    await session.close();
+  });
+
+  it("startTurn handles array prompt input", async () => {
+    const stream = createSseStream('data: {"type":"result","output":"ok"}', "data: [DONE]");
+    const mockFetch = vi.fn().mockResolvedValue({ ok: true, body: stream });
+
+    const client = new CrewAiAgentClient({ logger, _fetchForTest: mockFetch });
+    const session = await client.createSession({ model: "c", systemPrompt: "", maxTurns: 1 });
+
+    const events: AgentStreamEvent[] = [];
+    session.subscribe((e) => events.push(e));
+
+    await session.startTurn([
+      { type: "text", text: "line 1" },
+      { type: "text", text: "line 2" },
+    ]);
+    await new Promise((r) => setTimeout(r, 200));
+
+    expect(mockFetch).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({
+        body: expect.stringContaining("line 1\\nline 2"),
+      }),
+    );
+
+    await session.close();
+  });
+
+  it("listPersistedAgents returns empty array", async () => {
+    const client = new CrewAiAgentClient({ logger, _fetchForTest: vi.fn() });
+    const result = await client.listPersistedAgents!();
+    expect(result).toEqual([]);
   });
 });
