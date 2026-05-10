@@ -10,7 +10,10 @@ export interface SoiferMcpServers {
 }
 
 export interface SoiferHooks {
-  [event: string]: Array<{ matcher?: string; hooks: Array<{ type: string; command: string; timeout?: number }> }>;
+  [event: string]: Array<{
+    matcher?: string;
+    hooks: Array<{ type: string; command: string; timeout?: number }>;
+  }>;
 }
 
 export interface SoiferPermissions {
@@ -83,8 +86,14 @@ export class SoiferBackendClient {
     return this.get("/api/stack/claude-cli/rules", []);
   }
 
-  async getPlugins(): Promise<{ enabledPlugins: Record<string, boolean>; extraKnownMarketplaces: Record<string, unknown> }> {
-    return this.get("/api/stack/claude-cli/plugins", { enabledPlugins: {}, extraKnownMarketplaces: {} });
+  async getPlugins(): Promise<{
+    enabledPlugins: Record<string, boolean>;
+    extraKnownMarketplaces: Record<string, unknown>;
+  }> {
+    return this.get("/api/stack/claude-cli/plugins", {
+      enabledPlugins: {},
+      extraKnownMarketplaces: {},
+    });
   }
 
   async getCommands(): Promise<Array<{ group: string; name: string; content: string }>> {

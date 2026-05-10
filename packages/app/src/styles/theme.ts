@@ -104,7 +104,16 @@ export const baseColors = {
   },
 } as const;
 
-export type ThemeName = "light" | "dark" | "zinc" | "midnight" | "claude" | "ghostty" | "soifer" | "soifer-dark" | "claudeLight";
+export type ThemeName =
+  | "light"
+  | "dark"
+  | "zinc"
+  | "midnight"
+  | "claude"
+  | "ghostty"
+  | "soifer"
+  | "soifer-dark"
+  | "claudeLight";
 
 // Diff stat colors — light uses muted tones, dark uses the brighter palette values
 const lightDiffColors = {
@@ -420,7 +429,7 @@ const ghosttyDarkColors = buildDarkSemanticColors({
 
 // Soifer — warm beige with orange-brown accent (dark variant)
 const soiferDarkColors = buildDarkSemanticColors({
-  surface0: "#1A1917",       // warm charcoal
+  surface0: "#1A1917", // warm charcoal
   surface1: "#21201E",
   surface2: "#2A2826",
   surface3: "#454240",
@@ -432,7 +441,7 @@ const soiferDarkColors = buildDarkSemanticColors({
   scrollbarHandle: "#7A756F",
   border: "#2D2A27",
   borderAccent: "#383430",
-  accent: "#D4762A",         // Claude warm orange-brown
+  accent: "#D4762A", // Claude warm orange-brown
   accentBright: "#E8A06A",
   destructive: "#CF4F3A",
 });
@@ -587,17 +596,17 @@ export const lightTheme = {
 
 // Soifer warm light theme — beige/cream palette
 const soiferLightSemanticColors = {
-  surface0: "#F9F6F1",        // warm off-white bg
-  surface1: "#F4F0EB",        // subtle hover
-  surface2: "#EDE9E3",        // elevated: badges, inputs
-  surface3: "#DFD9D2",        // highest elevation
-  surface4: "#CFC8BF",        // extra emphasis
+  surface0: "#F9F6F1", // warm off-white bg
+  surface1: "#F4F0EB", // subtle hover
+  surface2: "#EDE9E3", // elevated: badges, inputs
+  surface3: "#DFD9D2", // highest elevation
+  surface4: "#CFC8BF", // extra emphasis
   surfaceDiffEmpty: "#F6F2ED",
   surfaceSidebar: "#F4F0EB",
   surfaceSidebarHover: "#E8E2DA",
   surfaceWorkspace: "#F9F6F1",
 
-  foreground: "#272420",      // warm near-black
+  foreground: "#272420", // warm near-black
   foregroundMuted: "#767170",
 
   scrollbarHandle: "#A09892",
@@ -605,7 +614,7 @@ const soiferLightSemanticColors = {
   border: "#DFD9D2",
   borderAccent: "#E8E2DA",
 
-  accent: "#D4762A",          // Claude warm orange-brown
+  accent: "#D4762A", // Claude warm orange-brown
   accentBright: "#E8943E",
   accentForeground: "#ffffff",
 
@@ -796,7 +805,11 @@ export const lightClaudeTheme = {
 export const theme = darkTheme;
 
 // Export a union type that works for both themes
-export type Theme = typeof darkTheme | typeof lightTheme | typeof soiferLightTheme | typeof lightClaudeTheme;
+export type Theme =
+  | typeof darkTheme
+  | typeof lightTheme
+  | typeof soiferLightTheme
+  | typeof lightClaudeTheme;
 
 type UnistylesThemeKey =
   | "light"
