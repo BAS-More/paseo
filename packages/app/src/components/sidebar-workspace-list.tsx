@@ -1,6 +1,7 @@
 import {
   View,
   Text,
+  TextInput,
   Pressable,
   Image,
   Platform,
@@ -10,6 +11,8 @@ import {
   type GestureResponderEvent,
   type PressableStateCallbackType,
   type ViewStyle,
+  type NativeSyntheticEvent,
+  type TextInputKeyPressEventData,
 } from "react-native";
 import * as Haptics from "expo-haptics";
 import { useQueries } from "@tanstack/react-query";
@@ -269,6 +272,7 @@ interface WorkspaceRowInnerProps {
   onCopyBranchName?: () => void;
   onCopyPath?: () => void;
   archiveShortcutKeys?: ShortcutKey[][] | null;
+  onRename?: (newName: string) => void;
 }
 
 function getWorkspaceArchiveStatus(
@@ -1366,9 +1370,13 @@ function WorkspaceRowInner({
   onCopyBranchName,
   onCopyPath,
   archiveShortcutKeys,
+  onRename,
 }: WorkspaceRowInnerProps) {
   const _isCompact = useIsCompactFormFactor();
   const [isHovered, setIsHovered] = useState(false);
+  const [isRenaming, setIsRenaming] = useState(false);
+  const [renameText, setRenameText] = useState("");
+  const renameInputRef = useRef<TextInput>(null);
   const isTouchPlatform = platformIsNative;
   const workspaceDirectory = resolveWorkspaceExecutionDirectory({
     workspaceDirectory: workspace.workspaceDirectory,
@@ -1390,6 +1398,36 @@ function WorkspaceRowInner({
     }
     onPress();
   }, [interaction.didLongPressRef, onPress]);
+
+  const handleDoubleClick = useCallback(() => {
+    if (!onRename || platformIsNative) return;
+    setRenameText(workspace.name);
+    setIsRenaming(true);
+    setTimeout(() => renameInputRef.current?.focus(), 0);
+  }, [onRename, workspace.name]);
+
+  const commitRename = useCallback(() => {
+    const trimmed = renameText.trim();
+    setIsRenaming(false);
+    if (trimmed && trimmed !== workspace.name && onRename) {
+      onRename(trimmed);
+    }
+  }, [renameText, workspace.name, onRename]);
+
+  const cancelRename = useCallback(() => {
+    setIsRenaming(false);
+  }, []);
+
+  const handleRenameKeyPress = useCallback(
+    (e: NativeSyntheticEvent<TextInputKeyPressEventData>) => {
+      if (e.nativeEvent.key === "Enter") {
+        commitRename();
+      } else if (e.nativeEvent.key === "Escape") {
+        cancelRename();
+      }
+    },
+    [commitRename, cancelRename],
+  );
 
   const handlePointerEnter = useCallback(() => setIsHovered(true), []);
   const handlePointerLeave = useCallback(() => setIsHovered(false), []);
@@ -1449,9 +1487,27 @@ function WorkspaceRowInner({
                 workspaceKind={workspace.workspaceKind}
                 loading={isArchiving || isCreating}
               />
-              <Text style={workspaceBranchTextStyle} numberOfLines={1}>
-                {workspace.name}
-              </Text>
+              {isRenaming ? (
+                <TextInput
+                  ref={renameInputRef}
+                  style={workspaceBranchTextStyle}
+                  value={renameText}
+                  onChangeText={setRenameText}
+                  onBlur={commitRename}
+                  onKeyPress={handleRenameKeyPress}
+                  autoFocus
+                  selectTextOnFocus
+                />
+              ) : (
+                <Text
+                  style={workspaceBranchTextStyle}
+                  numberOfLines={1}
+                  // @ts-expect-error -- web-only double-click for inline rename
+                  onDoubleClick={handleDoubleClick}
+                >
+                  {workspace.name}
+                </Text>
+              )}
             </View>
             <WorkspaceRowRightGroup
               workspace={workspace}
@@ -1652,6 +1708,18 @@ function WorkspaceRowWithMenu({
     toast.copied("Branch name copied");
   }, [toast, workspace.name]);
 
+  const handleRename = useCallback(
+    (newName: string) => {
+      const client = getHostRuntimeStore().getClient(workspace.serverId);
+      if (!client) {
+        toast.error("Host is not connected");
+        return;
+      }
+      void client.renameWorkspace(workspace.workspaceId, newName);
+    },
+    [toast, workspace.serverId, workspace.workspaceId],
+  );
+
   const archiveShortcutKeys = useShortcutKeys("archive-worktree");
 
   useKeyboardActionHandler({
@@ -1691,6 +1759,7 @@ function WorkspaceRowWithMenu({
       archiveShortcutKeys={selected ? archiveShortcutKeys : null}
       isPinned={isPinned}
       onTogglePin={handleTogglePin}
+      onRename={handleRename}
     />
   );
 }
