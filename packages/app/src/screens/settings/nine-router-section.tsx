@@ -1,9 +1,13 @@
-import React from "react";
+import React, { useCallback, useMemo, useState } from "react";
 import { ActivityIndicator, Text, View } from "react-native";
 import { StyleSheet } from "react-native-unistyles";
 import { settingsStyles } from "@/styles/settings";
 import { useHostRuntimeIsConnected } from "@/runtime/host-runtime";
 import { useNineRouterStatus, type NineRouterStatus } from "@/hooks/use-nine-router-status";
+import { useDaemonConfig } from "@/hooks/use-daemon-config";
+import { AdaptiveTextInput } from "@/components/adaptive-modal-sheet";
+import { Button } from "@/components/ui/button";
+import { isWeb } from "@/constants/platform";
 import { SettingsSection } from "@/screens/settings/settings-section";
 
 export interface NineRouterSectionProps {
@@ -119,6 +123,59 @@ function CardContent({
   return null;
 }
 
+function UrlConfigRow({ serverId }: { serverId: string }) {
+  const { config, patchConfig } = useDaemonConfig(serverId);
+  const [draft, setDraft] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  const savedUrl = (config?.nineRouter as Record<string, unknown> | undefined)?.url as
+    | string
+    | undefined;
+  const displayValue = draft ?? savedUrl ?? "";
+  const hasChanges = draft !== null && draft !== (savedUrl ?? "");
+
+  const handleSave = useCallback(() => {
+    if (!hasChanges || saving || draft === null) return;
+    setSaving(true);
+    void patchConfig({ nineRouter: { url: draft || undefined } })
+      .then(() => setDraft(null))
+      .finally(() => setSaving(false));
+  }, [hasChanges, saving, draft, patchConfig]);
+
+  const inputStyle = useMemo(
+    () => [styles.urlInput, isWeb && { outlineStyle: "none" as const }],
+    [],
+  );
+
+  return (
+    <View style={styles.urlRow}>
+      <Text style={settingsStyles.rowTitle}>URL</Text>
+      <View style={styles.urlInputRow}>
+        <AdaptiveTextInput
+          value={displayValue}
+          onChangeText={setDraft}
+          placeholder="http://localhost:20128 (default)"
+          autoCapitalize="none"
+          autoCorrect={false}
+          // @ts-expect-error — outlineStyle is web-only
+          style={inputStyle}
+        />
+        {hasChanges ? (
+          <Button
+            variant="default"
+            size="sm"
+            onPress={handleSave}
+            disabled={saving}
+            accessibilityLabel="Save 9Router URL"
+          >
+            {saving ? "Saving…" : "Save"}
+          </Button>
+        ) : null}
+      </View>
+    </View>
+  );
+}
+
 export function NineRouterSection({ serverId }: NineRouterSectionProps) {
   const isConnected = useHostRuntimeIsConnected(serverId ?? "");
   const { status, isLoading, error } = useNineRouterStatus(serverId);
@@ -131,6 +188,7 @@ export function NineRouterSection({ serverId }: NineRouterSectionProps) {
     <SettingsSection title="9Router">
       <View style={settingsStyles.card}>
         <CardContent status={status} isLoading={isLoading} error={error} />
+        <UrlConfigRow serverId={serverId} />
       </View>
     </SettingsSection>
   );
@@ -212,5 +270,24 @@ const styles = StyleSheet.create((theme) => ({
   usageLabel: {
     color: theme.colors.foregroundMuted,
     fontSize: theme.fontSize.xs,
+  },
+  urlRow: {
+    paddingVertical: theme.spacing[3],
+    paddingHorizontal: theme.spacing[4],
+    borderTopWidth: 1,
+    borderTopColor: theme.colors.border,
+    gap: theme.spacing[1],
+  },
+  urlInputRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: theme.spacing[2],
+  },
+  urlInput: {
+    flex: 1,
+    minWidth: 0,
+    paddingVertical: 0,
+    color: theme.colors.foreground,
+    fontSize: theme.fontSize.sm,
   },
 }));

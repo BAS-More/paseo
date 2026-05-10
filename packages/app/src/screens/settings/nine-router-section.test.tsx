@@ -5,46 +5,52 @@ import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { theme, nineRouterState, refreshMock } = vi.hoisted(() => ({
-  theme: {
-    spacing: { 1: 4, "1.5": 6, 2: 8, 3: 12, 4: 16, 6: 24 },
-    iconSize: { sm: 14, md: 20 },
-    fontSize: { xs: 11, sm: 13, base: 15 },
-    fontWeight: { normal: "400" },
-    borderRadius: { lg: 8, full: 9999 },
-    opacity: { 50: 0.5 },
-    colors: {
-      surface1: "#111",
-      surface2: "#222",
-      surface3: "#333",
-      foreground: "#fff",
-      foregroundMuted: "#aaa",
-      border: "#555",
-      accent: "#0a84ff",
-      statusSuccess: "#00ff00",
-      statusWarning: "#ff9500",
-      statusDanger: "#ff0000",
-      palette: { red: { 300: "#ff6b6b" }, white: "#fff" },
+const { theme, nineRouterState, refreshMock, daemonConfigState, patchConfigMock } = vi.hoisted(
+  () => ({
+    theme: {
+      spacing: { 1: 4, "1.5": 6, 2: 8, 3: 12, 4: 16, 6: 24 },
+      iconSize: { sm: 14, md: 20 },
+      fontSize: { xs: 11, sm: 13, base: 15 },
+      fontWeight: { normal: "400" },
+      borderRadius: { lg: 8, full: 9999 },
+      opacity: { 50: 0.5 },
+      colors: {
+        surface1: "#111",
+        surface2: "#222",
+        surface3: "#333",
+        foreground: "#fff",
+        foregroundMuted: "#aaa",
+        border: "#555",
+        accent: "#0a84ff",
+        statusSuccess: "#00ff00",
+        statusWarning: "#ff9500",
+        statusDanger: "#ff0000",
+        palette: { red: { 300: "#ff6b6b" }, white: "#fff" },
+      },
     },
-  },
-  nineRouterState: {
-    status: undefined as
-      | {
-          reachable: boolean;
-          accounts: Array<{ id: string; name: string; provider: string; status: string }>;
-          usage: {
-            totalRequests: number;
-            totalTokens: number;
-            totalCost: number;
-            byAccount: Array<{ id: string; requests: number; tokens: number; cost: number }>;
-          };
-        }
-      | undefined,
-    isLoading: false,
-    error: null as string | null,
-  },
-  refreshMock: vi.fn(async () => {}),
-}));
+    nineRouterState: {
+      status: undefined as
+        | {
+            reachable: boolean;
+            accounts: Array<{ id: string; name: string; provider: string; status: string }>;
+            usage: {
+              totalRequests: number;
+              totalTokens: number;
+              totalCost: number;
+              byAccount: Array<{ id: string; requests: number; tokens: number; cost: number }>;
+            };
+          }
+        | undefined,
+      isLoading: false,
+      error: null as string | null,
+    },
+    refreshMock: vi.fn(async () => {}),
+    daemonConfigState: {
+      config: { nineRouter: { url: "" } } as Record<string, unknown>,
+    },
+    patchConfigMock: vi.fn(async () => {}),
+  }),
+);
 
 vi.mock("react-native", () => ({
   View: ({ children, testID }: { children?: React.ReactNode; testID?: string }) =>
@@ -112,6 +118,52 @@ vi.mock("@/screens/settings/settings-section", () => ({
 
 vi.mock("@/runtime/host-runtime", () => ({
   useHostRuntimeIsConnected: () => true,
+}));
+
+vi.mock("@/hooks/use-daemon-config", () => ({
+  useDaemonConfig: () => ({
+    config: daemonConfigState.config,
+    patchConfig: patchConfigMock,
+  }),
+}));
+
+vi.mock("@/components/adaptive-modal-sheet", () => ({
+  AdaptiveTextInput: ({
+    value,
+    onChangeText,
+    placeholder,
+  }: {
+    value?: string;
+    onChangeText?: (text: string) => void;
+    placeholder?: string;
+  }) =>
+    React.createElement("input", {
+      value,
+      placeholder,
+      "data-testid": "url-input",
+      onChange: (e: React.ChangeEvent<HTMLInputElement>) => onChangeText?.(e.target.value),
+    }),
+}));
+
+vi.mock("@/components/ui/button", () => ({
+  Button: ({
+    children,
+    onPress,
+    disabled,
+  }: {
+    children?: React.ReactNode;
+    onPress?: () => void;
+    disabled?: boolean;
+  }) =>
+    React.createElement(
+      "button",
+      { type: "button", onClick: onPress, disabled, "data-testid": "save-btn" },
+      children,
+    ),
+}));
+
+vi.mock("@/constants/platform", () => ({
+  isWeb: true,
 }));
 
 import { NineRouterSection } from "./nine-router-section";
@@ -209,5 +261,19 @@ describe("NineRouterSection", () => {
   it("renders nothing when serverId is null", () => {
     render(null);
     expect(container.textContent).toBe("");
+  });
+
+  it("renders URL config input", () => {
+    render();
+    expect(container.textContent).toContain("URL");
+    const input = container.querySelector("[data-testid='url-input']") as HTMLInputElement | null;
+    expect(input).toBeTruthy();
+  });
+
+  it("shows saved URL from config", () => {
+    daemonConfigState.config = { nineRouter: { url: "http://custom:9999" } };
+    render();
+    const input = container.querySelector("[data-testid='url-input']") as HTMLInputElement | null;
+    expect(input?.value).toBe("http://custom:9999");
   });
 });

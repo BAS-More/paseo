@@ -94,6 +94,12 @@ const MutableDaemonProviderConfigSchema = z
   })
   .passthrough();
 
+export const NineRouterConfigSchema = z
+  .object({
+    url: z.string().optional(),
+  })
+  .passthrough();
+
 export const MutableDaemonConfigSchema = z
   .object({
     mcp: z
@@ -102,6 +108,7 @@ export const MutableDaemonConfigSchema = z
       })
       .passthrough(),
     providers: z.record(z.string(), MutableDaemonProviderConfigSchema).default({}),
+    nineRouter: NineRouterConfigSchema.optional(),
   })
   .passthrough();
 
@@ -111,6 +118,7 @@ export const MutableDaemonConfigPatchSchema = z
     providers: z
       .record(z.string(), MutableDaemonProviderConfigSchema.partial().passthrough())
       .optional(),
+    nineRouter: NineRouterConfigSchema.partial().optional(),
   })
   .partial()
   .passthrough();

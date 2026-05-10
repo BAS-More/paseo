@@ -2195,7 +2195,8 @@ export class Session {
   }
 
   private async handleNineRouterStatusRequest(requestId: string): Promise<void> {
-    const client = new NineRouterClient();
+    const nineRouterUrl = this.daemonConfigStore.get().nineRouter?.url;
+    const client = new NineRouterClient(nineRouterUrl ? { baseUrl: nineRouterUrl } : undefined);
     const status = await client.getStatus();
     this.emit({
       type: "nine_router_status_response",
