@@ -65,6 +65,7 @@ import {
   buildSettingsRoute,
   mapPathnameToServer,
 } from "@/utils/host-routes";
+import { usePinnedWorkspacesStore } from "@/stores/pinned-workspaces-store";
 import { SidebarAgentListSkeleton } from "./sidebar-agent-list-skeleton";
 import { SidebarCalloutSlot } from "./sidebar-callout-slot";
 import { SidebarWorkspaceList } from "./sidebar-workspace-list";
@@ -803,6 +804,7 @@ function DesktopSidebar({
       .filter((project) => project.workspaces.length > 0);
   }, [projects, searchQuery]);
 
+  const pinnedKeys = usePinnedWorkspacesStore((s) => s.pinnedKeys);
   const dateGroupedProjects = useMemo((): SidebarProjectEntry[] => {
     if (!isClaudeDesktop) return filteredProjects;
 
@@ -813,8 +815,37 @@ function DesktopSidebar({
       }
     }
 
-    const bucketMap = new Map<DateBucket, SidebarWorkspaceEntry[]>();
+    const pinned: SidebarWorkspaceEntry[] = [];
+    const unpinned: SidebarWorkspaceEntry[] = [];
     for (const ws of allWorkspaces) {
+      if (pinnedKeys.has(ws.workspaceKey)) {
+        pinned.push(ws);
+      } else {
+        unpinned.push(ws);
+      }
+    }
+
+    const sortByActivity = (a: SidebarWorkspaceEntry, b: SidebarWorkspaceEntry) => {
+      const aTime = a.activityAt ? new Date(a.activityAt).getTime() : 0;
+      const bTime = b.activityAt ? new Date(b.activityAt).getTime() : 0;
+      return bTime - aTime;
+    };
+
+    const result: SidebarProjectEntry[] = [];
+
+    if (pinned.length > 0) {
+      pinned.sort(sortByActivity);
+      result.push({
+        projectKey: "__pinned__",
+        projectName: "Pinned",
+        projectKind: "directory",
+        iconWorkingDir: "",
+        workspaces: pinned,
+      });
+    }
+
+    const bucketMap = new Map<DateBucket, SidebarWorkspaceEntry[]>();
+    for (const ws of unpinned) {
       const bucket = getDateBucket(ws.activityAt);
       let list = bucketMap.get(bucket);
       if (!list) {
@@ -825,14 +856,9 @@ function DesktopSidebar({
     }
 
     for (const list of bucketMap.values()) {
-      list.sort((a, b) => {
-        const aTime = a.activityAt ? new Date(a.activityAt).getTime() : 0;
-        const bTime = b.activityAt ? new Date(b.activityAt).getTime() : 0;
-        return bTime - aTime;
-      });
+      list.sort(sortByActivity);
     }
 
-    const result: SidebarProjectEntry[] = [];
     for (const bucket of DATE_BUCKET_ORDER) {
       const workspaces = bucketMap.get(bucket);
       if (!workspaces || workspaces.length === 0) continue;
@@ -845,7 +871,7 @@ function DesktopSidebar({
       });
     }
     return result;
-  }, [isClaudeDesktop, filteredProjects]);
+  }, [isClaudeDesktop, filteredProjects, pinnedKeys]);
   const { width: viewportWidth } = useWindowDimensions();
   const hostStatusDotStyle = useMemo(
     () => [styles.hostStatusDot, { backgroundColor: activeHostStatusColor }],
