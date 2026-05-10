@@ -1,5 +1,12 @@
 import { router, usePathname } from "expo-router";
-import { FolderPlus, MessagesSquare, PanelLeftOpen, Plus, Search, Settings } from "lucide-react-native";
+import {
+  FolderPlus,
+  MessagesSquare,
+  PanelLeftOpen,
+  Plus,
+  Search,
+  Settings,
+} from "lucide-react-native";
 import {
   type Dispatch,
   memo,
@@ -924,40 +931,65 @@ function DesktopSidebar({
     [],
   );
 
+  const iconRailStyle = useMemo(() => [styles.iconRail, { paddingTop: insetsTop }], [insetsTop]);
+  const handleExpandSidebar = useCallback(
+    () => usePanelStore.getState().openDesktopAgentList(),
+    [],
+  );
+  const flexFillStyle = useMemo(() => ({ flex: 1 }) as const, []);
+
   if (!isOpen) {
     return (
-      <View style={[styles.iconRail, { paddingTop: insetsTop }]}>
+      <View style={iconRailStyle}>
         <TitlebarDragRegion />
         <Tooltip delayDuration={200}>
           <TooltipTrigger asChild>
             <Pressable
-              onPress={() => usePanelStore.getState().openDesktopAgentList()}
+              onPress={handleExpandSidebar}
               style={styles.iconRailButton}
               accessibilityLabel="Expand sidebar"
             >
               <PanelLeftOpen size={18} color={theme.colors.foregroundMuted} />
             </Pressable>
           </TooltipTrigger>
-          <TooltipContent side="right"><Text>Expand sidebar</Text></TooltipContent>
+          <TooltipContent side="right">
+            <Text>Expand sidebar</Text>
+          </TooltipContent>
         </Tooltip>
         <Tooltip delayDuration={200}>
           <TooltipTrigger asChild>
-            <Pressable onPress={handleOpenProject} style={styles.iconRailButton} accessibilityLabel="New agent">
+            <Pressable
+              onPress={handleOpenProject}
+              style={styles.iconRailButton}
+              accessibilityLabel="New agent"
+            >
               <Plus size={18} color={theme.colors.foregroundMuted} />
             </Pressable>
           </TooltipTrigger>
-          <TooltipContent side="right"><Text>New agent</Text></TooltipContent>
+          <TooltipContent side="right">
+            <Text>New agent</Text>
+          </TooltipContent>
         </Tooltip>
         <Tooltip delayDuration={200}>
           <TooltipTrigger asChild>
-            <Pressable onPress={handleViewMore} style={styles.iconRailButton} accessibilityLabel="Sessions">
+            <Pressable
+              onPress={handleViewMore}
+              style={styles.iconRailButton}
+              accessibilityLabel="Sessions"
+            >
               <MessagesSquare size={18} color={theme.colors.foregroundMuted} />
             </Pressable>
           </TooltipTrigger>
-          <TooltipContent side="right"><Text>Sessions</Text></TooltipContent>
+          <TooltipContent side="right">
+            <Text>Sessions</Text>
+          </TooltipContent>
         </Tooltip>
-        <View style={{ flex: 1 }} />
-        <Pressable onPress={handleSettings} style={styles.iconRailButton} accessibilityLabel="Settings">
+        <View style={flexFillStyle} />
+        <Pressable
+          onPress={handleSettings}
+          style={styles.iconRailButton}
+          accessibilityLabel="Settings"
+        >
           <Settings size={18} color={theme.colors.foregroundMuted} />
         </Pressable>
       </View>
@@ -995,10 +1027,7 @@ function DesktopSidebar({
         ) : (
           <Pressable
             onPress={handleOpenProject}
-            style={({ pressed }) => [
-              styles.newChatButton,
-              pressed && { opacity: 0.7 },
-            ]}
+            style={styles.newChatButton}
             accessibilityLabel="New agent"
           >
             <Plus size={16} color={theme.colors.foregroundMuted} />
