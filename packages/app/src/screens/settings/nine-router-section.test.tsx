@@ -276,4 +276,27 @@ describe("NineRouterSection", () => {
     const input = container.querySelector("[data-testid='url-input']") as HTMLInputElement | null;
     expect(input?.value).toBe("http://custom:9999");
   });
+
+  it("saves URL via patchConfig on save button click", async () => {
+    patchConfigMock.mockResolvedValue(undefined);
+    render();
+    const input = container.querySelector("[data-testid='url-input']") as HTMLInputElement;
+    // Type a new URL
+    act(() => {
+      const nativeInputValueSetter = Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value",
+      )!.set!;
+      nativeInputValueSetter.call(input, "http://new:9999");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+      input.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    // Save button should appear after change
+    const saveBtn = container.querySelector("[data-testid='save-btn']") as HTMLButtonElement | null;
+    expect(saveBtn).toBeTruthy();
+    await act(async () => {
+      saveBtn!.click();
+    });
+    expect(patchConfigMock).toHaveBeenCalledWith({ nineRouter: { url: "http://new:9999" } });
+  });
 });

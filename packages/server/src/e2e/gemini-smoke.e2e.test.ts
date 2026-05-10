@@ -4,7 +4,12 @@
  */
 import { describe, expect, it, afterEach } from "vitest";
 import { GeminiAgentClient } from "../server/agent/providers/gemini-agent.js";
-import { createTestLogger, skipIfUnavailable, collectEvents, waitForEvent } from "./provider-smoke.setup.js";
+import {
+  createTestLogger,
+  skipIfUnavailable,
+  collectEvents,
+  waitForEvent,
+} from "./provider-smoke.setup.js";
 import type { AgentSession } from "../server/agent/agent-sdk-types.js";
 
 describe("Gemini E2E Smoke", () => {
@@ -55,6 +60,35 @@ describe("Gemini E2E Smoke", () => {
     }
   }, 60000);
 
+  it("resumeSession returns a session with provider === 'gemini'", async () => {
+    const client = new GeminiAgentClient({ logger });
+    const skipReason = await skipIfUnavailable(client);
+    if (skipReason) {
+      console.log(`SKIP: ${skipReason}`);
+      return;
+    }
+
+    session = await client.createSession({
+      model: null,
+      systemPrompt: "",
+      maxTurns: 1,
+    });
+
+    const handle = session.describePersistence();
+    if (!handle) {
+      console.log("SKIP: provider returned null persistence handle — resume not supported");
+      return;
+    }
+
+    await session.close();
+    session = null;
+
+    const resumed = await client.resumeSession(handle);
+    session = resumed;
+
+    expect(resumed.provider).toBe("gemini");
+  }, 30000);
+
   it("interrupt kills process cleanly", async () => {
     const client = new GeminiAgentClient({ logger });
     const skipReason = await skipIfUnavailable(client);
@@ -69,7 +103,7 @@ describe("Gemini E2E Smoke", () => {
       maxTurns: 1,
     });
 
-    const { events, unsubscribe } = collectEvents((cb) => session!.subscribe(cb));
+    const { events: _events, unsubscribe } = collectEvents((cb) => session!.subscribe(cb));
 
     try {
       await session.startTurn("Write a very long essay about the history of mathematics.");

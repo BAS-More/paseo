@@ -73,6 +73,8 @@ describe("CrewAI E2E Smoke", () => {
       // Wait briefly for any events
       await new Promise((r) => setTimeout(r, 5000));
       // Session created is enough — crew may fail without full CrewAI install
+
+      expect(events.some((e) => e.type === "turn_started")).toBe(true);
     } finally {
       unsubscribe();
     }

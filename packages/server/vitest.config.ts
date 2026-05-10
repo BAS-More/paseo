@@ -22,5 +22,21 @@ export default defineConfig({
       },
     },
     exclude: ["**/node_modules/**", "**/dist/**", "**/.claude/**"],
+    coverage: {
+      provider: "v8",
+      include: [
+        "src/server/agent/providers/occ-agent.ts",
+        "src/server/agent/providers/occ/event-mapper.ts",
+        "src/server/agent/providers/crewai-agent.ts",
+        "src/server/agent/providers/crewai/event-mapper.ts",
+        "src/server/agent/providers/gemini-agent.ts",
+        "src/server/agent/providers/gemini/event-mapper.ts",
+        "src/server/nine-router-client.ts",
+      ],
+      thresholds: {
+        lines: 98,
+        perFile: true,
+      },
+    },
   },
 });

@@ -323,6 +323,41 @@ describe("CrewAiAgentSession", () => {
     await session.close();
   });
 
+  it("handles partial-line SSE chunks that split across reads", async () => {
+    const encoder = new globalThis.TextEncoder();
+    // First chunk delivers partial JSON, second completes it + [DONE]
+    const chunk1 = encoder.encode('data: {"type":"status","mess');
+    const chunk2 = encoder.encode('age":"hi"}\ndata: [DONE]\n');
+    let i = 0;
+    const chunks = [chunk1, chunk2];
+    const stream = new ReadableStream({
+      pull(controller) {
+        if (i < chunks.length) {
+          controller.enqueue(chunks[i]!);
+          i++;
+        } else {
+          controller.close();
+        }
+      },
+    });
+
+    const mockFetch = vi.fn().mockResolvedValue({ ok: true, body: stream });
+    const client = new CrewAiAgentClient({ logger, _fetchForTest: mockFetch });
+    const session = await client.createSession({ model: "c", systemPrompt: "", maxTurns: 1 });
+
+    const events: AgentStreamEvent[] = [];
+    session.subscribe((e) => events.push(e));
+
+    await session.startTurn("test");
+    await new Promise((r) => setTimeout(r, 200));
+
+    const timeline = events.filter((e) => e.type === "timeline");
+    expect(timeline).toHaveLength(1);
+    expect((timeline[0] as { item: { text: string } }).item.text).toBe("hi");
+
+    await session.close();
+  });
+
   it("listPersistedAgents returns empty array", async () => {
     const client = new CrewAiAgentClient({ logger, _fetchForTest: vi.fn() });
     const result = await client.listPersistedAgents!();

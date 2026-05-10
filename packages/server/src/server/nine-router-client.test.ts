@@ -149,4 +149,31 @@ describe("NineRouterClient configuration", () => {
     await client.checkHealth();
     expect(fetchFn).toHaveBeenCalledWith("http://localhost:20128/api/init", expect.anything());
   });
+
+  it("config round-trip: daemon config nineRouter.url flows to NineRouterClient", async () => {
+    // Simulates session.ts reading config and passing to client constructor
+    const daemonConfig = { nineRouter: { url: "http://configured:5555" } };
+    const nineRouterUrl = daemonConfig.nineRouter?.url;
+    const fetchFn = mockFetchOk({ ok: true });
+    const client = new NineRouterClient(
+      nineRouterUrl
+        ? { baseUrl: nineRouterUrl, _fetchForTest: fetchFn }
+        : { _fetchForTest: fetchFn },
+    );
+    await client.checkHealth();
+    expect(fetchFn).toHaveBeenCalledWith("http://configured:5555/api/init", expect.anything());
+  });
+
+  it("config round-trip: absent nineRouter config falls back to default", async () => {
+    const daemonConfig: Record<string, unknown> = {};
+    const nineRouterUrl = (daemonConfig.nineRouter as { url?: string } | undefined)?.url;
+    const fetchFn = mockFetchOk({ ok: true });
+    const client = new NineRouterClient(
+      nineRouterUrl
+        ? { baseUrl: nineRouterUrl, _fetchForTest: fetchFn }
+        : { _fetchForTest: fetchFn },
+    );
+    await client.checkHealth();
+    expect(fetchFn).toHaveBeenCalledWith("http://localhost:20128/api/init", expect.anything());
+  });
 });
