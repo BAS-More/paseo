@@ -1598,6 +1598,11 @@ export const NineRouterStatusRequestSchema = z.object({
   requestId: z.string(),
 });
 
+export const SoiferBackendStatusRequestSchema = z.object({
+  type: z.literal("soifer_backend_status_request"),
+  requestId: z.string(),
+});
+
 // ============================================================================
 // Terminal Messages
 // ============================================================================
@@ -1759,6 +1764,7 @@ export const SessionInboundMessageSchema = z.discriminatedUnion("type", [
   ListCommandsRequestSchema,
   RegisterPushTokenMessageSchema,
   NineRouterStatusRequestSchema,
+  SoiferBackendStatusRequestSchema,
   ListTerminalsRequestSchema,
   SubscribeTerminalsRequestSchema,
   UnsubscribeTerminalsRequestSchema,
@@ -3211,6 +3217,41 @@ export const NineRouterStatusResponseSchema = z.object({
   }),
 });
 
+export const SoiferBackendStatusResponseSchema = z.object({
+  type: z.literal("soifer_backend_status_response"),
+  payload: z.object({
+    requestId: z.string(),
+    reachable: z.boolean(),
+    health: z.object({
+      status: z.enum(["ok", "degraded"]),
+      services: z.record(
+        z.object({
+          status: z.string(),
+          port: z.number().optional(),
+          version: z.string().optional(),
+        }),
+      ),
+    }),
+    skills: z.array(z.string()),
+    agents: z.array(z.object({ name: z.string(), content: z.string() })),
+    rules: z.array(z.object({ name: z.string(), content: z.string() })),
+    mcpServers: z.object({
+      mcpServers: z.record(
+        z.object({
+          command: z.string(),
+          args: z.array(z.string()).optional(),
+          env: z.record(z.string()).optional(),
+        }),
+      ),
+    }),
+    hooks: z.record(z.unknown()),
+    permissions: z.object({
+      allow: z.array(z.string()),
+      deny: z.array(z.string()),
+    }),
+  }),
+});
+
 // ============================================================================
 // Terminal Outbound Messages
 // ============================================================================
@@ -3418,6 +3459,7 @@ export const SessionOutboundMessageSchema = z.discriminatedUnion("type", [
   ProviderDiagnosticResponseMessageSchema,
   ListCommandsResponseSchema,
   NineRouterStatusResponseSchema,
+  SoiferBackendStatusResponseSchema,
   ListTerminalsResponseSchema,
   TerminalsChangedSchema,
   CreateTerminalResponseSchema,

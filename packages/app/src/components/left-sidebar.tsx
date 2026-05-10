@@ -931,7 +931,7 @@ function DesktopSidebar({
         <Tooltip delayDuration={200}>
           <TooltipTrigger asChild>
             <Pressable
-              onPress={() => usePanelStore.getState().toggleLeftSidebar()}
+              onPress={() => usePanelStore.getState().openDesktopAgentList()}
               style={styles.iconRailButton}
               accessibilityLabel="Expand sidebar"
             >
