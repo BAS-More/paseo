@@ -46,14 +46,27 @@ interface RegisteredMcpTool {
     structuredContent: LooseStructuredContent;
     content?: Array<{ type: string; text?: string }>;
   }>;
+  handler: (...args: unknown[]) => unknown;
 }
 
 function lookupTool(
   server: Awaited<ReturnType<typeof createAgentMcpServer>>,
   name: string,
 ): RegisteredMcpTool | undefined {
-  const tools: Record<string, RegisteredMcpTool> = Reflect.get(server, "_registeredTools");
-  return tools[name];
+  // Access private _registeredTools map — SDK internals, no public API
+  const tools = Reflect.get(server, "_registeredTools") as
+    | Record<string, Record<string, unknown>>
+    | undefined;
+  if (!tools) return undefined;
+  const raw = tools[name];
+  if (!raw) return undefined;
+  const handler = (raw.handler ?? raw.callback) as ((...args: unknown[]) => unknown) | undefined;
+  if (!handler) return undefined;
+  return {
+    ...raw,
+    callback: (input: unknown) => handler(input, {}),
+    handler,
+  } as unknown as RegisteredMcpTool;
 }
 
 function registeredTool(
@@ -269,13 +282,22 @@ function createGitHubServiceStub(): GitHubService {
       body: null,
       baseRefName: "main",
       headRefName: `pr-${number}`,
-      labels: [],
+      labels: [] as string[],
+      updatedAt: "",
     }),
     getPullRequestHeadRef: async ({ number }) => `pr-${number}`,
     getCurrentPullRequestStatus: async () => null,
     createPullRequest: async () => ({
       number: 1,
       url: "https://github.com/acme/repo/pull/1",
+    }),
+    getPullRequestTimeline: async () => ({
+      prNumber: 1,
+      repoOwner: "acme",
+      repoName: "repo",
+      items: [] as unknown[],
+      truncated: false,
+      error: null,
     }),
     isAuthenticated: async () => true,
     invalidate: () => {},
@@ -588,7 +610,7 @@ describe("create_agent MCP tool", () => {
       currentModeId: null,
       availableModes: [],
       config: { title: "Fix auth bug" },
-    } as ManagedAgent);
+    } as unknown as ManagedAgent);
 
     const server = await createAgentMcpServer({ agentManager, agentStorage, logger });
     const tool = registeredTool(server, "create_agent");
@@ -618,7 +640,7 @@ describe("create_agent MCP tool", () => {
       currentModeId: null,
       availableModes: [],
       config: { title: "Fix auth" },
-    } as ManagedAgent);
+    } as unknown as ManagedAgent);
 
     const server = await createAgentMcpServer({ agentManager, agentStorage, logger });
     const tool = registeredTool(server, "create_agent");
@@ -647,7 +669,7 @@ describe("create_agent MCP tool", () => {
       currentModeId: null,
       availableModes: [],
       config: { title: "Config test", model: "claude-sonnet-4-20250514" },
-    } as ManagedAgent);
+    } as unknown as ManagedAgent);
 
     const server = await createAgentMcpServer({ agentManager, agentStorage, logger });
     const tool = registeredTool(server, "create_agent");
@@ -1095,9 +1117,13 @@ describe("create_agent MCP tool", () => {
       expect(clearWorkspaceArchiving).toHaveBeenCalledWith([
         created.structuredContent.worktreePath,
       ]);
-      expect(Array.from(emitWorkspaceUpdatesForWorkspaceIds.mock.calls[0]?.[0] ?? [])).toEqual([
-        created.structuredContent.worktreePath,
-      ]);
+      expect(
+        Array.from(
+          ((
+            emitWorkspaceUpdatesForWorkspaceIds.mock.calls as unknown[][]
+          )[0]?.[0] as Iterable<unknown>) ?? [],
+        ),
+      ).toEqual([created.structuredContent.worktreePath]);
     } finally {
       await rm(tempDir, { recursive: true, force: true });
     }
@@ -1166,7 +1192,7 @@ describe("create_agent MCP tool", () => {
       cwd: baseDir,
       provider: "codex",
       currentModeId: "full-access",
-    } as ManagedAgent);
+    } as unknown as ManagedAgent);
     spies.agentManager.createAgent.mockResolvedValue({
       id: "child-agent",
       cwd: subdir,
@@ -1174,7 +1200,7 @@ describe("create_agent MCP tool", () => {
       currentModeId: null,
       availableModes: [],
       config: { title: "Child" },
-    } as ManagedAgent);
+    } as unknown as ManagedAgent);
 
     const server = await createAgentMcpServer({
       agentManager,
@@ -1219,7 +1245,7 @@ describe("create_agent MCP tool", () => {
       currentModeId: null,
       availableModes: [],
       config: { title: "Injected config test" },
-    } as ManagedAgent);
+    } as unknown as ManagedAgent);
 
     const server = await createAgentMcpServer({
       agentManager,
@@ -1271,7 +1297,7 @@ describe("create_agent MCP tool", () => {
       cwd: existingCwd,
       provider: "claude",
       currentModeId: "bypassPermissions",
-    } as ManagedAgent);
+    } as unknown as ManagedAgent);
     spies.agentManager.createAgent.mockResolvedValue({
       id: "child-agent",
       cwd: existingCwd,
@@ -1279,7 +1305,7 @@ describe("create_agent MCP tool", () => {
       currentModeId: "bypassPermissions",
       availableModes: [],
       config: { title: "Child" },
-    } as ManagedAgent);
+    } as unknown as ManagedAgent);
 
     const server = await createAgentMcpServer({
       agentManager,
@@ -1308,7 +1334,7 @@ describe("create_agent MCP tool", () => {
       cwd: existingCwd,
       provider: "claude",
       currentModeId: "bypassPermissions",
-    } as ManagedAgent);
+    } as unknown as ManagedAgent);
 
     const server = await createAgentMcpServer({
       agentManager,
@@ -1337,7 +1363,7 @@ describe("create_agent MCP tool", () => {
       cwd: existingCwd,
       provider: "claude",
       currentModeId: "bypassPermissions",
-    } as ManagedAgent);
+    } as unknown as ManagedAgent);
     spies.agentManager.createAgent.mockResolvedValue({
       id: "child-agent",
       cwd: existingCwd,
@@ -1345,7 +1371,7 @@ describe("create_agent MCP tool", () => {
       currentModeId: "build",
       availableModes: [],
       config: { title: "Child" },
-    } as ManagedAgent);
+    } as unknown as ManagedAgent);
 
     const server = await createAgentMcpServer({
       agentManager,
@@ -1452,14 +1478,30 @@ describe("provider listing MCP tool", () => {
       claude: createProviderDefinition({
         id: "claude",
         label: "Claude",
-        modes: [{ id: "default", label: "Default", description: "Built-in mode" }],
+        modes: [
+          {
+            id: "default",
+            label: "Default",
+            description: "Built-in mode",
+            icon: "ShieldCheck" as const,
+            colorTier: "safe" as const,
+          },
+        ],
       }),
       zai: createProviderDefinition({
         id: "zai",
         label: "ZAI",
         description: "Custom Claude profile",
         defaultModeId: "default",
-        modes: [{ id: "default", label: "Default", description: "Custom mode" }],
+        modes: [
+          {
+            id: "default",
+            label: "Default",
+            description: "Custom mode",
+            icon: "ShieldCheck" as const,
+            colorTier: "safe" as const,
+          },
+        ],
       }),
     };
 
@@ -1480,7 +1522,15 @@ describe("provider listing MCP tool", () => {
           description: "Test provider",
           enabled: true,
           status: "available",
-          modes: [{ id: "default", label: "Default", description: "Built-in mode" }],
+          modes: [
+            {
+              id: "default",
+              label: "Default",
+              description: "Built-in mode",
+              icon: "ShieldCheck" as const,
+              colorTier: "safe" as const,
+            },
+          ],
         },
         {
           id: "zai",
@@ -1488,7 +1538,15 @@ describe("provider listing MCP tool", () => {
           status: "available",
           description: "Custom Claude profile",
           enabled: true,
-          modes: [{ id: "default", label: "Default", description: "Custom mode" }],
+          modes: [
+            {
+              id: "default",
+              label: "Default",
+              description: "Custom mode",
+              icon: "ShieldCheck" as const,
+              colorTier: "safe" as const,
+            },
+          ],
         },
       ],
     });
@@ -1506,7 +1564,15 @@ describe("provider listing MCP tool", () => {
         label: "Codex",
         description: "OpenAI coding agent",
         enabled: false,
-        modes: [{ id: "read-only", label: "Read Only", description: "No edits" }],
+        modes: [
+          {
+            id: "read-only",
+            label: "Read Only",
+            description: "No edits",
+            icon: "ShieldCheck" as const,
+            colorTier: "safe" as const,
+          },
+        ],
         createClient,
       }),
     };
@@ -1528,7 +1594,15 @@ describe("provider listing MCP tool", () => {
           description: "OpenAI coding agent",
           enabled: false,
           status: "unavailable",
-          modes: [{ id: "read-only", label: "Read Only", description: "No edits" }],
+          modes: [
+            {
+              id: "read-only",
+              label: "Read Only",
+              description: "No edits",
+              icon: "ShieldCheck" as const,
+              colorTier: "safe" as const,
+            },
+          ],
         },
       ],
     });
@@ -1663,7 +1737,12 @@ describe("agent snapshot MCP serialization", () => {
         id: "agent-compact",
         provider: "codex",
         cwd: "/tmp/repo",
-        config: { model: "gpt-5.4", thinkingOptionId: "high" },
+        config: {
+          provider: "codex" as const,
+          cwd: "/tmp/repo",
+          model: "gpt-5.4",
+          thinkingOptionId: "high",
+        },
         runtimeInfo: { provider: "codex", sessionId: "session-123", model: "gpt-5.4" },
         labels: { role: "researcher" },
       }),
@@ -1747,7 +1826,12 @@ describe("agent snapshot MCP serialization", () => {
         id: "full-detail-agent",
         provider: "codex",
         cwd: "/tmp/full-detail",
-        config: { model: "gpt-5.4", thinkingOptionId: "high" },
+        config: {
+          provider: "codex" as const,
+          cwd: "/tmp/repo",
+          model: "gpt-5.4",
+          thinkingOptionId: "high",
+        },
         runtimeInfo: {
           provider: "codex",
           sessionId: "session-full",

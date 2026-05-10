@@ -2244,8 +2244,6 @@ class ClaudeAgentSession implements AgentSession {
         : undefined;
     if (thinkingOptionId && isClaudeThinkingEffort(thinkingOptionId)) {
       if (thinkingOptionId === "xhigh") {
-        // "xhigh" is accepted by Claude Opus 4.7 but not yet in the SDK type definitions
-        // @ts-expect-error -- SDK 0.2.71 effort type doesn't include "xhigh" yet
         return { thinking: { type: "adaptive" }, effort: thinkingOptionId };
       }
       return { thinking: { type: "adaptive" }, effort: thinkingOptionId };

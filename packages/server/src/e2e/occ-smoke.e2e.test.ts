@@ -40,9 +40,9 @@ describe("OCC E2E Smoke", () => {
     }
 
     session = await client.createSession({
-      model: null,
+      provider: "occ",
+      cwd: process.cwd(),
       systemPrompt: "",
-      maxTurns: 1,
     });
 
     expect(session.provider).toBe("occ");
@@ -69,9 +69,9 @@ describe("OCC E2E Smoke", () => {
     }
 
     session = await client.createSession({
-      model: null,
+      provider: "occ",
+      cwd: process.cwd(),
       systemPrompt: "",
-      maxTurns: 1,
     });
 
     const handle = session.describePersistence();
@@ -98,9 +98,9 @@ describe("OCC E2E Smoke", () => {
     }
 
     session = await client.createSession({
-      model: null,
+      provider: "occ",
+      cwd: process.cwd(),
       systemPrompt: "",
-      maxTurns: 1,
     });
 
     const { events: _events, unsubscribe } = collectEvents((cb) => session!.subscribe(cb));

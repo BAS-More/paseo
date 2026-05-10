@@ -34,7 +34,7 @@ describe("CrewAI E2E Smoke", () => {
       return;
     }
 
-    const models = await client.listModels({});
+    const models = await client.listModels({ cwd: process.cwd(), force: false });
     expect(Array.isArray(models)).toBe(true);
   });
 
@@ -53,16 +53,17 @@ describe("CrewAI E2E Smoke", () => {
       return;
     }
 
-    const models = await client.listModels({});
+    const models = await client.listModels({ cwd: process.cwd(), force: false });
     if (models.length === 0) {
       console.log("SKIP: no crews available in bridge");
       return;
     }
 
     session = await client.createSession({
+      provider: "crewai",
+      cwd: process.cwd(),
       model: models[0]!.id,
       systemPrompt: "",
-      maxTurns: 1,
     });
 
     expect(session.provider).toBe("crewai");
