@@ -365,7 +365,7 @@ test("unsupported persisted agents are excluded from active lists but preserved 
   const session = createSessionForWorkspaceTests({ appVersion: "0.1.45" });
   const storedRecord = {
     id: "agent-unsupported",
-    provider: "gemini",
+    provider: "nonexistent-provider",
     cwd: "/tmp/history",
     createdAt: "2026-04-13T10:13:11.457Z",
     updatedAt: "2026-04-13T10:16:06.556Z",
@@ -378,16 +378,16 @@ test("unsupported persisted agents are excluded from active lists but preserved 
     config: {
       title: "hello",
       modeId: "default",
-      model: "gemini-2.5-flash",
+      model: "nonexistent-model",
     },
     runtimeInfo: {
-      provider: "gemini",
+      provider: "nonexistent-provider",
       sessionId: "61c738df-7ba4-49c2-a8fd-07c1395ad1c7",
-      model: "gemini-2.5-flash",
+      model: "nonexistent-model",
       modeId: "default",
     },
     persistence: {
-      provider: "gemini",
+      provider: "nonexistent-provider",
       sessionId: "61c738df-7ba4-49c2-a8fd-07c1395ad1c7",
     },
     archivedAt: "2026-04-13T10:16:06.514Z",
@@ -402,7 +402,7 @@ test("unsupported persisted agents are excluded from active lists but preserved 
   await expect(session.listAgentPayloads({ includeUnavailablePersisted: true })).resolves.toEqual([
     expect.objectContaining({
       id: "agent-unsupported",
-      provider: "gemini",
+      provider: "nonexistent-provider",
       providerUnavailable: true,
       persistence: null,
     }),
@@ -411,7 +411,7 @@ test("unsupported persisted agents are excluded from active lists but preserved 
   await expect(session.getAgentPayloadById("agent-unsupported")).resolves.toEqual(
     expect.objectContaining({
       id: "agent-unsupported",
-      provider: "gemini",
+      provider: "nonexistent-provider",
       providerUnavailable: true,
       persistence: null,
     }),
