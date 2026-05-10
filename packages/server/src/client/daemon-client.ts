@@ -1636,6 +1636,16 @@ export class DaemonClient {
     });
   }
 
+  async renameWorkspace(workspaceId: string, displayName: string): Promise<void> {
+    const requestId = crypto.randomUUID();
+    this.sendSessionMessage({
+      type: "rename_workspace_request",
+      workspaceId,
+      displayName,
+      requestId,
+    });
+  }
+
   async archiveWorkspace(
     workspaceId: string,
     requestId?: string,

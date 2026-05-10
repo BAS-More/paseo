@@ -2078,6 +2078,8 @@ export class Session {
         return this.handleOpenInEditorRequest(msg);
       case "open_project_request":
         return this.handleOpenProjectRequest(msg);
+      case "rename_workspace_request":
+        return this.handleRenameWorkspaceRequest(msg);
       case "archive_workspace_request":
         return this.handleArchiveWorkspaceRequest(msg);
       case "file_explorer_request":
@@ -7034,6 +7036,48 @@ export class Session {
       },
       request,
     );
+  }
+
+  private async handleRenameWorkspaceRequest(
+    request: Extract<SessionInboundMessage, { type: "rename_workspace_request" }>,
+  ): Promise<void> {
+    try {
+      const existing = await this.workspaceRegistry.get(request.workspaceId);
+      if (!existing) {
+        throw new Error(`Workspace not found: ${request.workspaceId}`);
+      }
+      const updated = {
+        ...existing,
+        displayName: request.displayName,
+        updatedAt: new Date().toISOString(),
+      };
+      await this.workspaceRegistry.upsert(updated);
+      await this.emitWorkspaceUpdateForCwd(existing.cwd);
+      this.emit({
+        type: "rename_workspace_response",
+        payload: {
+          requestId: request.requestId,
+          workspaceId: request.workspaceId,
+          displayName: request.displayName,
+          error: null,
+        },
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to rename workspace";
+      this.sessionLogger.error(
+        { err: error, workspaceId: request.workspaceId },
+        "Failed to rename workspace",
+      );
+      this.emit({
+        type: "rename_workspace_response",
+        payload: {
+          requestId: request.requestId,
+          workspaceId: request.workspaceId,
+          displayName: null,
+          error: message,
+        },
+      });
+    }
   }
 
   private async handleArchiveWorkspaceRequest(
