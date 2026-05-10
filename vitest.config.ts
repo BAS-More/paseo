@@ -41,11 +41,39 @@ export default defineConfig({
       { find: "@", replacement: path.resolve(appDir, "src") },
       { find: "@server", replacement: path.resolve(__dirname, "packages/server/src") },
       {
-        find: "react-native",
+        find: /^react-native$/,
         replacement: path.resolve(rootNodeModules, "react-native-web/dist/index.js"),
       },
       { find: "react", replacement: resolvePackageEntry("react") },
       { find: "react-dom", replacement: resolvePackageEntry("react-dom") },
+      {
+        find: /^react-native-safe-area-context/,
+        replacement: path.resolve(appDir, "test-stubs/react-native-safe-area-context.ts"),
+      },
+      {
+        find: /^react-native-unistyles/,
+        replacement: path.resolve(appDir, "test-stubs/react-native-unistyles.ts"),
+      },
+      {
+        find: /^lucide-react-native$/,
+        replacement: path.resolve(appDir, "test-stubs/lucide-react-native.ts"),
+      },
+      {
+        find: "expo-modules-core",
+        replacement: path.resolve(appDir, "test-stubs/expo-modules-core.ts"),
+      },
+      {
+        find: /^react-native-svg/,
+        replacement: path.resolve(appDir, "test-stubs/react-native-svg.ts"),
+      },
+      {
+        find: /^expo-constants/,
+        replacement: path.resolve(appDir, "test-stubs/expo-constants.ts"),
+      },
+      {
+        find: /^expo-clipboard/,
+        replacement: path.resolve(appDir, "test-stubs/expo-clipboard.ts"),
+      },
       {
         find: /^@xterm\/addon-ligatures\/lib\/addon-ligatures\.mjs$/,
         replacement: path.resolve(appDir, "test-stubs/xterm-addon-ligatures.ts"),

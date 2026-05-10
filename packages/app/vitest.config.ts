@@ -57,7 +57,7 @@ export default defineConfig({
     server: {
       deps: {
         fallbackCJS: true,
-        inline: ["zustand", "@tanstack/react-query", "react-native-web"],
+        inline: ["zustand", "@tanstack/react-query", "react-native-web", "expo-modules-core"],
       },
     },
   },
@@ -88,11 +88,39 @@ export default defineConfig({
       },
       { find: "@", replacement: path.resolve(__dirname, "src") },
       { find: "@server", replacement: path.resolve(__dirname, "../server/src") },
+      {
+        find: "expo-modules-core",
+        replacement: path.resolve(__dirname, "test-stubs/expo-modules-core.ts"),
+      },
+      {
+        find: /^react-native-safe-area-context/,
+        replacement: path.resolve(__dirname, "test-stubs/react-native-safe-area-context.ts"),
+      },
+      {
+        find: /^react-native-unistyles/,
+        replacement: path.resolve(__dirname, "test-stubs/react-native-unistyles.ts"),
+      },
+      {
+        find: /^lucide-react-native$/,
+        replacement: path.resolve(__dirname, "test-stubs/lucide-react-native.ts"),
+      },
+      {
+        find: /^react-native-svg/,
+        replacement: path.resolve(__dirname, "test-stubs/react-native-svg.ts"),
+      },
+      {
+        find: /^expo-constants/,
+        replacement: path.resolve(__dirname, "test-stubs/expo-constants.ts"),
+      },
+      {
+        find: /^expo-clipboard/,
+        replacement: path.resolve(__dirname, "test-stubs/expo-clipboard.ts"),
+      },
       // Point to the ESM build so Vite can transform its imports and apply the
       // react alias below (the CJS build uses require('react') which bypasses
       // Vite alias resolution).
       {
-        find: "react-native",
+        find: /^react-native$/,
         replacement: path.resolve(rootNodeModules, "react-native-web/dist/index.js"),
       },
       { find: "react", replacement: resolvePackageEntry("react") },

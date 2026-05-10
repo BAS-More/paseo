@@ -118,6 +118,7 @@ vi.mock("@/screens/settings/settings-section", () => ({
 }));
 
 vi.mock("@/runtime/host-runtime", () => ({
+  useHostRuntimeClient: () => ({ call: vi.fn() }),
   useHostRuntimeIsConnected: () => true,
 }));
 
@@ -165,6 +166,27 @@ vi.mock("@/components/ui/button", () => ({
 
 vi.mock("@/constants/platform", () => ({
   isWeb: true,
+}));
+
+vi.mock("@/screens/settings/nine-router-usage-panel", () => ({
+  NineRouterUsagePanel: () => React.createElement("div", { "data-testid": "usage-panel" }),
+}));
+
+vi.mock("@/screens/settings/nine-router-oauth-panel", () => ({
+  NineRouterOAuthPanel: () => React.createElement("div", { "data-testid": "oauth-panel" }),
+}));
+
+vi.mock("@/screens/settings/nine-router-key-manager", () => ({
+  NineRouterKeyManager: () => React.createElement("div", { "data-testid": "key-manager" }),
+}));
+
+vi.mock("@/screens/settings/nine-router-providers-panel", () => ({
+  NineRouterProvidersPanel: () => React.createElement("div", { "data-testid": "providers-panel" }),
+}));
+
+vi.mock("@/screens/settings/nine-router-model-aliases-panel", () => ({
+  NineRouterModelAliasesPanel: () =>
+    React.createElement("div", { "data-testid": "model-aliases-panel" }),
 }));
 
 import { NineRouterSection } from "./nine-router-section";
