@@ -1633,6 +1633,12 @@ export const NineRouterProvidersRequestSchema = z.object({
   requestId: z.string(),
 });
 
+export const NineRouterUsageRequestSchema = z.object({
+  type: z.literal("nine_router_usage_request"),
+  requestId: z.string(),
+  period: z.string().optional(),
+});
+
 export const SoiferBackendStatusRequestSchema = z.object({
   type: z.literal("soifer_backend_status_request"),
   requestId: z.string(),
@@ -1804,6 +1810,7 @@ export const SessionInboundMessageSchema = z.discriminatedUnion("type", [
   NineRouterDeleteKeyRequestSchema,
   NineRouterModelsRequestSchema,
   NineRouterProvidersRequestSchema,
+  NineRouterUsageRequestSchema,
   SoiferBackendStatusRequestSchema,
   ListTerminalsRequestSchema,
   SubscribeTerminalsRequestSchema,
@@ -3312,6 +3319,33 @@ export const NineRouterProvidersResponseSchema = z.object({
   }),
 });
 
+export const NineRouterUsageResponseSchema = z.object({
+  type: z.literal("nine_router_usage_response"),
+  payload: z.object({
+    requestId: z.string(),
+    period: z.string(),
+    totalRequests: z.number(),
+    totalTokens: z.number(),
+    totalCost: z.number(),
+    byProvider: z.array(
+      z.object({
+        provider: z.string(),
+        requests: z.number(),
+        tokens: z.number(),
+        cost: z.number(),
+      }),
+    ),
+    byModel: z.array(
+      z.object({
+        model: z.string(),
+        requests: z.number(),
+        tokens: z.number(),
+        cost: z.number(),
+      }),
+    ),
+  }),
+});
+
 export const SoiferBackendStatusResponseSchema = z.object({
   type: z.literal("soifer_backend_status_response"),
   payload: z.object({
@@ -3557,6 +3591,7 @@ export const SessionOutboundMessageSchema = z.discriminatedUnion("type", [
   NineRouterKeysResponseSchema,
   NineRouterModelsResponseSchema,
   NineRouterProvidersResponseSchema,
+  NineRouterUsageResponseSchema,
   SoiferBackendStatusResponseSchema,
   ListTerminalsResponseSchema,
   TerminalsChangedSchema,

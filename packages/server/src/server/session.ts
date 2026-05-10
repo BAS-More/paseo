@@ -2203,6 +2203,9 @@ export class Session {
       case "nine_router_providers_request":
         await this.handleNineRouterProvidersRequest(msg.requestId);
         return;
+      case "nine_router_usage_request":
+        await this.handleNineRouterUsageRequest(msg.requestId, msg.period);
+        return;
       case "soifer_backend_status_request":
         await this.handleSoiferBackendStatusRequest(msg.requestId);
         return;
@@ -2254,6 +2257,28 @@ export class Session {
     const client = this.createNineRouterClient();
     const providers = await client.getProviders();
     this.emit({ type: "nine_router_providers_response", payload: { requestId, providers } });
+  }
+
+  private async handleNineRouterUsageRequest(requestId: string, period?: string): Promise<void> {
+    const client = this.createNineRouterClient();
+    const usage = await client.getUsage(period ? { period } : undefined);
+    this.emit({
+      type: "nine_router_usage_response",
+      payload: {
+        requestId,
+        period: period ?? "all",
+        totalRequests: usage.totalRequests,
+        totalTokens: usage.totalTokens,
+        totalCost: usage.totalCost,
+        byProvider: usage.byAccount.map((a) => ({
+          provider: a.id,
+          requests: a.requests,
+          tokens: a.tokens,
+          cost: a.cost,
+        })),
+        byModel: [],
+      },
+    });
   }
 
   private createNineRouterClient(): NineRouterClient {

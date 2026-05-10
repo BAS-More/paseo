@@ -13,6 +13,8 @@ import {
   NineRouterModelsResponseSchema,
   NineRouterProvidersRequestSchema,
   NineRouterProvidersResponseSchema,
+  NineRouterUsageRequestSchema,
+  NineRouterUsageResponseSchema,
 } from "../shared/messages.js";
 
 describe("9Router message schemas", () => {
@@ -275,6 +277,90 @@ describe("9Router message schemas", () => {
       };
       const result = SessionOutboundMessageSchema.safeParse(msg);
       expect(result.success).toBe(true);
+    });
+  });
+
+  describe("NineRouterUsageRequest", () => {
+    it("validates request without period (defaults to all-time)", () => {
+      const msg = { type: "nine_router_usage_request", requestId: "req-u1" };
+      const result = NineRouterUsageRequestSchema.safeParse(msg);
+      expect(result.success).toBe(true);
+    });
+
+    it("validates request with period", () => {
+      const msg = { type: "nine_router_usage_request", requestId: "req-u2", period: "7d" };
+      const result = NineRouterUsageRequestSchema.safeParse(msg);
+      expect(result.success).toBe(true);
+    });
+
+    it("is included in SessionInboundMessageSchema", () => {
+      const msg = { type: "nine_router_usage_request", requestId: "req-u3", period: "24h" };
+      const result = SessionInboundMessageSchema.safeParse(msg);
+      expect(result.success).toBe(true);
+    });
+  });
+
+  describe("NineRouterUsageResponse", () => {
+    const validResponse = {
+      type: "nine_router_usage_response",
+      payload: {
+        requestId: "req-u1",
+        period: "7d",
+        totalRequests: 500,
+        totalTokens: 125000,
+        totalCost: 3.75,
+        byProvider: [
+          { provider: "anthropic", requests: 300, tokens: 80000, cost: 2.5 },
+          { provider: "openai", requests: 200, tokens: 45000, cost: 1.25 },
+        ],
+        byModel: [
+          { model: "claude-sonnet-4-20250514", requests: 250, tokens: 60000, cost: 1.8 },
+          { model: "gpt-4o", requests: 200, tokens: 45000, cost: 1.25 },
+        ],
+      },
+    };
+
+    it("validates a well-formed response", () => {
+      const result = NineRouterUsageResponseSchema.safeParse(validResponse);
+      expect(result.success).toBe(true);
+    });
+
+    it("validates response with empty arrays", () => {
+      const msg = {
+        type: "nine_router_usage_response",
+        payload: {
+          requestId: "req-u2",
+          period: "24h",
+          totalRequests: 0,
+          totalTokens: 0,
+          totalCost: 0,
+          byProvider: [],
+          byModel: [],
+        },
+      };
+      const result = NineRouterUsageResponseSchema.safeParse(msg);
+      expect(result.success).toBe(true);
+    });
+
+    it("is included in SessionOutboundMessageSchema", () => {
+      const result = SessionOutboundMessageSchema.safeParse(validResponse);
+      expect(result.success).toBe(true);
+    });
+
+    it("rejects response without byProvider", () => {
+      const msg = {
+        type: "nine_router_usage_response",
+        payload: {
+          requestId: "req-u3",
+          period: "7d",
+          totalRequests: 100,
+          totalTokens: 5000,
+          totalCost: 0.5,
+          byModel: [],
+        },
+      };
+      const result = NineRouterUsageResponseSchema.safeParse(msg);
+      expect(result.success).toBe(false);
     });
   });
 });

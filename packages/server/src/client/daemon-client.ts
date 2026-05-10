@@ -3280,6 +3280,26 @@ export class DaemonClient {
     });
   }
 
+  async getNineRouterUsage(
+    period?: string,
+    requestId?: string,
+  ): Promise<{
+    requestId: string;
+    period: string;
+    totalRequests: number;
+    totalTokens: number;
+    totalCost: number;
+    byProvider: Array<{ provider: string; requests: number; tokens: number; cost: number }>;
+    byModel: Array<{ model: string; requests: number; tokens: number; cost: number }>;
+  }> {
+    return this.sendCorrelatedSessionRequest({
+      requestId,
+      message: { type: "nine_router_usage_request", period },
+      responseType: "nine_router_usage_response",
+      timeout: 10000,
+    });
+  }
+
   async getSoiferBackendStatus(requestId?: string): Promise<{
     requestId: string;
     reachable: boolean;
