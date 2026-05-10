@@ -3425,6 +3425,27 @@ export class DaemonClient {
     });
   }
 
+  async testProviderConnection(
+    provider: AgentProvider,
+    options?: { requestId?: string },
+  ): Promise<{
+    requestId: string;
+    provider: string;
+    available: boolean;
+    latencyMs?: number;
+    error?: string;
+  }> {
+    return this.sendCorrelatedSessionRequest({
+      requestId: options?.requestId,
+      message: {
+        type: "provider_connection_test_request",
+        provider,
+      },
+      responseType: "provider_connection_test_response",
+      timeout: 30000,
+    });
+  }
+
   async listCommands(agentId: string, requestId?: string): Promise<ListCommandsPayload>;
   async listCommands(agentId: string, options?: ListCommandsOptions): Promise<ListCommandsPayload>;
   async listCommands(

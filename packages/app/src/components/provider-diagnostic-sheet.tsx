@@ -20,6 +20,7 @@ import { useHostRuntimeClient } from "@/runtime/host-runtime";
 import { SettingsSection } from "@/screens/settings/settings-section";
 import { settingsStyles } from "@/styles/settings";
 import { ProviderConfigSection } from "@/components/provider-config-section";
+import { ProviderConnectionTest } from "@/components/provider-connection-test";
 import { resolveProviderLabel } from "@/utils/provider-definitions";
 import { formatTimeAgo } from "@/utils/time";
 import type { AgentModelDefinition, AgentProvider } from "@server/server/agent/agent-sdk-types";
@@ -421,6 +422,12 @@ export function ProviderDiagnosticSheet({
             diagnostic={diagnostic}
             foregroundMutedColor={theme.colors.foregroundMuted}
           />
+        </View>
+      </SettingsSection>
+
+      <SettingsSection title="Connection Test">
+        <View style={settingsStyles.card}>
+          <ProviderConnectionTest provider={provider} serverId={serverId} />
         </View>
       </SettingsSection>
 

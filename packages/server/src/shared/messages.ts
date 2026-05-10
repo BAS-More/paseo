@@ -1059,6 +1059,12 @@ export const ProviderDiagnosticRequestMessageSchema = z.object({
   requestId: z.string(),
 });
 
+export const ProviderConnectionTestRequestSchema = z.object({
+  type: z.literal("provider_connection_test_request"),
+  provider: AgentProviderSchema,
+  requestId: z.string(),
+});
+
 export const ResumeAgentRequestMessageSchema = z.object({
   type: z.literal("resume_agent_request"),
   handle: AgentPersistenceHandleSchema,
@@ -1762,6 +1768,7 @@ export const SessionInboundMessageSchema = z.discriminatedUnion("type", [
   GetProvidersSnapshotRequestMessageSchema,
   RefreshProvidersSnapshotRequestMessageSchema,
   ProviderDiagnosticRequestMessageSchema,
+  ProviderConnectionTestRequestSchema,
   ResumeAgentRequestMessageSchema,
   ImportAgentRequestMessageSchema,
   RefreshAgentRequestMessageSchema,
@@ -3226,6 +3233,17 @@ export const ProviderDiagnosticResponseMessageSchema = z.object({
   }),
 });
 
+export const ProviderConnectionTestResponseSchema = z.object({
+  type: z.literal("provider_connection_test_response"),
+  payload: z.object({
+    requestId: z.string(),
+    provider: AgentProviderSchema,
+    available: z.boolean(),
+    latencyMs: z.number().optional(),
+    error: z.string().optional(),
+  }),
+});
+
 const AgentSlashCommandSchema = z.object({
   name: z.string(),
   description: z.string(),
@@ -3604,6 +3622,7 @@ export const SessionOutboundMessageSchema = z.discriminatedUnion("type", [
   ProvidersSnapshotUpdateMessageSchema,
   RefreshProvidersSnapshotResponseMessageSchema,
   ProviderDiagnosticResponseMessageSchema,
+  ProviderConnectionTestResponseSchema,
   ListCommandsResponseSchema,
   NineRouterStatusResponseSchema,
   NineRouterKeysResponseSchema,

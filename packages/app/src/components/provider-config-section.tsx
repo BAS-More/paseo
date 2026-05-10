@@ -26,8 +26,21 @@ const PROVIDER_CONFIG_FIELDS: Record<string, ConfigField[]> = {
       label: "Bridge URL",
       placeholder: "http://localhost:8000 (default)",
     },
+    {
+      key: "bridgePath",
+      label: "Bridge Script Path",
+      placeholder: "Path to api.py",
+    },
+    {
+      key: "pythonPath",
+      label: "Python Path",
+      placeholder: "python (default)",
+    },
   ],
-  gemini: [{ key: "geminiPath", label: "Binary Path", placeholder: "gemini (default)" }],
+  gemini: [
+    { key: "geminiPath", label: "Binary Path", placeholder: "gemini (default)" },
+    { key: "mcpConfigPath", label: "MCP Config Path", placeholder: "~/.gemini.json" },
+  ],
 };
 
 interface ProviderConfigSectionProps {

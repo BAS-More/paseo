@@ -2109,6 +2109,8 @@ export class Session {
         return this.handleRefreshProvidersSnapshotRequest(msg);
       case "provider_diagnostic_request":
         return this.handleProviderDiagnosticRequest(msg);
+      case "provider_connection_test_request":
+        return this.handleProviderConnectionTestRequest(msg);
       default:
         return undefined;
     }
@@ -3963,6 +3965,51 @@ export class Session {
           requestType: msg.type,
           error: `Failed to get provider diagnostic: ${err.message}`,
           code: "provider_diagnostic_failed",
+        },
+      });
+    }
+  }
+
+  private async handleProviderConnectionTestRequest(
+    msg: Extract<SessionInboundMessage, { type: "provider_connection_test_request" }>,
+  ): Promise<void> {
+    try {
+      const registry = this.getProviderRegistry();
+      const entry = registry[msg.provider];
+      if (!entry) {
+        this.emit({
+          type: "provider_connection_test_response",
+          payload: {
+            requestId: msg.requestId,
+            provider: msg.provider,
+            available: false,
+            error: `Provider "${msg.provider}" not registered`,
+          },
+        });
+        return;
+      }
+      const client = entry.createClient(this.sessionLogger);
+      const start = Date.now();
+      const available = await client.isAvailable();
+      const latencyMs = Date.now() - start;
+      this.emit({
+        type: "provider_connection_test_response",
+        payload: {
+          requestId: msg.requestId,
+          provider: msg.provider,
+          available,
+          latencyMs,
+        },
+      });
+    } catch (error) {
+      const err = error instanceof Error ? error : new Error(String(error));
+      this.emit({
+        type: "provider_connection_test_response",
+        payload: {
+          requestId: msg.requestId,
+          provider: msg.provider,
+          available: false,
+          error: err.message,
         },
       });
     }
