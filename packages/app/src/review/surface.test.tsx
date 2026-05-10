@@ -22,13 +22,14 @@ const { theme, pressablePropsByLabel } = vi.hoisted(() => {
   Object.assign(globalThis, { __DEV__: false });
   return {
     theme: {
-      spacing: { 1: 4, 2: 8, 3: 12 },
+      spacing: { 1: 4, 2: 8, 3: 12, 4: 16, 6: 24, 8: 32 },
       borderWidth: { 1: 1 },
-      borderRadius: { base: 4, md: 6, lg: 8, xl: 12, full: 999 },
+      borderRadius: { base: 4, md: 6, lg: 8, xl: 12, "2xl": 16, full: 999 },
       opacity: { 50: 0.5 },
       fontSize: { xs: 11, sm: 13 },
       fontWeight: { normal: "400", medium: "500" },
       lineHeight: { diff: 18 },
+      shadow: { sm: {}, md: {}, lg: {} },
       colors: {
         accent: "#0a84ff",
         accentForeground: "#fff",
@@ -36,6 +37,7 @@ const { theme, pressablePropsByLabel } = vi.hoisted(() => {
         destructive: "#ff453a",
         foreground: "#fff",
         foregroundMuted: "#aaa",
+        surface0: "#000",
         surface1: "#111",
         surface2: "#222",
         surface3: "#333",
