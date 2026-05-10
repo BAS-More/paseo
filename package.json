@@ -51,6 +51,7 @@
     "format:check:files": "oxfmt --check",
     "lint": "oxlint",
     "lint:fix": "oxlint --fix",
+    "crewai:bridge": "python packages/crewai-bridge/api.py",
     "knip": "knip",
     "start": "npm run start --workspace=@getpaseo/server",
     "android": "npm run android --workspace=@getpaseo/app",
