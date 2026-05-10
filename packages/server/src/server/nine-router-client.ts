@@ -54,12 +54,12 @@ export class NineRouterClient {
 
   async getAccounts(): Promise<NineRouterAccount[]> {
     try {
-      const response = await this.fetchFn(`${this.baseUrl}/api/connections`, {
+      const response = await this.fetchFn(`${this.baseUrl}/api/providers/client`, {
         signal: AbortSignal.timeout(5000),
       });
       if (!response.ok) return [];
       const data = (await response.json()) as { connections: NineRouterAccount[] };
-      return data.connections;
+      return data.connections ?? [];
     } catch {
       return [];
     }
@@ -68,13 +68,32 @@ export class NineRouterClient {
   async getUsage(options?: { period?: string }): Promise<NineRouterUsage> {
     try {
       const url = options?.period
-        ? `${this.baseUrl}/api/usage?period=${options.period}`
-        : `${this.baseUrl}/api/usage`;
+        ? `${this.baseUrl}/api/usage/stats?period=${options.period}`
+        : `${this.baseUrl}/api/usage/stats`;
       const response = await this.fetchFn(url, {
         signal: AbortSignal.timeout(5000),
       });
       if (!response.ok) return { ...EMPTY_USAGE };
-      return (await response.json()) as NineRouterUsage;
+      const data = (await response.json()) as {
+        totalRequests?: number;
+        totalPromptTokens?: number;
+        totalCompletionTokens?: number;
+        totalCost?: number;
+        byAccount?: Record<string, { requests?: number; tokens?: number; cost?: number }>;
+      };
+      // Map 9Router shape to NineRouterUsage interface
+      const byAccount = Object.entries(data.byAccount ?? {}).map(([id, stats]) => ({
+        id,
+        requests: stats.requests ?? 0,
+        tokens: stats.tokens ?? 0,
+        cost: stats.cost ?? 0,
+      }));
+      return {
+        totalRequests: data.totalRequests ?? 0,
+        totalTokens: (data.totalPromptTokens ?? 0) + (data.totalCompletionTokens ?? 0),
+        totalCost: data.totalCost ?? 0,
+        byAccount,
+      };
     } catch {
       return { ...EMPTY_USAGE };
     }
