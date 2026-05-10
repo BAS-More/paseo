@@ -117,7 +117,7 @@ Status: `[ ]` pending | `[~]` in progress | `[x]` done | `[!]` blocked
 - [x] **P10-03** `theme.test.ts` — 13 tests (lightClaudeTheme colors, tokens, shadows, mappings, swatches)
 - [x] **P10-04** Full typecheck passes (`npm run typecheck` — 0 errors across all workspaces)
 - [x] **P10-05** All 133 related tests pass (no regressions in existing test suite)
-- [ ] **P10-06** Visual QA (requires running app in browser — manual step)
+- [x] **P10-06** Visual QA — verified in Chrome: warm beige bg, sidebar search+date groups, single-pane chat (ExplorerSidebar fix: `66c2ebeb`), sparkle avatars, hover copy, floating pill composer, settings toggle
 
 ---
 
@@ -135,8 +135,8 @@ Status: `[ ]` pending | `[~]` in progress | `[x]` done | `[!]` blocked
 | 7 — Hover/Context     | 7      | 6      | 1                | 🟡 Partial  |
 | 8 — Settings          | 6      | 4      | 2                | 🟡 Partial  |
 | 9 — Conversation Mgmt | 4      | 4      | 0                | ✅ Complete |
-| 10 — Tests/QA         | 6      | 5      | 0                | 🟡 Partial  |
-| **Total**             | **58** | **54** | **3**            | **93%**     |
+| 10 — Tests/QA         | 6      | 6      | 0                | ✅ Complete |
+| **Total**             | **58** | **55** | **3**            | **95%**     |
 
 ---
 
@@ -185,5 +185,5 @@ Status: `[ ]` pending | `[~]` in progress | `[x]` done | `[!]` blocked
 [x] Workspace mode       → unchanged (no regressions — all changes gated)
 [x] Claude Desktop mode  → all implemented features functional
 [x] Format + lint        → 0 errors
-[ ] Visual QA            → pending manual step
+[x] Visual QA            → verified in browser (66c2ebeb fixed ExplorerSidebar leak)
 ```
