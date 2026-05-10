@@ -15,6 +15,8 @@ import {
   NineRouterProvidersResponseSchema,
   NineRouterUsageRequestSchema,
   NineRouterUsageResponseSchema,
+  NineRouterOAuthImportRequestSchema,
+  NineRouterOAuthImportResponseSchema,
 } from "../shared/messages.js";
 
 describe("9Router message schemas", () => {
@@ -361,6 +363,73 @@ describe("9Router message schemas", () => {
       };
       const result = NineRouterUsageResponseSchema.safeParse(msg);
       expect(result.success).toBe(false);
+    });
+  });
+
+  describe("NineRouterOAuthImportRequest", () => {
+    it("validates request with provider", () => {
+      const msg = {
+        type: "nine_router_oauth_import_request",
+        requestId: "req-oi1",
+        provider: "cursor",
+      };
+      const result = NineRouterOAuthImportRequestSchema.safeParse(msg);
+      expect(result.success).toBe(true);
+    });
+
+    it("rejects request without provider", () => {
+      const msg = { type: "nine_router_oauth_import_request", requestId: "req-oi2" };
+      const result = NineRouterOAuthImportRequestSchema.safeParse(msg);
+      expect(result.success).toBe(false);
+    });
+
+    it("is included in SessionInboundMessageSchema", () => {
+      const msg = {
+        type: "nine_router_oauth_import_request",
+        requestId: "req-oi3",
+        provider: "kiro",
+      };
+      const result = SessionInboundMessageSchema.safeParse(msg);
+      expect(result.success).toBe(true);
+    });
+  });
+
+  describe("NineRouterOAuthImportResponse", () => {
+    it("validates successful import response", () => {
+      const msg = {
+        type: "nine_router_oauth_import_response",
+        payload: {
+          requestId: "req-oi1",
+          success: true,
+          provider: "cursor",
+          email: "user@example.com",
+        },
+      };
+      const result = NineRouterOAuthImportResponseSchema.safeParse(msg);
+      expect(result.success).toBe(true);
+    });
+
+    it("validates failed import response", () => {
+      const msg = {
+        type: "nine_router_oauth_import_response",
+        payload: {
+          requestId: "req-oi2",
+          success: false,
+          provider: "kiro",
+          error: "No token found",
+        },
+      };
+      const result = NineRouterOAuthImportResponseSchema.safeParse(msg);
+      expect(result.success).toBe(true);
+    });
+
+    it("is included in SessionOutboundMessageSchema", () => {
+      const msg = {
+        type: "nine_router_oauth_import_response",
+        payload: { requestId: "req-oi3", success: true, provider: "iflow" },
+      };
+      const result = SessionOutboundMessageSchema.safeParse(msg);
+      expect(result.success).toBe(true);
     });
   });
 });

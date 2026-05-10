@@ -2206,6 +2206,9 @@ export class Session {
       case "nine_router_usage_request":
         await this.handleNineRouterUsageRequest(msg.requestId, msg.period);
         return;
+      case "nine_router_oauth_import_request":
+        await this.handleNineRouterOAuthImportRequest(msg.requestId, msg.provider);
+        return;
       case "soifer_backend_status_request":
         await this.handleSoiferBackendStatusRequest(msg.requestId);
         return;
@@ -2277,6 +2280,24 @@ export class Session {
           cost: a.cost,
         })),
         byModel: [],
+      },
+    });
+  }
+
+  private async handleNineRouterOAuthImportRequest(
+    requestId: string,
+    provider: string,
+  ): Promise<void> {
+    const client = this.createNineRouterClient();
+    const result = await client.importOAuthToken(provider);
+    this.emit({
+      type: "nine_router_oauth_import_response",
+      payload: {
+        requestId,
+        success: result.success,
+        provider,
+        email: result.email,
+        error: result.success ? undefined : "Import failed",
       },
     });
   }

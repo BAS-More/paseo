@@ -1639,6 +1639,12 @@ export const NineRouterUsageRequestSchema = z.object({
   period: z.string().optional(),
 });
 
+export const NineRouterOAuthImportRequestSchema = z.object({
+  type: z.literal("nine_router_oauth_import_request"),
+  requestId: z.string(),
+  provider: z.string(),
+});
+
 export const SoiferBackendStatusRequestSchema = z.object({
   type: z.literal("soifer_backend_status_request"),
   requestId: z.string(),
@@ -1811,6 +1817,7 @@ export const SessionInboundMessageSchema = z.discriminatedUnion("type", [
   NineRouterModelsRequestSchema,
   NineRouterProvidersRequestSchema,
   NineRouterUsageRequestSchema,
+  NineRouterOAuthImportRequestSchema,
   SoiferBackendStatusRequestSchema,
   ListTerminalsRequestSchema,
   SubscribeTerminalsRequestSchema,
@@ -3346,6 +3353,17 @@ export const NineRouterUsageResponseSchema = z.object({
   }),
 });
 
+export const NineRouterOAuthImportResponseSchema = z.object({
+  type: z.literal("nine_router_oauth_import_response"),
+  payload: z.object({
+    requestId: z.string(),
+    success: z.boolean(),
+    provider: z.string(),
+    email: z.string().optional(),
+    error: z.string().optional(),
+  }),
+});
+
 export const SoiferBackendStatusResponseSchema = z.object({
   type: z.literal("soifer_backend_status_response"),
   payload: z.object({
@@ -3592,6 +3610,7 @@ export const SessionOutboundMessageSchema = z.discriminatedUnion("type", [
   NineRouterModelsResponseSchema,
   NineRouterProvidersResponseSchema,
   NineRouterUsageResponseSchema,
+  NineRouterOAuthImportResponseSchema,
   SoiferBackendStatusResponseSchema,
   ListTerminalsResponseSchema,
   TerminalsChangedSchema,

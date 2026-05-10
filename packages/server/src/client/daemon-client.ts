@@ -3300,6 +3300,24 @@ export class DaemonClient {
     });
   }
 
+  async importNineRouterOAuth(
+    provider: string,
+    requestId?: string,
+  ): Promise<{
+    requestId: string;
+    success: boolean;
+    provider: string;
+    email?: string;
+    error?: string;
+  }> {
+    return this.sendCorrelatedSessionRequest({
+      requestId,
+      message: { type: "nine_router_oauth_import_request", provider },
+      responseType: "nine_router_oauth_import_response",
+      timeout: 15000,
+    });
+  }
+
   async getSoiferBackendStatus(requestId?: string): Promise<{
     requestId: string;
     reachable: boolean;
