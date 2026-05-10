@@ -1,6 +1,7 @@
 import {
   View,
   Text,
+  TextInput,
   Pressable,
   Image,
   Platform,
@@ -10,6 +11,8 @@ import {
   type GestureResponderEvent,
   type PressableStateCallbackType,
   type ViewStyle,
+  type NativeSyntheticEvent,
+  type TextInputKeyPressEventData,
 } from "react-native";
 import * as Haptics from "expo-haptics";
 import { useQueries } from "@tanstack/react-query";
@@ -41,6 +44,8 @@ import {
   FolderGit2,
   GitPullRequest,
   Globe,
+  Pin,
+  PinOff,
   Settings,
   SquareTerminal,
   Monitor,
@@ -64,6 +69,7 @@ import {
   type SidebarProjectEntry,
   type SidebarWorkspaceEntry,
 } from "@/hooks/use-sidebar-workspaces-list";
+import { usePinnedWorkspacesStore } from "@/stores/pinned-workspaces-store";
 import { useSidebarOrderStore } from "@/stores/sidebar-order-store";
 import { useShowShortcutBadges } from "@/hooks/use-show-shortcut-badges";
 import {
@@ -176,6 +182,8 @@ const ThemedTrash2 = withUnistyles(Trash2);
 const ThemedSettings = withUnistyles(Settings);
 const ThemedCopy = withUnistyles(Copy);
 const ThemedArchive = withUnistyles(Archive);
+const ThemedPin = withUnistyles(Pin);
+const ThemedPinOff = withUnistyles(PinOff);
 
 const foregroundColorMapping = (theme: Theme) => ({ color: theme.colors.foreground });
 const foregroundMutedColorMapping = (theme: Theme) => ({
@@ -255,6 +263,8 @@ interface WorkspaceRowInnerProps {
   isCreating?: boolean;
   dragHandleProps?: DraggableListDragHandleProps;
   menuController: ReturnType<typeof useContextMenu> | null;
+  isPinned: boolean;
+  onTogglePin: () => void;
   archiveLabel?: string;
   archiveStatus?: "idle" | "pending" | "success";
   archivePendingLabel?: string;
@@ -262,6 +272,7 @@ interface WorkspaceRowInnerProps {
   onCopyBranchName?: () => void;
   onCopyPath?: () => void;
   archiveShortcutKeys?: ShortcutKey[][] | null;
+  onRename?: (newName: string) => void;
 }
 
 function getWorkspaceArchiveStatus(
@@ -593,6 +604,8 @@ function ProjectRowTrailingActions({
 const trash2LeadingIcon = <ThemedTrash2 size={14} uniProps={foregroundMutedColorMapping} />;
 const settingsLeadingIcon = <ThemedSettings size={14} uniProps={foregroundMutedColorMapping} />;
 const copyLeadingIcon = <ThemedCopy size={14} uniProps={foregroundMutedColorMapping} />;
+const pinLeadingIcon = <ThemedPin size={14} uniProps={foregroundMutedColorMapping} />;
+const unpinLeadingIcon = <ThemedPinOff size={14} uniProps={foregroundMutedColorMapping} />;
 const archiveLeadingIcon = <ThemedArchive size={14} uniProps={foregroundMutedColorMapping} />;
 
 function renderKebabTriggerIcon({ hovered }: { hovered?: boolean }) {
@@ -662,6 +675,8 @@ function WorkspaceRowRightGroup({
   isCreating,
   showShortcutBadge,
   shortcutNumber,
+  isPinned,
+  onTogglePin,
   archiveLabel,
   archiveStatus,
   archivePendingLabel,
@@ -678,6 +693,8 @@ function WorkspaceRowRightGroup({
   isCreating: boolean;
   showShortcutBadge: boolean;
   shortcutNumber: number | null;
+  isPinned: boolean;
+  onTogglePin: () => void;
   archiveLabel?: string;
   archiveStatus?: "idle" | "pending" | "success";
   archivePendingLabel?: string;
@@ -702,6 +719,8 @@ function WorkspaceRowRightGroup({
       {showKebab && onArchive ? (
         <WorkspaceKebabMenu
           workspaceKey={workspace.workspaceKey}
+          isPinned={isPinned}
+          onTogglePin={onTogglePin}
           onCopyPath={onCopyPath}
           onCopyBranchName={onCopyBranchName}
           onArchive={onArchive}
@@ -728,6 +747,8 @@ function WorkspaceRowRightGroup({
 
 function WorkspaceKebabMenu({
   workspaceKey,
+  isPinned,
+  onTogglePin,
   onCopyPath,
   onCopyBranchName,
   onArchive,
@@ -737,6 +758,8 @@ function WorkspaceKebabMenu({
   archiveShortcutKeys,
 }: {
   workspaceKey: string;
+  isPinned: boolean;
+  onTogglePin: () => void;
   onCopyPath?: () => void;
   onCopyBranchName?: () => void;
   onArchive: () => void;
@@ -779,6 +802,13 @@ function WorkspaceKebabMenu({
             Copy branch name
           </DropdownMenuItem>
         ) : null}
+        <DropdownMenuItem
+          testID={`sidebar-workspace-menu-pin-${workspaceKey}`}
+          leading={isPinned ? unpinLeadingIcon : pinLeadingIcon}
+          onSelect={onTogglePin}
+        >
+          {isPinned ? "Unpin" : "Pin"}
+        </DropdownMenuItem>
         <DropdownMenuItem
           testID={`sidebar-workspace-menu-archive-${workspaceKey}`}
           leading={archiveLeadingIcon}
@@ -1331,6 +1361,8 @@ function WorkspaceRowInner({
   isCreating = false,
   dragHandleProps,
   menuController,
+  isPinned,
+  onTogglePin,
   archiveLabel,
   archiveStatus = "idle",
   archivePendingLabel,
@@ -1338,9 +1370,13 @@ function WorkspaceRowInner({
   onCopyBranchName,
   onCopyPath,
   archiveShortcutKeys,
+  onRename,
 }: WorkspaceRowInnerProps) {
   const _isCompact = useIsCompactFormFactor();
   const [isHovered, setIsHovered] = useState(false);
+  const [isRenaming, setIsRenaming] = useState(false);
+  const [renameText, setRenameText] = useState("");
+  const renameInputRef = useRef<TextInput>(null);
   const isTouchPlatform = platformIsNative;
   const workspaceDirectory = resolveWorkspaceExecutionDirectory({
     workspaceDirectory: workspace.workspaceDirectory,
@@ -1362,6 +1398,36 @@ function WorkspaceRowInner({
     }
     onPress();
   }, [interaction.didLongPressRef, onPress]);
+
+  const handleDoubleClick = useCallback(() => {
+    if (!onRename || platformIsNative) return;
+    setRenameText(workspace.name);
+    setIsRenaming(true);
+    setTimeout(() => renameInputRef.current?.focus(), 0);
+  }, [onRename, workspace.name]);
+
+  const commitRename = useCallback(() => {
+    const trimmed = renameText.trim();
+    setIsRenaming(false);
+    if (trimmed && trimmed !== workspace.name && onRename) {
+      onRename(trimmed);
+    }
+  }, [renameText, workspace.name, onRename]);
+
+  const cancelRename = useCallback(() => {
+    setIsRenaming(false);
+  }, []);
+
+  const handleRenameKeyPress = useCallback(
+    (e: NativeSyntheticEvent<TextInputKeyPressEventData>) => {
+      if (e.nativeEvent.key === "Enter") {
+        commitRename();
+      } else if (e.nativeEvent.key === "Escape") {
+        cancelRename();
+      }
+    },
+    [commitRename, cancelRename],
+  );
 
   const handlePointerEnter = useCallback(() => setIsHovered(true), []);
   const handlePointerLeave = useCallback(() => setIsHovered(false), []);
@@ -1421,9 +1487,27 @@ function WorkspaceRowInner({
                 workspaceKind={workspace.workspaceKind}
                 loading={isArchiving || isCreating}
               />
-              <Text style={workspaceBranchTextStyle} numberOfLines={1}>
-                {workspace.name}
-              </Text>
+              {isRenaming ? (
+                <TextInput
+                  ref={renameInputRef}
+                  style={workspaceBranchTextStyle}
+                  value={renameText}
+                  onChangeText={setRenameText}
+                  onBlur={commitRename}
+                  onKeyPress={handleRenameKeyPress}
+                  autoFocus
+                  selectTextOnFocus
+                />
+              ) : (
+                <Text
+                  style={workspaceBranchTextStyle}
+                  numberOfLines={1}
+                  // @ts-expect-error -- web-only double-click for inline rename
+                  onDoubleClick={handleDoubleClick}
+                >
+                  {workspace.name}
+                </Text>
+              )}
             </View>
             <WorkspaceRowRightGroup
               workspace={workspace}
@@ -1434,6 +1518,8 @@ function WorkspaceRowInner({
               isCreating={isCreating}
               showShortcutBadge={showShortcutBadge}
               shortcutNumber={shortcutNumber}
+              isPinned={isPinned}
+              onTogglePin={onTogglePin}
               archiveLabel={archiveLabel}
               archiveStatus={archiveStatus}
               archivePendingLabel={archivePendingLabel}
@@ -1482,6 +1568,11 @@ function WorkspaceRowWithMenu({
   const activeWorkspaceSelection = useActiveWorkspaceSelection();
   const archiveWorktree = useCheckoutGitActionsStore((state) => state.archiveWorktree);
   const [isArchivingWorkspace, setIsArchivingWorkspace] = useState(false);
+  const isPinned = usePinnedWorkspacesStore((state) => state.isPinned(workspace.workspaceKey));
+  const togglePin = usePinnedWorkspacesStore((state) => state.togglePin);
+  const handleTogglePin = useCallback(() => {
+    togglePin(workspace.workspaceKey);
+  }, [togglePin, workspace.workspaceKey]);
   const workspaceDirectory = resolveWorkspaceExecutionDirectory({
     workspaceDirectory: workspace.workspaceDirectory,
   });
@@ -1617,6 +1708,18 @@ function WorkspaceRowWithMenu({
     toast.copied("Branch name copied");
   }, [toast, workspace.name]);
 
+  const handleRename = useCallback(
+    (newName: string) => {
+      const client = getHostRuntimeStore().getClient(workspace.serverId);
+      if (!client) {
+        toast.error("Host is not connected");
+        return;
+      }
+      void client.renameWorkspace(workspace.workspaceId, newName);
+    },
+    [toast, workspace.serverId, workspace.workspaceId],
+  );
+
   const archiveShortcutKeys = useShortcutKeys("archive-worktree");
 
   useKeyboardActionHandler({
@@ -1654,6 +1757,9 @@ function WorkspaceRowWithMenu({
       onCopyBranchName={canCopyBranchName ? handleCopyBranchName : undefined}
       onCopyPath={handleCopyPath}
       archiveShortcutKeys={selected ? archiveShortcutKeys : null}
+      isPinned={isPinned}
+      onTogglePin={handleTogglePin}
+      onRename={handleRename}
     />
   );
 }

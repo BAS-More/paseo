@@ -79,7 +79,9 @@ import {
   type BottomAnchorLocalRequest,
   type BottomAnchorRouteRequest,
 } from "./use-bottom-anchor-controller";
-import { MAX_CONTENT_WIDTH } from "@/constants/layout";
+import { MAX_CONTENT_WIDTH, useMaxContentWidth } from "@/constants/layout";
+import { useAppSettings } from "@/hooks/use-settings";
+import { Sparkles } from "lucide-react-native";
 import { normalizeInlinePathTarget } from "@/utils/inline-path";
 import { resolveWorkspaceIdByExecutionDirectory } from "@/utils/workspace-execution";
 import { navigateToPreparedWorkspaceTab } from "@/utils/workspace-navigation";
@@ -95,6 +97,41 @@ import { SPACING, type Theme } from "@/styles/theme";
 const isUserMessageItem = (item?: StreamItem) => item?.kind === "user_message";
 const isToolSequenceItem = (item?: StreamItem) =>
   item?.kind === "tool_call" || item?.kind === "thought" || item?.kind === "todo_list";
+
+const SUGGESTED_PROMPTS = [
+  "Summarize this project",
+  "Find and fix bugs",
+  "Write tests for recent changes",
+];
+
+function PromptChip({ prompt, onPress }: { prompt: string; onPress: (prompt: string) => void }) {
+  const handlePress = useCallback(() => onPress(prompt), [onPress, prompt]);
+  return (
+    <Pressable
+      style={promptChipStylesheet.chip}
+      onPress={handlePress}
+      accessibilityRole="button"
+      accessibilityLabel={prompt}
+    >
+      <Text style={promptChipStylesheet.chipText}>{prompt}</Text>
+    </Pressable>
+  );
+}
+
+const promptChipStylesheet = StyleSheet.create((theme) => ({
+  chip: {
+    paddingHorizontal: theme.spacing[4],
+    paddingVertical: theme.spacing[2],
+    borderRadius: theme.borderRadius.full,
+    borderWidth: theme.borderWidth[1],
+    borderColor: theme.colors.border,
+    backgroundColor: theme.colors.surface1,
+  },
+  chipText: {
+    color: theme.colors.foreground,
+    fontSize: theme.fontSize.sm,
+  },
+}));
 
 interface StreamItemBoundarySeams {
   aboveItem?: StreamItem | null;
@@ -116,6 +153,7 @@ export interface AgentStreamViewProps {
   isAuthoritativeHistoryReady?: boolean;
   toast?: ToastApi | null;
   onOpenWorkspaceFile?: (input: { filePath: string }) => void;
+  onSuggestedPrompt?: (prompt: string) => void;
 }
 
 const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamViewProps>(
@@ -130,10 +168,14 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
       isAuthoritativeHistoryReady = true,
       toast,
       onOpenWorkspaceFile,
+      onSuggestedPrompt,
     },
     ref,
   ) {
     const viewportRef = useRef<StreamViewportHandle | null>(null);
+    const maxContentWidth = useMaxContentWidth();
+    const { settings: appSettings } = useAppSettings();
+    const isClaudeDesktop = appSettings.layoutMode === "claude-desktop";
     const isMobile = useIsCompactFormFactor();
     const streamRenderStrategy = useMemo(
       () =>
@@ -584,7 +626,7 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
         }
 
         return (
-          <StreamItemWrapper gapBelow={gapBelow}>
+          <StreamItemWrapper gapBelow={gapBelow} maxWidth={maxContentWidth}>
             {content}
             {footer}
           </StreamItemWrapper>
@@ -596,6 +638,7 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
         agent.status,
         streamRenderStrategy,
         inlineWorkingIndicatorItemId,
+        maxContentWidth,
       ],
     );
 
@@ -643,7 +686,10 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
       };
     }, [baseRenderModel, getGapBetween, pendingPermissionsNode, workingIndicatorNode]);
 
-    const emptyStateStyle = useMemo(() => [stylesheet.emptyState, stylesheet.contentWrapper], []);
+    const emptyStateStyle = useMemo(
+      () => [stylesheet.emptyState, stylesheet.contentWrapper, { maxWidth: maxContentWidth }],
+      [maxContentWidth],
+    );
     const listEmptyComponent = useMemo(() => {
       if (
         renderModel.boundary.hasVirtualizedHistory ||
@@ -655,12 +701,30 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
         return null;
       }
 
+      if (isClaudeDesktop) {
+        return (
+          <View style={emptyStateStyle}>
+            <View style={stylesheet.welcomeAvatar}>
+              <Sparkles size={28} color="#fff" />
+            </View>
+            <Text style={stylesheet.welcomeTitle}>How can I help you today?</Text>
+            {onSuggestedPrompt ? (
+              <View style={stylesheet.promptChips}>
+                {SUGGESTED_PROMPTS.map((prompt) => (
+                  <PromptChip key={prompt} prompt={prompt} onPress={onSuggestedPrompt} />
+                ))}
+              </View>
+            ) : null}
+          </View>
+        );
+      }
+
       return (
         <View style={emptyStateStyle}>
           <Text style={stylesheet.emptyStateText}>Start chatting with this agent...</Text>
         </View>
       );
-    }, [renderModel, emptyStateStyle]);
+    }, [renderModel, emptyStateStyle, isClaudeDesktop, onSuggestedPrompt]);
 
     const historyItems = renderModel.history;
     const _liveHeadItems = renderModel.segments.liveHead;
@@ -712,19 +776,32 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
       else headerPadding = { paddingTop: looseGap };
       return [stylesheet.listHeaderContent, headerPadding];
     }, [boundary.hasLiveHead, streamRenderStrategy, looseGap]);
+    const contentWrapperStyle = useMemo(
+      () => [stylesheet.contentWrapper, { maxWidth: maxContentWidth }],
+      [maxContentWidth],
+    );
+    const scrollToBottomInnerStyle = useMemo(
+      () => [stylesheet.scrollToBottomInner, { maxWidth: maxContentWidth }],
+      [maxContentWidth],
+    );
     const renderLiveAuxiliary = useCallback<StreamSegmentRenderers["renderLiveAuxiliary"]>(() => {
       if (!auxiliary.pendingPermissions && !auxiliary.workingIndicator) {
         return null;
       }
       return (
-        <View style={stylesheet.contentWrapper}>
+        <View style={contentWrapperStyle}>
           <View style={liveAuxiliaryHeaderStyle}>
             {auxiliary.pendingPermissions}
             {auxiliary.workingIndicator}
           </View>
         </View>
       );
-    }, [auxiliary.pendingPermissions, auxiliary.workingIndicator, liveAuxiliaryHeaderStyle]);
+    }, [
+      auxiliary.pendingPermissions,
+      auxiliary.workingIndicator,
+      liveAuxiliaryHeaderStyle,
+      contentWrapperStyle,
+    ]);
 
     const renderers = useMemo<StreamSegmentRenderers>(
       () => ({
@@ -774,7 +851,7 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
               entering={scrollIndicatorFadeIn}
               exiting={scrollIndicatorFadeOut}
             >
-              <View style={stylesheet.scrollToBottomInner}>
+              <View style={scrollToBottomInnerStyle}>
                 <Pressable
                   style={stylesheet.scrollToBottomButton}
                   onPress={scrollToBottom}
@@ -1290,6 +1367,28 @@ const stylesheet = StyleSheet.create((theme) => ({
     fontSize: theme.fontSize.sm,
     textAlign: "center",
   },
+  welcomeAvatar: {
+    width: 48,
+    height: 48,
+    borderRadius: theme.borderRadius.full,
+    backgroundColor: theme.colors.accent,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: theme.spacing[4],
+  },
+  welcomeTitle: {
+    color: theme.colors.foreground,
+    fontSize: theme.fontSize["2xl"],
+    fontWeight: "500",
+    textAlign: "center",
+  },
+  promptChips: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    justifyContent: "center",
+    gap: theme.spacing[2],
+    marginTop: theme.spacing[4],
+  },
   scrollToBottomContainer: {
     position: "absolute",
     bottom: 16,
@@ -1393,13 +1492,17 @@ const optionTextPrimaryStyle = [permissionStyles.optionText, permissionStyles.op
 
 interface StreamItemWrapperProps {
   gapBelow: number;
+  maxWidth?: number;
   children: ReactNode;
 }
 
-function StreamItemWrapper({ gapBelow, children }: StreamItemWrapperProps) {
+function StreamItemWrapper({ gapBelow, maxWidth, children }: StreamItemWrapperProps) {
   const wrapperStyle = useMemo(
-    () => [stylesheet.streamItemWrapper, { marginBottom: gapBelow }],
-    [gapBelow],
+    () => [
+      stylesheet.streamItemWrapper,
+      { marginBottom: gapBelow, ...(maxWidth != null && { maxWidth }) },
+    ],
+    [gapBelow, maxWidth],
   );
   return <View style={wrapperStyle}>{children}</View>;
 }

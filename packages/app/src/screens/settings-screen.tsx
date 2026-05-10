@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import type { ComponentType, ReactNode } from "react";
 import {
   Alert,
@@ -38,6 +38,7 @@ import {
   useAppSettings,
   useSettings,
   type AppSettings,
+  type LayoutMode,
   type SendBehavior,
   type ServiceUrlBehavior,
   type Settings as EffectiveSettings,
@@ -75,6 +76,7 @@ import { HostPage, HostRenameButton } from "@/screens/settings/host-page";
 import ProjectsScreen from "@/screens/projects-screen";
 import ProjectSettingsScreen from "@/screens/project-settings-screen";
 import { useIsCompactFormFactor } from "@/constants/layout";
+import { isWeb } from "@/constants/platform";
 import { useLocalDaemonServerId } from "@/hooks/use-is-local-daemon";
 import {
   buildHostOpenProjectRoute,
@@ -177,6 +179,7 @@ const THEME_LABELS: Record<AppSettings["theme"], string> = {
   ghostty: "Ghostty",
   soifer: "Soifer",
   "soifer-dark": "Soifer Dark",
+  claudeLight: "Claude Light",
   auto: "System",
 };
 
@@ -185,6 +188,11 @@ const ROW_WITH_BORDER_STYLE = [settingsStyles.row, settingsStyles.rowBorder];
 const SEND_BEHAVIOR_OPTIONS = [
   { value: "interrupt" as const, label: "Interrupt" },
   { value: "queue" as const, label: "Queue" },
+];
+
+const LAYOUT_MODE_OPTIONS = [
+  { value: "workspace" as const, label: "Workspace" },
+  { value: "claude-desktop" as const, label: "Claude Desktop" },
 ];
 
 const RELEASE_CHANNEL_OPTIONS = [
@@ -210,6 +218,7 @@ interface GeneralSectionProps {
   handleThemeChange: (theme: AppSettings["theme"]) => void;
   handleSendBehaviorChange: (behavior: SendBehavior) => void;
   handleServiceUrlBehaviorChange: (behavior: ServiceUrlBehavior) => void;
+  handleLayoutModeChange: (mode: LayoutMode) => void;
 }
 
 interface ThemeMenuItemProps {
@@ -268,6 +277,7 @@ function GeneralSection({
   handleThemeChange,
   handleSendBehaviorChange,
   handleServiceUrlBehaviorChange,
+  handleLayoutModeChange,
 }: GeneralSectionProps) {
   const { theme } = useUnistyles();
   const iconSize = theme.iconSize.md;
@@ -310,6 +320,20 @@ function GeneralSection({
               ))}
             </DropdownMenuContent>
           </DropdownMenu>
+        </View>
+        <View style={ROW_WITH_BORDER_STYLE}>
+          <View style={settingsStyles.rowContent}>
+            <Text style={settingsStyles.rowTitle}>Layout</Text>
+            <Text style={settingsStyles.rowHint}>
+              Switch between multi-pane workspace and single-pane Claude Desktop style
+            </Text>
+          </View>
+          <SegmentedControl
+            size="sm"
+            value={settings.layoutMode}
+            onValueChange={handleLayoutModeChange}
+            options={LAYOUT_MODE_OPTIONS}
+          />
         </View>
         <View style={ROW_WITH_BORDER_STYLE}>
           <View style={settingsStyles.rowContent}>
@@ -815,6 +839,9 @@ export default function SettingsScreen({ view }: SettingsScreenProps) {
   const hostServerIds = useMemo(() => hosts.map((host) => host.serverId), [hosts]);
   const anyOnlineServerId = useAnyOnlineHostServerId(hostServerIds);
 
+  const isClaudeDesktop = settings.layoutMode === "claude-desktop";
+  const showModalOverlay = isClaudeDesktop && !isCompactLayout && isWeb;
+
   const handleThemeChange = useCallback(
     (nextTheme: AppSettings["theme"]) => {
       void updateSettings({ theme: nextTheme });
@@ -832,6 +859,13 @@ export default function SettingsScreen({ view }: SettingsScreenProps) {
   const handleServiceUrlBehaviorChange = useCallback(
     (behavior: ServiceUrlBehavior) => {
       void updateSettings({ serviceUrlBehavior: behavior });
+    },
+    [updateSettings],
+  );
+
+  const handleLayoutModeChange = useCallback(
+    (mode: LayoutMode) => {
+      void updateSettings({ layoutMode: mode });
     },
     [updateSettings],
   );
@@ -972,6 +1006,19 @@ export default function SettingsScreen({ view }: SettingsScreenProps) {
     router.replace("/");
   }, [anyOnlineServerId, router]);
 
+  // Escape key dismisses settings modal in claude-desktop mode
+  useEffect(() => {
+    if (!showModalOverlay || typeof document === "undefined") return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        handleBackToWorkspace();
+      }
+    };
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, [showModalOverlay, handleBackToWorkspace]);
+
   const detailHeader = ((): {
     title: string;
     Icon: ComponentType<{ size: number; color: string }>;
@@ -1017,6 +1064,7 @@ export default function SettingsScreen({ view }: SettingsScreenProps) {
               handleThemeChange={handleThemeChange}
               handleSendBehaviorChange={handleSendBehaviorChange}
               handleServiceUrlBehaviorChange={handleServiceUrlBehaviorChange}
+              handleLayoutModeChange={handleLayoutModeChange}
             />
           );
         case "shortcuts":
@@ -1118,8 +1166,8 @@ export default function SettingsScreen({ view }: SettingsScreenProps) {
   // Desktop split view — mirrors AppContainer: sidebar owns the titlebar drag
   // region + traffic-light padding; detail pane renders whatever header the
   // selected section provides.
-  return (
-    <View style={styles.container}>
+  const settingsBody = (
+    <View style={showModalOverlay ? modalStyles.card : styles.container}>
       <View style={desktopStyles.row}>
         <SettingsSidebar
           view={view}
@@ -1133,7 +1181,7 @@ export default function SettingsScreen({ view }: SettingsScreenProps) {
         <View style={desktopStyles.contentPane}>
           <ScreenHeader
             borderless={!detailHeader}
-            windowControlsPaddingRole="detailHeader"
+            windowControlsPaddingRole={showModalOverlay ? undefined : "detailHeader"}
             left={
               detailHeader ? (
                 <>
@@ -1160,6 +1208,16 @@ export default function SettingsScreen({ view }: SettingsScreenProps) {
       {addHostModals}
     </View>
   );
+
+  if (showModalOverlay) {
+    return (
+      <Pressable style={modalStyles.backdrop} onPress={handleBackToWorkspace}>
+        <Pressable>{settingsBody}</Pressable>
+      </Pressable>
+    );
+  }
+
+  return settingsBody;
 }
 
 // ---------------------------------------------------------------------------
@@ -1228,6 +1286,26 @@ const styles = StyleSheet.create((theme) => ({
   placeholderText: {
     color: theme.colors.foregroundMuted,
     fontSize: theme.fontSize.sm,
+  },
+}));
+
+const modalStyles = StyleSheet.create((theme) => ({
+  backdrop: {
+    flex: 1,
+    backgroundColor: "rgba(0, 0, 0, 0.4)",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: theme.spacing[8],
+  },
+  card: {
+    width: "100%",
+    maxWidth: 860,
+    maxHeight: "85%",
+    borderRadius: theme.borderRadius.xl,
+    backgroundColor: theme.colors.surface0,
+    overflow: "hidden",
+    // Web shadow for depth
+    ...theme.shadow.lg,
   },
 }));
 

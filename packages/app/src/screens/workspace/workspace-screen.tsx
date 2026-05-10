@@ -152,7 +152,7 @@ import {
 } from "@/screens/workspace/workspace-bulk-close";
 import { findAdjacentPane } from "@/utils/split-navigation";
 import { isAbsolutePath } from "@/utils/path";
-import { useIsCompactFormFactor, supportsDesktopPaneSplits } from "@/constants/layout";
+import { useIsCompactFormFactor, useCanRenderDesktopPaneSplits } from "@/constants/layout";
 import { getIsElectron, isNative, isWeb } from "@/constants/platform";
 import { useContainerWidthBelow } from "@/hooks/use-container-width";
 import { buildHostRootRoute, buildSettingsHostRoute } from "@/utils/host-routes";
@@ -2730,7 +2730,7 @@ function WorkspaceScreenContent({
   });
 
   const activeTabDescriptor = useMemo(() => activeTab?.descriptor ?? null, [activeTab]);
-  const canRenderDesktopPaneSplits = supportsDesktopPaneSplits();
+  const canRenderDesktopPaneSplits = useCanRenderDesktopPaneSplits();
   const shouldRenderDesktopPaneFallback = useMemo(
     () => !isMobile && !canRenderDesktopPaneSplits,
     [isMobile, canRenderDesktopPaneSplits],
@@ -3091,8 +3091,10 @@ function WorkspaceScreenContent({
     [isFocusModeEnabled, isMobile],
   );
   const showExplorerSidebar = useMemo(
-    () => shouldShowWorkspaceExplorerSidebar({ isRouteFocused, isFocusModeEnabled, isMobile }),
-    [isRouteFocused, isFocusModeEnabled, isMobile],
+    () =>
+      canRenderDesktopPaneSplits &&
+      shouldShowWorkspaceExplorerSidebar({ isRouteFocused, isFocusModeEnabled, isMobile }),
+    [canRenderDesktopPaneSplits, isRouteFocused, isFocusModeEnabled, isMobile],
   );
   const createTerminalDisabled = useMemo(
     () => createTerminalMutation.isPending || pendingTerminalCreateInput !== null,

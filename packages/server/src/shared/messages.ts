@@ -1456,6 +1456,13 @@ export const OpenProjectRequestSchema = z.object({
   requestId: z.string(),
 });
 
+export const RenameWorkspaceRequestSchema = z.object({
+  type: z.literal("rename_workspace_request"),
+  workspaceId: z.string(),
+  displayName: z.string(),
+  requestId: z.string(),
+});
+
 export const ArchiveWorkspaceRequestSchema = z.object({
   type: z.literal("archive_workspace_request"),
   workspaceId: z.string(),
@@ -1741,6 +1748,7 @@ export const SessionInboundMessageSchema = z.discriminatedUnion("type", [
   ListAvailableEditorsRequestSchema,
   OpenInEditorRequestSchema,
   OpenProjectRequestSchema,
+  RenameWorkspaceRequestSchema,
   ArchiveWorkspaceRequestSchema,
   FileExplorerRequestSchema,
   ProjectIconRequestSchema,
@@ -2379,6 +2387,16 @@ export const OpenInEditorResponseMessageSchema = z.object({
   type: z.literal("open_in_editor_response"),
   payload: z.object({
     requestId: z.string(),
+    error: z.string().nullable(),
+  }),
+});
+
+export const RenameWorkspaceResponseSchema = z.object({
+  type: z.literal("rename_workspace_response"),
+  payload: z.object({
+    requestId: z.string(),
+    workspaceId: z.string(),
+    displayName: z.string().nullable(),
     error: z.string().nullable(),
   }),
 });
@@ -3341,6 +3359,7 @@ export const SessionOutboundMessageSchema = z.discriminatedUnion("type", [
   StartWorkspaceScriptResponseMessageSchema,
   ListAvailableEditorsResponseMessageSchema,
   OpenInEditorResponseMessageSchema,
+  RenameWorkspaceResponseSchema,
   ArchiveWorkspaceResponseMessageSchema,
   FetchAgentResponseMessageSchema,
   FetchAgentTimelineResponseMessageSchema,

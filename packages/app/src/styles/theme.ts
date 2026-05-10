@@ -104,7 +104,7 @@ export const baseColors = {
   },
 } as const;
 
-export type ThemeName = "light" | "dark" | "zinc" | "midnight" | "claude" | "ghostty" | "soifer" | "soifer-dark";
+export type ThemeName = "light" | "dark" | "zinc" | "midnight" | "claude" | "ghostty" | "soifer" | "soifer-dark" | "claudeLight";
 
 // Diff stat colors — light uses muted tones, dark uses the brighter palette values
 const lightDiffColors = {
@@ -182,6 +182,9 @@ const lightSemanticColors = {
   accentBorder: "#ececf1",
   input: "#f4f4f5",
   ring: "#18181b",
+
+  // Claude Desktop mode
+  userBubble: "transparent",
 
   ...lightDiffColors,
   ...lightStatusColors,
@@ -295,6 +298,9 @@ function buildDarkSemanticColors(tint: DarkThemeConfig) {
     accentBorder: tint.borderAccent,
     input: tint.surface2,
     ring: "#d4d4d8",
+
+    // Claude Desktop mode
+    userBubble: tint.surface2,
 
     ...darkDiffColors,
     ...darkStatusColors,
@@ -621,6 +627,8 @@ const soiferLightSemanticColors = {
   input: "#EDE9E3",
   ring: "#D4762A",
 
+  userBubble: "transparent",
+
   ...lightDiffColors,
   ...lightStatusColors,
 
@@ -679,11 +687,116 @@ export const soiferLightTheme = {
   ...commonTheme,
 } as const;
 
+// Light-warm "Claude Desktop" theme — warm beige/cream palette
+const lightClaudeSemanticColors = {
+  surface0: "#FAF9F5",
+  surface1: "#F5F4EF",
+  surface2: "#EDECE7",
+  surface3: "#E3E2DD",
+  surface4: "#D5D4CF",
+  surfaceDiffEmpty: "#F2F1EB",
+  surfaceSidebar: "#F0EFE9",
+  surfaceSidebarHover: "#E8E7E1",
+  surfaceWorkspace: "#FAF9F5",
+
+  foreground: "#1a1a1e",
+  foregroundMuted: "#6b6560",
+
+  scrollbarHandle: "#b0aaa3",
+
+  border: "#E8E6E0",
+  borderAccent: "#E0DED8",
+
+  accent: "#D97757",
+  accentBright: "#E89A7F",
+  accentForeground: "#ffffff",
+
+  destructive: "#b04138",
+  destructiveForeground: "#ffffff",
+  success: "#20744A",
+  successForeground: "#ffffff",
+
+  // Claude Desktop mode
+  userBubble: "#F0EFE9",
+
+  background: "#FAF9F5",
+  popover: "#FAF9F5",
+  popoverForeground: "#1a1a1e",
+  primary: "#18181b",
+  primaryForeground: "#fafafa",
+  secondary: "#EDECE7",
+  secondaryForeground: "#1a1a1e",
+  muted: "#EDECE7",
+  mutedForeground: "#6b6560",
+  accentBorder: "#E0DED8",
+  input: "#EDECE7",
+  ring: "#18181b",
+
+  ...lightDiffColors,
+  ...lightStatusColors,
+
+  terminal: {
+    background: "#FAF9F5",
+    foreground: "#1a1a1e",
+    cursor: "#1a1a1e",
+    cursorAccent: "#FAF9F5",
+    selectionBackground: "rgba(0, 0, 0, 0.12)",
+    selectionForeground: "#1a1a1e",
+
+    black: "#1a1a1e",
+    red: "#dc2626",
+    green: "#16a34a",
+    yellow: "#ca8a04",
+    blue: "#2563eb",
+    magenta: "#9333ea",
+    cyan: "#0891b2",
+    white: "#FAF9F5",
+
+    brightBlack: "#6b6560",
+    brightRed: "#ef4444",
+    brightGreen: "#22c55e",
+    brightYellow: "#f59e0b",
+    brightBlue: "#3b82f6",
+    brightMagenta: "#a855f7",
+    brightCyan: "#06b6d4",
+    brightWhite: "#fafafa",
+  },
+} as const;
+
+export const lightClaudeTheme = {
+  colorScheme: "light" as const,
+  colors: {
+    ...lightClaudeSemanticColors,
+    palette: baseColors,
+  },
+  shadow: {
+    sm: {
+      shadowColor: "rgba(0, 0, 0, 0.03)",
+      shadowOffset: { width: 0, height: 2 },
+      shadowRadius: 8,
+      elevation: 2,
+    },
+    md: {
+      shadowColor: "rgba(0, 0, 0, 0.05)",
+      shadowOffset: { width: 0, height: 4 },
+      shadowRadius: 16,
+      elevation: 4,
+    },
+    lg: {
+      shadowColor: "rgba(0, 0, 0, 0.08)",
+      shadowOffset: { width: 0, height: 8 },
+      shadowRadius: 24,
+      elevation: 8,
+    },
+  },
+  ...commonTheme,
+} as const;
+
 // Keep compatibility with existing code
 export const theme = darkTheme;
 
 // Export a union type that works for both themes
-export type Theme = typeof darkTheme | typeof lightTheme;
+export type Theme = typeof darkTheme | typeof lightTheme | typeof soiferLightTheme | typeof lightClaudeTheme;
 
 type UnistylesThemeKey =
   | "light"
@@ -693,7 +806,8 @@ type UnistylesThemeKey =
   | "darkClaude"
   | "darkGhostty"
   | "soifer"
-  | "darkSoifer";
+  | "darkSoifer"
+  | "lightClaude";
 
 export const THEME_TO_UNISTYLES: Record<ThemeName, UnistylesThemeKey> = {
   light: "light",
@@ -704,6 +818,7 @@ export const THEME_TO_UNISTYLES: Record<ThemeName, UnistylesThemeKey> = {
   ghostty: "darkGhostty",
   soifer: "soifer",
   "soifer-dark": "darkSoifer",
+  claudeLight: "lightClaude",
 };
 
 export const THEME_SWATCHES: Record<ThemeName, string> = {
@@ -715,4 +830,5 @@ export const THEME_SWATCHES: Record<ThemeName, string> = {
   ghostty: "#8caaee",
   soifer: "#F9F6F1",
   "soifer-dark": "#D4762A",
+  claudeLight: "#FAF9F5",
 };

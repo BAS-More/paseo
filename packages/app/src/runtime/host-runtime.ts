@@ -867,12 +867,7 @@ export class HostRuntimeController {
                 connection,
               });
               if (serverId !== this.host.serverId) {
-                const canReconcile =
-                  isPlaceholderServerId(this.host.serverId) ||
-                  connection.type === "directTcp" ||
-                  connection.type === "directSocket" ||
-                  connection.type === "directPipe";
-                if (canReconcile && this.onReconcileServerId) {
+                if (isPlaceholderServerId(this.host.serverId) && this.onReconcileServerId) {
                   this.onReconcileServerId(this.host.serverId, serverId);
                 } else {
                   await client.close().catch(() => undefined);

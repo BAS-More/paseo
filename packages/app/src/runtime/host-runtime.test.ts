@@ -527,41 +527,6 @@ describe("HostRuntimeController", () => {
     expect(mismatchedClient.closeCalls).toBe(1);
   });
 
-  it("reconciles serverId for a directTcp connection when the daemon restarts with a new id", async () => {
-    const connection: HostConnection = {
-      id: "direct:localhost:6767",
-      type: "directTcp",
-      endpoint: "localhost:6767",
-    };
-    const host = makeHost({
-      serverId: "srv_old123",
-      connections: [connection],
-      preferredConnectionId: connection.id,
-    });
-    const probeClient = makeConnectedProbeClient(10);
-    const reconciled: [string, string][] = [];
-    const controller = new HostRuntimeController({
-      host,
-      deps: {
-        createClient: () => new FakeDaemonClient() as unknown as DaemonClient,
-        connectToDaemon: async () => ({
-          client: probeClient as unknown as DaemonClient,
-          serverId: "srv_new456",
-          hostname: "restarted-host",
-        }),
-        getClientId: async () => "cid_test_runtime",
-      },
-      onReconcileServerId: (oldId, newId) => {
-        reconciled.push([oldId, newId]);
-      },
-    });
-
-    await controller.start({ autoProbe: false });
-
-    expect(reconciled).toEqual([["srv_old123", "srv_new456"]]);
-    expect(probeClient.closeCalls).toBe(0);
-  });
-
   it("fails over when the active client ping fails", async () => {
     const host = makeHost({ preferredConnectionId: "direct:lan:6767" });
     const clients: FakeDaemonClient[] = [];

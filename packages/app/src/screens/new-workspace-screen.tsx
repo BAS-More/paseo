@@ -15,7 +15,12 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { TitlebarDragRegion } from "@/components/desktop/titlebar-drag-region";
 import { SidebarMenuToggle } from "@/components/headers/menu-header";
 import { ScreenHeader } from "@/components/headers/screen-header";
-import { HEADER_INNER_HEIGHT, MAX_CONTENT_WIDTH, useIsCompactFormFactor } from "@/constants/layout";
+import {
+  HEADER_INNER_HEIGHT,
+  MAX_CONTENT_WIDTH,
+  useIsCompactFormFactor,
+  useMaxContentWidth,
+} from "@/constants/layout";
 import { useToast } from "@/contexts/toast-context";
 import { useAgentInputDraft } from "@/hooks/use-agent-input-draft";
 import { useKeyboardShiftStyle } from "@/hooks/use-keyboard-shift-style";
@@ -389,6 +394,11 @@ export function NewWorkspaceScreen({
   const { theme } = useUnistyles();
   const insets = useSafeAreaInsets();
   const isCompact = useIsCompactFormFactor();
+  const maxContentWidth = useMaxContentWidth();
+  const centeredStyle = useMemo(
+    () => [styles.centered, { maxWidth: maxContentWidth }],
+    [maxContentWidth],
+  );
   const { style: keyboardAnimatedStyle } = useKeyboardShiftStyle({
     mode: "translate",
   });
@@ -724,7 +734,7 @@ export function NewWorkspaceScreen({
       />
       <View style={contentStyle}>
         <TitlebarDragRegion />
-        <View style={styles.centered}>
+        <View style={centeredStyle}>
           <Composer
             agentId={`new-workspace:${serverId}:${sourceDirectory}`}
             serverId={serverId}

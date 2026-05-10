@@ -22,7 +22,7 @@ import {
 } from "lucide-react-native";
 import Animated from "react-native-reanimated";
 import { useQuery } from "@tanstack/react-query";
-import { FOOTER_HEIGHT, MAX_CONTENT_WIDTH } from "@/constants/layout";
+import { FOOTER_HEIGHT, MAX_CONTENT_WIDTH, useMaxContentWidth } from "@/constants/layout";
 import {
   AgentStatusBar,
   DraftAgentStatusBar,
@@ -859,6 +859,7 @@ export function Composer({
   });
 
   const { settings: appSettings } = useAppSettings();
+  const maxContentWidth = useMaxContentWidth();
 
   const agentState = useSessionStore(useShallow(buildAgentStateSelector(serverId, agentId)));
 
@@ -1493,9 +1494,14 @@ export function Composer({
     () => [styles.container, keyboardAnimatedStyle],
     [keyboardAnimatedStyle],
   );
+  const isClaudeDesktop = appSettings.layoutMode === "claude-desktop";
   const inputAreaContainerStyle = useMemo(
-    () => [styles.inputAreaContainer, isComposerLocked && styles.inputAreaLocked],
-    [isComposerLocked],
+    () => [
+      styles.inputAreaContainer,
+      isClaudeDesktop && styles.inputAreaContainerPill,
+      isComposerLocked && styles.inputAreaLocked,
+    ],
+    [isComposerLocked, isClaudeDesktop],
   );
 
   const attachmentPreviewList = useMemo(
@@ -1530,12 +1536,17 @@ export function Composer({
     ? "Searching..."
     : "No results found.";
 
+  const inputAreaContentStyle = useMemo(
+    () => [styles.inputAreaContent, { maxWidth: maxContentWidth }],
+    [maxContentWidth],
+  );
+
   return (
     <Animated.View style={composerContainerStyle}>
       <AttachmentLightbox metadata={lightboxMetadata} onClose={handleLightboxClose} />
       {/* Input area */}
       <View style={inputAreaContainerStyle}>
-        <View style={styles.inputAreaContent}>
+        <View style={inputAreaContentStyle}>
           {queueList}
           {sendErrorNode}
 
@@ -1622,6 +1633,15 @@ const styles = StyleSheet.create((theme: Theme) => ({
     width: "100%",
     overflow: "visible",
     padding: theme.spacing[4],
+  },
+  inputAreaContainerPill: {
+    marginHorizontal: theme.spacing[4],
+    borderWidth: theme.borderWidth[1],
+    borderColor: theme.colors.border,
+    borderRadius: theme.borderRadius["2xl"],
+    backgroundColor: theme.colors.surface1,
+    width: "auto",
+    ...theme.shadow.md,
   },
   inputAreaLocked: {
     opacity: 0.6,

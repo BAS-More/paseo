@@ -51,6 +51,8 @@ import {
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import type { Theme } from "@/styles/theme";
 import { useIsCompactFormFactor } from "@/constants/layout";
+import { useAppSettings } from "@/hooks/use-settings";
+import { Sparkles } from "lucide-react-native";
 import Animated, {
   Easing,
   cancelAnimation,
@@ -349,6 +351,10 @@ const userMessageStylesheet = StyleSheet.create((theme) => ({
     minWidth: 0,
     flexShrink: 1,
   },
+  bubbleClaudeDesktop: {
+    backgroundColor: theme.colors.userBubble,
+    borderTopRightRadius: theme.borderRadius["2xl"],
+  },
   text: {
     color: theme.colors.foreground,
     fontSize: theme.fontSize.base,
@@ -445,6 +451,8 @@ export const UserMessage = memo(function UserMessage({
   disableOuterSpacing,
 }: UserMessageProps) {
   const isCompact = useIsCompactFormFactor();
+  const { settings: appSettings } = useAppSettings();
+  const isClaudeDesktop = appSettings.layoutMode === "claude-desktop";
   const [messageHovered, setMessageHovered] = useState(false);
   const [copyButtonHovered, setCopyButtonHovered] = useState(false);
   const resolvedDisableOuterSpacing = useDisableOuterSpacing(disableOuterSpacing);
@@ -491,6 +499,13 @@ export const UserMessage = memo(function UserMessage({
     ],
     [showCopyButton],
   );
+  const bubbleStyle = useMemo(
+    () => [
+      userMessageStylesheet.bubble,
+      isClaudeDesktop && userMessageStylesheet.bubbleClaudeDesktop,
+    ],
+    [isClaudeDesktop],
+  );
 
   return (
     <View style={containerStyle}>
@@ -499,7 +514,7 @@ export const UserMessage = memo(function UserMessage({
         onHoverIn={handleHoverIn}
         onHoverOut={handleHoverOut}
       >
-        <View style={userMessageStylesheet.bubble}>
+        <View style={bubbleStyle}>
           {hasImages ? (
             <View style={imagePreviewContainerStyle}>
               {images.map((image) => (
@@ -558,6 +573,41 @@ export const assistantMessageStylesheet = StyleSheet.create((theme) => ({
     paddingHorizontal: theme.spacing[2],
     paddingVertical: theme.spacing[3],
     ...(isWeb ? { userSelect: "text" as const } : {}),
+  },
+  containerClaudeDesktop: {
+    flexDirection: "row",
+    gap: theme.spacing[3],
+  },
+  avatar: {
+    width: 28,
+    height: 28,
+    borderRadius: theme.borderRadius.full,
+    backgroundColor: theme.colors.accent,
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: 2,
+    flexShrink: 0,
+  },
+  avatarContent: {
+    flex: 1,
+    minWidth: 0,
+  },
+  hoverWrapper: {
+    position: "relative",
+  },
+  hoverActions: {
+    position: "absolute",
+    top: 0,
+    right: 0,
+    flexDirection: "row",
+    zIndex: 10,
+  },
+  hoverActionsHidden: {
+    opacity: 0,
+    pointerEvents: "none",
+  },
+  hoverActionsVisible: {
+    opacity: 1,
   },
   containerCompactTop: {
     paddingTop: 0,
@@ -1442,9 +1492,17 @@ export const AssistantMessage = memo(function AssistantMessage({
   disableOuterSpacing,
   spacing = "default",
 }: AssistantMessageProps) {
+  const { settings: appSettings } = useAppSettings();
+  const isClaudeDesktop = appSettings.layoutMode === "claude-desktop";
+  const [messageHovered, setMessageHovered] = useState(false);
+  const [copyHovered, setCopyHovered] = useState(false);
   const resolvedDisableOuterSpacing = useDisableOuterSpacing(
     disableOuterSpacing ?? spacing !== "default",
   );
+  const handleHoverIn = useCallback(() => setMessageHovered(true), []);
+  const handleHoverOut = useCallback(() => setMessageHovered(false), []);
+  const getMessageContent = useCallback(() => message, [message]);
+  const showCopyButton = isWeb && (messageHovered || copyHovered);
 
   const markdownParser = useMemo(() => {
     const parser = MarkdownIt({ typographer: true, linkify: true });
@@ -1699,23 +1757,95 @@ export const AssistantMessage = memo(function AssistantMessage({
     [spacing, resolvedDisableOuterSpacing],
   );
 
+  const outerStyle = useMemo(
+    () => [
+      assistantContainerStyle,
+      isClaudeDesktop && assistantMessageStylesheet.containerClaudeDesktop,
+    ],
+    [assistantContainerStyle, isClaudeDesktop],
+  );
+
+  const hoverActionsStyle = useMemo(
+    () => [
+      assistantMessageStylesheet.hoverActions,
+      showCopyButton
+        ? assistantMessageStylesheet.hoverActionsVisible
+        : assistantMessageStylesheet.hoverActionsHidden,
+    ],
+    [showCopyButton],
+  );
+
+  const renderedBlocks = keyedBlocks.map(({ key, block }, index) => (
+    <AssistantMessageBlockContainer
+      key={key}
+      block={block}
+      marginBottom={index < keyedBlocks.length - 1 ? 12 : 0}
+    >
+      <MemoizedMarkdownBlock
+        text={block}
+        rules={markdownRules}
+        parser={markdownParser}
+        onLinkPress={handleLinkPress}
+      />
+    </AssistantMessageBlockContainer>
+  ));
+
+  if (!isWeb) {
+    // Native: no hover actions, no Pressable wrapper — preserves original behavior
+    return (
+      <View testID="assistant-message" style={outerStyle}>
+        {isClaudeDesktop ? (
+          <>
+            <View style={assistantMessageStylesheet.avatar}>
+              <Sparkles size={14} color="#fff" />
+            </View>
+            <View style={assistantMessageStylesheet.avatarContent}>{renderedBlocks}</View>
+          </>
+        ) : (
+          renderedBlocks
+        )}
+      </View>
+    );
+  }
+
   return (
-    <View testID="assistant-message" style={assistantContainerStyle}>
-      {keyedBlocks.map(({ key, block }, index) => (
-        <AssistantMessageBlockContainer
-          key={key}
-          block={block}
-          marginBottom={index < keyedBlocks.length - 1 ? 12 : 0}
-        >
-          <MemoizedMarkdownBlock
-            text={block}
-            rules={markdownRules}
-            parser={markdownParser}
-            onLinkPress={handleLinkPress}
-          />
-        </AssistantMessageBlockContainer>
-      ))}
-    </View>
+    <Pressable
+      testID="assistant-message"
+      style={outerStyle}
+      onHoverIn={handleHoverIn}
+      onHoverOut={handleHoverOut}
+    >
+      {isClaudeDesktop ? (
+        <>
+          <View style={assistantMessageStylesheet.avatar}>
+            <Sparkles size={14} color="#fff" />
+          </View>
+          <View style={assistantMessageStylesheet.avatarContent}>
+            <View style={assistantMessageStylesheet.hoverWrapper}>
+              <View style={hoverActionsStyle}>
+                <TurnCopyButton
+                  getContent={getMessageContent}
+                  accessibilityLabel="Copy message"
+                  onHoverChange={setCopyHovered}
+                />
+              </View>
+              {renderedBlocks}
+            </View>
+          </View>
+        </>
+      ) : (
+        <View style={assistantMessageStylesheet.hoverWrapper}>
+          <View style={hoverActionsStyle}>
+            <TurnCopyButton
+              getContent={getMessageContent}
+              accessibilityLabel="Copy message"
+              onHoverChange={setCopyHovered}
+            />
+          </View>
+          {renderedBlocks}
+        </View>
+      )}
+    </Pressable>
   );
 });
 
