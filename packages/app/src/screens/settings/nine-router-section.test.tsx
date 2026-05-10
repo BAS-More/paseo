@@ -67,6 +67,7 @@ vi.mock("react-native", () => ({
     testID?: string;
   }) => React.createElement("div", { "data-testid": testID, onClick: onPress }, children),
   ActivityIndicator: () => React.createElement("span", { "data-testid": "activity-indicator" }),
+  Platform: { OS: "web", select: (obj: Record<string, unknown>) => obj.web ?? obj.default },
 }));
 
 vi.mock("react-native-unistyles", () => ({
