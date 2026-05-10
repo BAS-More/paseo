@@ -3502,6 +3502,68 @@ export class DaemonClient {
     });
   }
 
+  async getModelAliases(options?: { requestId?: string }): Promise<{
+    requestId: string;
+    aliases: Record<string, string>;
+  }> {
+    return this.sendCorrelatedSessionRequest({
+      requestId: options?.requestId,
+      message: { type: "nine_router_model_aliases_request" as const },
+      responseType: "nine_router_model_aliases_response",
+      timeout: 10000,
+    });
+  }
+
+  async setModelAlias(
+    alias: string,
+    target: string,
+    options?: { requestId?: string },
+  ): Promise<{
+    requestId: string;
+    success: boolean;
+    error?: string;
+  }> {
+    return this.sendCorrelatedSessionRequest({
+      requestId: options?.requestId,
+      message: { type: "nine_router_set_model_alias_request" as const, alias, target },
+      responseType: "nine_router_set_model_alias_response",
+      timeout: 10000,
+    });
+  }
+
+  async deleteModelAlias(
+    alias: string,
+    options?: { requestId?: string },
+  ): Promise<{
+    requestId: string;
+    success: boolean;
+    error?: string;
+  }> {
+    return this.sendCorrelatedSessionRequest({
+      requestId: options?.requestId,
+      message: { type: "nine_router_delete_model_alias_request" as const, alias },
+      responseType: "nine_router_delete_model_alias_response",
+      timeout: 10000,
+    });
+  }
+
+  async testModel(
+    model: string,
+    options?: { requestId?: string },
+  ): Promise<{
+    requestId: string;
+    success: boolean;
+    latencyMs: number;
+    provider: string;
+  }> {
+    return this.sendCorrelatedSessionRequest({
+      requestId: options?.requestId,
+      message: { type: "nine_router_test_model_request" as const, model },
+      responseType: "nine_router_test_model_response",
+      timeout: 30000,
+    });
+  }
+
   async listCommands(agentId: string, requestId?: string): Promise<ListCommandsPayload>;
   async listCommands(agentId: string, options?: ListCommandsOptions): Promise<ListCommandsPayload>;
   async listCommands(

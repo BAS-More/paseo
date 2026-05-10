@@ -257,6 +257,20 @@ export class NineRouterClient {
     }
   }
 
+  async deleteModelAlias(alias: string): Promise<boolean> {
+    try {
+      const response = await this.fetchFn(`${this.baseUrl}/api/models/alias`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ alias }),
+        signal: AbortSignal.timeout(5000),
+      });
+      return response.ok;
+    } catch {
+      return false;
+    }
+  }
+
   async getProviders(): Promise<NineRouterProvider[]> {
     try {
       const response = await this.fetchFn(`${this.baseUrl}/api/providers`, {

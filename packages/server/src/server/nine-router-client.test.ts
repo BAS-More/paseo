@@ -386,6 +386,34 @@ describe("NineRouterClient.setModelAlias", () => {
   });
 });
 
+describe("NineRouterClient.deleteModelAlias", () => {
+  it("sends DELETE to /api/models/alias", async () => {
+    const fetchFn = mockFetchOk({ success: true });
+    const client = new NineRouterClient({ _fetchForTest: fetchFn });
+    const result = await client.deleteModelAlias("my-alias");
+    expect(result).toBe(true);
+    expect(fetchFn).toHaveBeenCalledWith(
+      expect.stringContaining("/api/models/alias"),
+      expect.objectContaining({
+        method: "DELETE",
+        body: JSON.stringify({ alias: "my-alias" }),
+      }),
+    );
+  });
+
+  it("returns false on error", async () => {
+    const client = new NineRouterClient({ _fetchForTest: mockFetchError() });
+    const result = await client.deleteModelAlias("x");
+    expect(result).toBe(false);
+  });
+
+  it("returns false on non-ok response", async () => {
+    const client = new NineRouterClient({ _fetchForTest: mockFetchNotOk() });
+    const result = await client.deleteModelAlias("missing");
+    expect(result).toBe(false);
+  });
+});
+
 describe("NineRouterClient.getProviders", () => {
   it("returns provider connections from /api/providers", async () => {
     const connections = [

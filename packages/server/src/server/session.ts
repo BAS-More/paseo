@@ -2223,6 +2223,18 @@ export class Session {
           msg.settings,
         );
         return;
+      case "nine_router_model_aliases_request":
+        await this.handleNineRouterModelAliasesRequest(msg.requestId);
+        return;
+      case "nine_router_set_model_alias_request":
+        await this.handleNineRouterSetModelAlias(msg.requestId, msg.alias, msg.target);
+        return;
+      case "nine_router_delete_model_alias_request":
+        await this.handleNineRouterDeleteModelAlias(msg.requestId, msg.alias);
+        return;
+      case "nine_router_test_model_request":
+        await this.handleNineRouterTestModel(msg.requestId, msg.model);
+        return;
       case "soifer_backend_status_request":
         await this.handleSoiferBackendStatusRequest(msg.requestId);
         return;
@@ -2349,6 +2361,51 @@ export class Session {
         tool,
         success,
         error: success ? undefined : "Failed to update settings",
+      },
+    });
+  }
+
+  private async handleNineRouterModelAliasesRequest(requestId: string): Promise<void> {
+    const client = this.createNineRouterClient();
+    const aliases = await client.getModelAliases();
+    this.emit({
+      type: "nine_router_model_aliases_response",
+      payload: { requestId, aliases },
+    });
+  }
+
+  private async handleNineRouterSetModelAlias(
+    requestId: string,
+    alias: string,
+    target: string,
+  ): Promise<void> {
+    const client = this.createNineRouterClient();
+    const success = await client.setModelAlias(alias, target);
+    this.emit({
+      type: "nine_router_set_model_alias_response",
+      payload: { requestId, success, error: success ? undefined : "Failed to set alias" },
+    });
+  }
+
+  private async handleNineRouterDeleteModelAlias(requestId: string, alias: string): Promise<void> {
+    const client = this.createNineRouterClient();
+    const success = await client.deleteModelAlias(alias);
+    this.emit({
+      type: "nine_router_delete_model_alias_response",
+      payload: { requestId, success, error: success ? undefined : "Alias not found" },
+    });
+  }
+
+  private async handleNineRouterTestModel(requestId: string, model: string): Promise<void> {
+    const client = this.createNineRouterClient();
+    const result = await client.testModel(model);
+    this.emit({
+      type: "nine_router_test_model_response",
+      payload: {
+        requestId,
+        success: result.success,
+        latencyMs: result.latencyMs,
+        provider: result.provider,
       },
     });
   }

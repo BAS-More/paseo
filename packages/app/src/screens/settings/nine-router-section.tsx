@@ -13,6 +13,7 @@ import { NineRouterKeyManager } from "@/screens/settings/nine-router-key-manager
 import { NineRouterProvidersPanel } from "@/screens/settings/nine-router-providers-panel";
 import { NineRouterUsagePanel } from "@/screens/settings/nine-router-usage-panel";
 import { NineRouterOAuthPanel } from "@/screens/settings/nine-router-oauth-panel";
+import { NineRouterModelAliasesPanel } from "@/screens/settings/nine-router-model-aliases-panel";
 
 export interface NineRouterSectionProps {
   serverId: string | null;
@@ -201,6 +202,7 @@ export function NineRouterSection({ serverId }: NineRouterSectionProps) {
           <NineRouterUsagePanel serverId={serverId} />
           <NineRouterKeyManager serverId={serverId} />
           <NineRouterProvidersPanel serverId={serverId} />
+          <NineRouterModelAliasesPanel serverId={serverId} />
           <NineRouterOAuthPanel serverId={serverId} />
         </>
       ) : null}
