@@ -3465,6 +3465,43 @@ export class DaemonClient {
     });
   }
 
+  async getCliToolSettings(
+    tool: string,
+    options?: { requestId?: string },
+  ): Promise<{
+    requestId: string;
+    tool: string;
+    installed: boolean;
+    has9Router: boolean;
+    settings: Record<string, unknown>;
+    settingsPath?: string;
+  }> {
+    return this.sendCorrelatedSessionRequest({
+      requestId: options?.requestId,
+      message: { type: "nine_router_cli_tool_settings_request", tool },
+      responseType: "nine_router_cli_tool_settings_response",
+      timeout: 10000,
+    });
+  }
+
+  async updateCliToolSettings(
+    tool: string,
+    settings: Record<string, unknown>,
+    options?: { requestId?: string },
+  ): Promise<{
+    requestId: string;
+    tool: string;
+    success: boolean;
+    error?: string;
+  }> {
+    return this.sendCorrelatedSessionRequest({
+      requestId: options?.requestId,
+      message: { type: "nine_router_cli_tool_settings_update_request", tool, settings },
+      responseType: "nine_router_cli_tool_settings_update_response",
+      timeout: 10000,
+    });
+  }
+
   async listCommands(agentId: string, requestId?: string): Promise<ListCommandsPayload>;
   async listCommands(agentId: string, options?: ListCommandsOptions): Promise<ListCommandsPayload>;
   async listCommands(

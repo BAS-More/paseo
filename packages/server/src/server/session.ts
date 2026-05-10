@@ -2213,6 +2213,16 @@ export class Session {
       case "nine_router_oauth_import_request":
         await this.handleNineRouterOAuthImportRequest(msg.requestId, msg.provider);
         return;
+      case "nine_router_cli_tool_settings_request":
+        await this.handleNineRouterCliToolSettingsRequest(msg.requestId, msg.tool);
+        return;
+      case "nine_router_cli_tool_settings_update_request":
+        await this.handleNineRouterCliToolSettingsUpdateRequest(
+          msg.requestId,
+          msg.tool,
+          msg.settings,
+        );
+        return;
       case "soifer_backend_status_request":
         await this.handleSoiferBackendStatusRequest(msg.requestId);
         return;
@@ -2302,6 +2312,43 @@ export class Session {
         provider,
         email: result.email,
         error: result.success ? undefined : "Import failed",
+      },
+    });
+  }
+
+  private async handleNineRouterCliToolSettingsRequest(
+    requestId: string,
+    tool: string,
+  ): Promise<void> {
+    const client = this.createNineRouterClient();
+    const result = await client.getCliToolSettings(tool);
+    this.emit({
+      type: "nine_router_cli_tool_settings_response",
+      payload: {
+        requestId,
+        tool,
+        installed: result?.installed ?? false,
+        has9Router: result?.has9Router ?? false,
+        settings: result?.settings ?? {},
+        settingsPath: result?.settingsPath,
+      },
+    });
+  }
+
+  private async handleNineRouterCliToolSettingsUpdateRequest(
+    requestId: string,
+    tool: string,
+    settings: Record<string, unknown>,
+  ): Promise<void> {
+    const client = this.createNineRouterClient();
+    const success = await client.updateCliToolSettings(tool, settings);
+    this.emit({
+      type: "nine_router_cli_tool_settings_update_response",
+      payload: {
+        requestId,
+        tool,
+        success,
+        error: success ? undefined : "Failed to update settings",
       },
     });
   }

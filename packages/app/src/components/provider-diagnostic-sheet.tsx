@@ -21,6 +21,7 @@ import { SettingsSection } from "@/screens/settings/settings-section";
 import { settingsStyles } from "@/styles/settings";
 import { ProviderConfigSection } from "@/components/provider-config-section";
 import { ProviderConnectionTest } from "@/components/provider-connection-test";
+import { CliToolSettingsCard } from "@/components/cli-tool-settings-card";
 import { resolveProviderLabel } from "@/utils/provider-definitions";
 import { formatTimeAgo } from "@/utils/time";
 import type { AgentModelDefinition, AgentProvider } from "@server/server/agent/agent-sdk-types";
@@ -430,6 +431,8 @@ export function ProviderDiagnosticSheet({
           <ProviderConnectionTest provider={provider} serverId={serverId} />
         </View>
       </SettingsSection>
+
+      <CliToolSettingsCard provider={provider} serverId={serverId} />
 
       <ProviderConfigSection provider={provider} serverId={serverId} />
 

@@ -1656,6 +1656,19 @@ export const NineRouterOAuthImportRequestSchema = z.object({
   provider: z.string(),
 });
 
+export const NineRouterCliToolSettingsRequestSchema = z.object({
+  type: z.literal("nine_router_cli_tool_settings_request"),
+  requestId: z.string(),
+  tool: z.string(),
+});
+
+export const NineRouterCliToolSettingsUpdateRequestSchema = z.object({
+  type: z.literal("nine_router_cli_tool_settings_update_request"),
+  requestId: z.string(),
+  tool: z.string(),
+  settings: z.record(z.unknown()),
+});
+
 export const SoiferBackendStatusRequestSchema = z.object({
   type: z.literal("soifer_backend_status_request"),
   requestId: z.string(),
@@ -1831,6 +1844,8 @@ export const SessionInboundMessageSchema = z.discriminatedUnion("type", [
   NineRouterProvidersRequestSchema,
   NineRouterUsageRequestSchema,
   NineRouterOAuthImportRequestSchema,
+  NineRouterCliToolSettingsRequestSchema,
+  NineRouterCliToolSettingsUpdateRequestSchema,
   SoiferBackendStatusRequestSchema,
   ListTerminalsRequestSchema,
   SubscribeTerminalsRequestSchema,
@@ -3407,6 +3422,28 @@ export const NineRouterOAuthImportResponseSchema = z.object({
   }),
 });
 
+export const NineRouterCliToolSettingsResponseSchema = z.object({
+  type: z.literal("nine_router_cli_tool_settings_response"),
+  payload: z.object({
+    requestId: z.string(),
+    tool: z.string(),
+    installed: z.boolean(),
+    has9Router: z.boolean(),
+    settings: z.record(z.unknown()),
+    settingsPath: z.string().optional(),
+  }),
+});
+
+export const NineRouterCliToolSettingsUpdateResponseSchema = z.object({
+  type: z.literal("nine_router_cli_tool_settings_update_response"),
+  payload: z.object({
+    requestId: z.string(),
+    tool: z.string(),
+    success: z.boolean(),
+    error: z.string().optional(),
+  }),
+});
+
 export const SoiferBackendStatusResponseSchema = z.object({
   type: z.literal("soifer_backend_status_response"),
   payload: z.object({
@@ -3656,6 +3693,8 @@ export const SessionOutboundMessageSchema = z.discriminatedUnion("type", [
   NineRouterProvidersResponseSchema,
   NineRouterUsageResponseSchema,
   NineRouterOAuthImportResponseSchema,
+  NineRouterCliToolSettingsResponseSchema,
+  NineRouterCliToolSettingsUpdateResponseSchema,
   SoiferBackendStatusResponseSchema,
   ListTerminalsResponseSchema,
   TerminalsChangedSchema,
