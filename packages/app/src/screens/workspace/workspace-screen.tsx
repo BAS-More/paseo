@@ -3091,8 +3091,10 @@ function WorkspaceScreenContent({
     [isFocusModeEnabled, isMobile],
   );
   const showExplorerSidebar = useMemo(
-    () => shouldShowWorkspaceExplorerSidebar({ isRouteFocused, isFocusModeEnabled, isMobile }),
-    [isRouteFocused, isFocusModeEnabled, isMobile],
+    () =>
+      canRenderDesktopPaneSplits &&
+      shouldShowWorkspaceExplorerSidebar({ isRouteFocused, isFocusModeEnabled, isMobile }),
+    [canRenderDesktopPaneSplits, isRouteFocused, isFocusModeEnabled, isMobile],
   );
   const createTerminalDisabled = useMemo(
     () => createTerminalMutation.isPending || pendingTerminalCreateInput !== null,
