@@ -1,7 +1,8 @@
 import { execSync } from "node:child_process";
 import { describe, expect, it, vi } from "vitest";
+import { realpathSync } from "node:fs";
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { join, resolve as resolvePath } from "node:path";
 import { tmpdir } from "node:os";
 import { z } from "zod";
 
@@ -1053,7 +1054,7 @@ describe("create_agent MCP tool", () => {
 
   it("forces a workspace git snapshot refresh when archive_worktree deletes a worktree", async () => {
     const { agentManager, agentStorage } = createTestDeps();
-    const tempDir = await mkdtemp(join(tmpdir(), "paseo-mcp-archive-worktree-"));
+    const tempDir = realpathSync(await mkdtemp(join(tmpdir(), "paseo-mcp-archive-worktree-")));
     const repoDir = join(tempDir, "repo");
     const paseoHome = join(tempDir, ".paseo");
 
@@ -1154,7 +1155,7 @@ describe("create_agent MCP tool", () => {
 
     const response = await tool.callback({ cwd: "/tmp/repo" });
 
-    expect(workspaceGitService.listWorktrees).toHaveBeenCalledWith("/tmp/repo", {
+    expect(workspaceGitService.listWorktrees).toHaveBeenCalledWith(resolvePath("/tmp/repo"), {
       reason: "mcp:list-worktrees",
     });
     expect(response.structuredContent.worktrees).toEqual([
@@ -1997,31 +1998,33 @@ describe("agent snapshot MCP serialization", () => {
     const now = Date.now();
     const recent = new Date(now - 60 * 60 * 1000).toISOString();
     const old = new Date(now - 72 * 60 * 60 * 1000).toISOString();
+    const targetCwd = resolvePath("/tmp/target");
+    const otherCwd = resolvePath("/tmp/other");
     spies.agentManager.listAgents.mockReturnValue([
       createManagedAgent({
         id: "running-target",
-        cwd: "/tmp/target",
+        cwd: targetCwd,
         lifecycle: "running",
         updatedAt: new Date(recent),
       }),
       createManagedAgent({
         id: "idle-target",
-        cwd: "/tmp/target",
+        cwd: targetCwd,
         lifecycle: "idle",
         updatedAt: new Date(recent),
       }),
       createManagedAgent({
         id: "old-running-target",
-        cwd: "/tmp/target",
+        cwd: targetCwd,
         lifecycle: "running",
         createdAt: new Date(old),
         updatedAt: new Date(old),
       }),
     ]);
     spies.agentStorage.list.mockResolvedValue([
-      createStoredRecord({ id: "recent-archived", cwd: "/tmp/target", archivedAt: recent }),
-      createStoredRecord({ id: "old-archived", cwd: "/tmp/target", archivedAt: old }),
-      createStoredRecord({ id: "recent-other-cwd", cwd: "/tmp/other", archivedAt: recent }),
+      createStoredRecord({ id: "recent-archived", cwd: targetCwd, archivedAt: recent }),
+      createStoredRecord({ id: "old-archived", cwd: targetCwd, archivedAt: old }),
+      createStoredRecord({ id: "recent-other-cwd", cwd: otherCwd, archivedAt: recent }),
     ]);
 
     const server = await createAgentMcpServer({
@@ -2090,10 +2093,11 @@ describe("agent snapshot MCP serialization", () => {
   it("returns compact list items for stored archived agents", async () => {
     const { agentManager, agentStorage, spies } = createTestDeps();
     const now = new Date().toISOString();
+    const repoCwd = resolvePath("/tmp/repo");
     spies.agentStorage.list.mockResolvedValue([
       createStoredRecord({
         id: "stored-archived-compact",
-        cwd: "/tmp/repo",
+        cwd: repoCwd,
         updatedAt: now,
         lastActivityAt: now,
         archivedAt: now,
@@ -2129,7 +2133,7 @@ describe("agent snapshot MCP serialization", () => {
       thinkingOptionId: null,
       effectiveThinkingOptionId: null,
       status: "closed",
-      cwd: "/tmp/repo",
+      cwd: repoCwd,
       createdAt: "2026-04-11T00:00:00.000Z",
       updatedAt: now,
       lastUserMessageAt: null,

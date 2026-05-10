@@ -846,7 +846,8 @@ export async function computeWorktreePath(
 
 function normalizePathForOwnership(input: string): string {
   try {
-    return realpathSync(input);
+    // Use .native on Windows to resolve 8.3 short names (e.g. AVIBEN~1 → Avi Bendetsky)
+    return realpathSync.native(input);
   } catch {
     return resolve(input);
   }
