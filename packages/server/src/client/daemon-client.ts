@@ -3446,6 +3446,25 @@ export class DaemonClient {
     });
   }
 
+  async getStackServices(options?: { requestId?: string }): Promise<{
+    requestId: string;
+    services: Array<{
+      id: string;
+      name: string;
+      port: number;
+      status: "running" | "stopped" | "error";
+      latencyMs?: number;
+      error?: string;
+    }>;
+  }> {
+    return this.sendCorrelatedSessionRequest({
+      requestId: options?.requestId,
+      message: { type: "stack_services_request" },
+      responseType: "stack_services_response",
+      timeout: 15000,
+    });
+  }
+
   async listCommands(agentId: string, requestId?: string): Promise<ListCommandsPayload>;
   async listCommands(agentId: string, options?: ListCommandsOptions): Promise<ListCommandsPayload>;
   async listCommands(

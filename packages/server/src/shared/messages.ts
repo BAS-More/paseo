@@ -1065,6 +1065,11 @@ export const ProviderConnectionTestRequestSchema = z.object({
   requestId: z.string(),
 });
 
+export const StackServicesRequestSchema = z.object({
+  type: z.literal("stack_services_request"),
+  requestId: z.string(),
+});
+
 export const ResumeAgentRequestMessageSchema = z.object({
   type: z.literal("resume_agent_request"),
   handle: AgentPersistenceHandleSchema,
@@ -1769,6 +1774,7 @@ export const SessionInboundMessageSchema = z.discriminatedUnion("type", [
   RefreshProvidersSnapshotRequestMessageSchema,
   ProviderDiagnosticRequestMessageSchema,
   ProviderConnectionTestRequestSchema,
+  StackServicesRequestSchema,
   ResumeAgentRequestMessageSchema,
   ImportAgentRequestMessageSchema,
   RefreshAgentRequestMessageSchema,
@@ -3244,6 +3250,25 @@ export const ProviderConnectionTestResponseSchema = z.object({
   }),
 });
 
+const StackServiceStatusSchema = z.enum(["running", "stopped", "error"]);
+
+export const StackServicesResponseSchema = z.object({
+  type: z.literal("stack_services_response"),
+  payload: z.object({
+    requestId: z.string(),
+    services: z.array(
+      z.object({
+        id: z.string(),
+        name: z.string(),
+        port: z.number(),
+        status: StackServiceStatusSchema,
+        latencyMs: z.number().optional(),
+        error: z.string().optional(),
+      }),
+    ),
+  }),
+});
+
 const AgentSlashCommandSchema = z.object({
   name: z.string(),
   description: z.string(),
@@ -3623,6 +3648,7 @@ export const SessionOutboundMessageSchema = z.discriminatedUnion("type", [
   RefreshProvidersSnapshotResponseMessageSchema,
   ProviderDiagnosticResponseMessageSchema,
   ProviderConnectionTestResponseSchema,
+  StackServicesResponseSchema,
   ListCommandsResponseSchema,
   NineRouterStatusResponseSchema,
   NineRouterKeysResponseSchema,

@@ -2111,6 +2111,8 @@ export class Session {
         return this.handleProviderDiagnosticRequest(msg);
       case "provider_connection_test_request":
         return this.handleProviderConnectionTestRequest(msg);
+      case "stack_services_request":
+        return this.handleStackServicesRequest(msg);
       default:
         return undefined;
     }
@@ -4013,6 +4015,21 @@ export class Session {
         },
       });
     }
+  }
+
+  private async handleStackServicesRequest(
+    msg: Extract<SessionInboundMessage, { type: "stack_services_request" }>,
+  ): Promise<void> {
+    const { StackServiceMonitor } = await import("./stack-service-monitor.js");
+    const monitor = new StackServiceMonitor();
+    const results = await monitor.checkAll();
+    this.emit({
+      type: "stack_services_response",
+      payload: {
+        requestId: msg.requestId,
+        services: results,
+      },
+    });
   }
 
   private assertSafeGitRef(ref: string, label: string): void {
