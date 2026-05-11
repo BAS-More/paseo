@@ -224,11 +224,12 @@ services:
     container_name: paseo-caddy
     restart: unless-stopped
     ports:
-      - "6767:6767"
-      - "3001:3001"
-      - "20128:20128"
-      - "8000:8000"
-      - "2019:2019"
+      # Internal blue/green dev ports — bound to loopback only.
+      # Admin API (2019) is reachable only via `docker exec paseo-caddy ...`.
+      - "127.0.0.1:6767:6767"
+      - "127.0.0.1:3001:3001"
+      - "127.0.0.1:20128:20128"
+      - "127.0.0.1:8000:8000"
     environment:
       - ACTIVE_PASEO_UPSTREAM=${ACTIVE_PASEO_UPSTREAM:-paseo-blue}
       - ACTIVE_SOIFER_UPSTREAM=${ACTIVE_SOIFER_UPSTREAM:-soifer-blue}
