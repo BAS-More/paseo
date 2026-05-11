@@ -1,0 +1,23 @@
+# HorizontalPodAutoscaler — scale based on CPU utilization.
+# Note: file-based storage requires ReadWriteMany PVC or shared storage
+# (e.g., NFS, EFS) for multi-replica. Single-replica with HPA provides
+# vertical scaling until database migration enables true horizontal scale.
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: paseo-daemon
+  namespace: paseo
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: paseo-daemon
+  minReplicas: 1
+  maxReplicas: 1 # Set to >1 after migrating to shared storage/database
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70

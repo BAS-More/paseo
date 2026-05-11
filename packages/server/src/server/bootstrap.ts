@@ -9,6 +9,7 @@ import {
 import { initSentry, sentryErrorHandler, flushSentry } from "./sentry.js";
 import { createBackup, startScheduledBackups } from "./db-backup.js";
 import { createAuditLogger, createAuditMiddleware } from "./audit-log.js";
+import { createCacheHeadersMiddleware } from "./cache-headers.js";
 import { createServer as createHTTPServer, type IncomingMessage, type ServerResponse } from "http";
 import { createReadStream, unlinkSync, existsSync } from "fs";
 import { stat } from "fs/promises";
@@ -380,6 +381,10 @@ export async function createPaseoDaemon(
   // and forwards them to the corresponding local script port. Placed after
   // host/CORS/auth checks but before the rest of the routes.
   app.use(createScriptProxyMiddleware({ routeStore: scriptRouteStore, logger }));
+
+  // Cache-Control headers — immutable for hashed assets, no-store for API.
+  // Placed before static serving so the headers are set on cached responses.
+  app.use(createCacheHeadersMiddleware());
 
   // Serve static files from public directory
   app.use("/public", express.static(staticDir));
