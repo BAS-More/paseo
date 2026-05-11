@@ -11,7 +11,7 @@ import {
   shouldUseTlsForDefaultHostedRelay,
   type ConnectionOffer,
   type WebSocketLike,
-} from "@getpaseo/server";
+} from "@bas-more/server";
 import path from "node:path";
 import { WebSocket } from "ws";
 import { getOrCreateCliClientId } from "./client-id.js";

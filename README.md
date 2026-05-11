@@ -62,7 +62,7 @@ To connect from your phone, scan the QR code shown in Settings.
 Install the CLI and start Paseo:
 
 ```bash
-npm install -g @getpaseo/cli
+npm install -g @bas-more/cli
 paseo
 ```
 

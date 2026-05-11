@@ -30,7 +30,7 @@ On first launch, you may briefly see a startup screen while the local server sta
 Use this path for headless setups, servers, or remote machines where you want the daemon running without the desktop app.
 
 ```bash
-npm install -g @getpaseo/cli
+npm install -g @bas-more/cli
 ```
 
 ```bash

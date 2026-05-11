@@ -9,7 +9,7 @@ import { Buffer } from "node:buffer";
 
 import { generateLocalPairingOffer } from "../pairing-offer.js";
 import { createTestPaseoDaemon } from "../test-utils/paseo-daemon.js";
-import { createClientChannel, type Transport } from "@getpaseo/relay/e2ee";
+import { createClientChannel, type Transport } from "@bas-more/relay/e2ee";
 import { buildRelayWebSocketUrl } from "../../shared/daemon-endpoints.js";
 import { ConnectionOfferSchema } from "../../shared/connection-offer.js";
 import { WSOutboundMessageSchema } from "../../shared/messages.js";

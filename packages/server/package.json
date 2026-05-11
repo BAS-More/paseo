@@ -1,5 +1,5 @@
 {
-  "name": "@getpaseo/server",
+  "name": "@bas-more/server",
   "version": "0.2.0",
   "description": "Paseo backend server",
   "files": [
@@ -25,7 +25,8 @@
     }
   },
   "publishConfig": {
-    "access": "public"
+    "access": "public",
+    "registry": "https://npm.pkg.github.com"
   },
   "scripts": {
     "dev": "cross-env PASEO_NODE_ENV=development node --import tsx scripts/dev-runner.ts",
@@ -59,8 +60,8 @@
   "dependencies": {
     "@agentclientprotocol/sdk": "^0.17.1",
     "@anthropic-ai/claude-agent-sdk": "^0.2.11",
-    "@getpaseo/highlight": "0.2.0",
-    "@getpaseo/relay": "0.2.0",
+    "@bas-more/highlight": "0.2.0",
+    "@bas-more/relay": "0.2.0",
     "@isaacs/ttlcache": "^2.1.4",
     "@mariozechner/pi-agent-core": "^0.70.2",
     "@mariozechner/pi-ai": "^0.70.2",

@@ -18,7 +18,7 @@ For now, daemon and app versions should be kept in lockstep. If your daemon is v
 Install the latest CLI/daemon package globally:
 
 ```bash
-npm install -g @getpaseo/cli@latest
+npm install -g @bas-more/cli@latest
 ```
 
 Then restart the daemon:

@@ -950,7 +950,7 @@ function ServerInstallButton() {
       trigger={SERVER_INSTALL_TRIGGER}
       title="Run agents on a remote machine"
       description="For headless machines you want to connect to from the Paseo apps. The desktop app already includes a built-in daemon."
-      command="npm install -g @getpaseo/cli && paseo"
+      command="npm install -g @bas-more/cli && paseo"
       footnote={SERVER_INSTALL_FOOTNOTE}
     />
   );
@@ -1477,7 +1477,7 @@ function FAQ() {
         <FAQItem question="Do I need the desktop app?">
           No. You can run the daemon headless with{" "}
           <code className="font-mono text-muted-foreground">
-            npm install -g @getpaseo/cli && paseo
+            npm install -g @bas-more/cli && paseo
           </code>{" "}
           and use the CLI, web app, or mobile app to connect. The desktop app just bundles the
           daemon with a UI.

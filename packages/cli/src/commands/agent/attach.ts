@@ -12,7 +12,7 @@ import type {
   AgentStreamMessage,
   AgentStreamEventPayload,
   AgentTimelineItem,
-} from "@getpaseo/server";
+} from "@bas-more/server";
 
 export interface AgentAttachOptions {
   host?: string;

@@ -1,5 +1,5 @@
 {
-  "name": "@getpaseo/cli",
+  "name": "@bas-more/cli",
   "version": "0.2.0",
   "description": "Paseo CLI - control your AI coding agents from the command line",
   "bin": {
@@ -11,7 +11,8 @@
   ],
   "type": "module",
   "publishConfig": {
-    "access": "public"
+    "access": "public",
+    "registry": "https://npm.pkg.github.com"
   },
   "scripts": {
     "build": "node -e \"require('node:fs').rmSync('dist',{ recursive: true, force: true })\" && tsc -p tsconfig.json --incremental false",
@@ -23,8 +24,8 @@
     "test:e2e:lifecycle": "npx tsx tests/e2e/agent-lifecycle.test.ts"
   },
   "dependencies": {
+    "@bas-more/server": "0.2.0",
     "@clack/prompts": "^1.0.0",
-    "@getpaseo/server": "0.2.0",
     "chalk": "^5.3.0",
     "commander": "^12.0.0",
     "mime-types": "^2.1.35",

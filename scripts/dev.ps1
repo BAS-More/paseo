@@ -46,10 +46,10 @@ Write-Host @"
 # SECURITY: wildcard CORS is unsafe in production — only acceptable here because
 # the daemon binds to localhost and this script is never used for production.
 # Build dependencies required by the daemon (they only ship dist/)
-Write-Host "Building @getpaseo/highlight..."
-npm run build --workspace=@getpaseo/highlight
-Write-Host "Building @getpaseo/relay..."
-npm run build --workspace=@getpaseo/relay
+Write-Host "Building @bas-more/highlight..."
+npm run build --workspace=@bas-more/highlight
+Write-Host "Building @bas-more/relay..."
+npm run build --workspace=@bas-more/relay
 
 $env:PASEO_CORS_ORIGINS = "*"
 

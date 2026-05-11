@@ -63,7 +63,7 @@ import {
   darkHighlightColors,
   lightHighlightColors,
   type HighlightStyle as HighlightStyleKey,
-} from "@getpaseo/highlight";
+} from "@bas-more/highlight";
 import { WORKSPACE_SECONDARY_HEADER_HEIGHT } from "@/constants/layout";
 import { Fonts } from "@/constants/theme";
 import { shouldAnchorHeaderBeforeCollapse } from "@/utils/git-diff-scroll";
