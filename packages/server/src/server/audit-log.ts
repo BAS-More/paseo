@@ -1,4 +1,4 @@
-import { mkdirSync, appendFileSync } from "node:fs";
+import { mkdirSync, appendFileSync, readdirSync, statSync, rmSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { createHmac, createHash } from "node:crypto";
 import type { RequestHandler } from "express";
@@ -68,11 +68,47 @@ export function createAuditLogger(config: AuditLoggerConfig): AuditLogger {
   };
 }
 
+const ONLINE_RETENTION_MS = 90 * 24 * 60 * 60 * 1000; // 90 days
+
+/**
+ * Prune audit log files older than retention period.
+ * Returns count of removed files.
+ */
+export function pruneAuditLogs(
+  auditLogDir: string,
+  options?: { maxAgeMs?: number; now?: Date },
+): number {
+  if (!existsSync(auditLogDir)) return 0;
+
+  const maxAge = options?.maxAgeMs ?? ONLINE_RETENTION_MS;
+  const now = options?.now ?? new Date();
+  let pruned = 0;
+
+  for (const entry of readdirSync(auditLogDir)) {
+    if (!entry.startsWith("audit-") || !entry.endsWith(".ndjson")) continue;
+    const filePath = join(auditLogDir, entry);
+    try {
+      const stat = statSync(filePath);
+      if (now.getTime() - stat.mtimeMs > maxAge) {
+        rmSync(filePath);
+        pruned++;
+      }
+    } catch {
+      // Skip unreadable files
+    }
+  }
+
+  return pruned;
+}
+
 /** Paths to skip — health probes, static assets */
 const SKIP_PATHS = ["/health/", "/favicon.ico", "/public/"];
 
 /** HTTP methods that indicate data mutation */
 const MUTATION_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
+
+/** Paths that represent admin/config operations */
+const ADMIN_PATH_PREFIXES = ["/api/settings", "/api/config", "/api/providers"];
 
 /**
  * Hash a bearer token to a short fingerprint for audit trail.
@@ -130,10 +166,11 @@ export function createAuditMiddleware(logger: AuditLogger): RequestHandler {
         return;
       }
 
-      // Data mutations
+      // Data mutations — classify admin vs data
       if (MUTATION_METHODS.has(method)) {
+        const isAdmin = ADMIN_PATH_PREFIXES.some((p) => reqPath.startsWith(p));
         logger.log({
-          action: "data.mutate",
+          action: isAdmin ? "admin.config" : "data.mutate",
           actor,
           ip,
           path: reqPath,

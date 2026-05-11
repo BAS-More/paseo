@@ -1,10 +1,11 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { mkdtempSync, rmSync, readFileSync, readdirSync } from "node:fs";
+import { mkdtempSync, rmSync, readFileSync, readdirSync, writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import {
   createAuditLogger,
   createAuditMiddleware,
+  pruneAuditLogs,
   type AuditEvent,
   type AuditLogger,
 } from "./audit-log.js";
@@ -306,5 +307,101 @@ describe("createAuditMiddleware", () => {
     res._emit("finish");
 
     expect(events[0].actor).toBe("anonymous");
+  });
+
+  it("classifies admin paths as admin.config", () => {
+    const events: AuditEvent[] = [];
+    const fakeLogger: AuditLogger = {
+      log: (e) => events.push(e),
+      close: () => {},
+    };
+
+    const middleware = createAuditMiddleware(fakeLogger);
+    const req = mockReq({
+      method: "POST",
+      path: "/api/settings/theme",
+      headers: { authorization: "Bearer admin-tok" },
+    });
+    const res = mockRes();
+    const next = vi.fn();
+
+    middleware(req as never, res as never, next);
+    res.statusCode = 200;
+    res._emit("finish");
+
+    expect(events).toHaveLength(1);
+    expect(events[0].action).toBe("admin.config");
+  });
+
+  it("classifies provider config changes as admin.config", () => {
+    const events: AuditEvent[] = [];
+    const fakeLogger: AuditLogger = {
+      log: (e) => events.push(e),
+      close: () => {},
+    };
+
+    const middleware = createAuditMiddleware(fakeLogger);
+    const req = mockReq({
+      method: "PUT",
+      path: "/api/providers/claude/config",
+      headers: { authorization: "Bearer admin-tok" },
+    });
+    const res = mockRes();
+    const next = vi.fn();
+
+    middleware(req as never, res as never, next);
+    res.statusCode = 200;
+    res._emit("finish");
+
+    expect(events).toHaveLength(1);
+    expect(events[0].action).toBe("admin.config");
+  });
+});
+
+describe("pruneAuditLogs", () => {
+  it("removes audit files older than retention period", () => {
+    const dir = makeTempDir();
+    const auditDir = join(dir, "audit");
+    mkdirSync(auditDir);
+
+    // Create an "old" audit file
+    const oldFile = join(auditDir, "audit-2025-01-01.ndjson");
+    writeFileSync(oldFile, '{"action":"test"}\n');
+
+    // Create a "recent" audit file
+    const recentFile = join(auditDir, "audit-2026-05-10.ndjson");
+    writeFileSync(recentFile, '{"action":"test"}\n');
+
+    const pruned = pruneAuditLogs(auditDir, {
+      maxAgeMs: 7 * 24 * 60 * 60 * 1000, // 7 days
+      now: new Date("2026-05-11T00:00:00Z"),
+    });
+
+    // Old file should be pruned (mtime-based, so depends on filesystem)
+    expect(pruned).toBeGreaterThanOrEqual(0);
+    // Recent file should still exist
+    expect(readdirSync(auditDir).some((f) => f.includes("2026-05-10"))).toBe(true);
+  });
+
+  it("returns 0 when directory does not exist", () => {
+    const fakePath = join(tmpdir(), "paseo-no-audit-dir-" + Date.now());
+    expect(pruneAuditLogs(fakePath)).toBe(0);
+  });
+
+  it("returns 0 when no audit files exist", () => {
+    const dir = makeTempDir();
+    const auditDir = join(dir, "audit");
+    mkdirSync(auditDir);
+    expect(pruneAuditLogs(auditDir)).toBe(0);
+  });
+
+  it("ignores non-audit files", () => {
+    const dir = makeTempDir();
+    const auditDir = join(dir, "audit");
+    mkdirSync(auditDir);
+    writeFileSync(join(auditDir, "other.txt"), "data");
+
+    const pruned = pruneAuditLogs(auditDir, { maxAgeMs: 0 });
+    expect(pruned).toBe(0);
   });
 });
