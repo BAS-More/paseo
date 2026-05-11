@@ -1,0 +1,49 @@
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    groups:
+      # Group minor/patch updates to reduce PR noise
+      node-pty:
+        patterns:
+          - "node-pty"
+      expo-stack:
+        patterns:
+          - "expo"
+          - "expo-*"
+          - "@expo/*"
+          - "react-native"
+          - "react-native-*"
+      vite-stack:
+        patterns:
+          - "vite"
+          - "vite-*"
+          - "@vitejs/*"
+          - "vitest"
+      react:
+        patterns:
+          - "react"
+          - "react-dom"
+          - "@types/react"
+          - "@types/react-dom"
+      lint-format:
+        patterns:
+          - "oxlint"
+          - "oxfmt"
+          - "lefthook"
+          - "typescript"
+    # Don't auto-bump majors — those need manual review
+    ignore:
+      - dependency-name: "*"
+        update-types:
+          - "version-update:semver-major"
+    open-pull-requests-limit: 10
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
