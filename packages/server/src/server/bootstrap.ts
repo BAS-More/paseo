@@ -8,6 +8,7 @@ import {
 } from "./health-probes.js";
 import { initSentry, sentryErrorHandler, flushSentry } from "./sentry.js";
 import { createBackup, startScheduledBackups } from "./db-backup.js";
+import { createAuditLogger, createAuditMiddleware } from "./audit-log.js";
 import { createServer as createHTTPServer, type IncomingMessage, type ServerResponse } from "http";
 import { createReadStream, unlinkSync, existsSync } from "fs";
 import { stat } from "fs/promises";
@@ -365,6 +366,15 @@ export async function createPaseoDaemon(
       logger.warn(context, "Rejected HTTP request with invalid daemon password");
     }),
   );
+
+  // Audit logging — structured trail of auth events + data mutations.
+  // Placed after auth so we capture both rejections and authenticated actions.
+  const auditLogDir = path.join(config.paseoHome, "audit");
+  const auditLogger = createAuditLogger({
+    auditLogDir,
+    hmacSecret: process.env.PASEO_AUDIT_HMAC_SECRET,
+  });
+  app.use(createAuditMiddleware(auditLogger));
 
   // Script proxy — intercepts requests for registered *.localhost hostnames
   // and forwards them to the corresponding local script port. Placed after
@@ -973,6 +983,7 @@ export async function createPaseoDaemon(
     if (listenTarget.type === "socket" && existsSync(listenTarget.path)) {
       unlinkSync(listenTarget.path);
     }
+    auditLogger.close();
     await flushSentry();
   };
 

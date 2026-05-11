@@ -1,0 +1,148 @@
+import { mkdirSync, appendFileSync } from "node:fs";
+import { join } from "node:path";
+import { createHmac, createHash } from "node:crypto";
+import type { RequestHandler } from "express";
+
+/**
+ * Structured audit event — who did what, when, from where.
+ */
+export interface AuditEvent {
+  action: string;
+  actor: string;
+  ip: string;
+  path: string;
+  method: string;
+  statusCode: number;
+  meta?: Record<string, unknown>;
+}
+
+export interface AuditLogger {
+  log(event: AuditEvent): void;
+  close(): void;
+}
+
+interface AuditLoggerConfig {
+  auditLogDir: string;
+  hmacSecret?: string;
+}
+
+/**
+ * Create append-only audit logger writing NDJSON to a dated file.
+ * Each entry includes a timestamp. When hmacSecret is provided,
+ * entries are signed with HMAC-SHA256 for tamper evidence.
+ */
+export function createAuditLogger(config: AuditLoggerConfig): AuditLogger {
+  mkdirSync(config.auditLogDir, { recursive: true });
+
+  const date = new Date().toISOString().slice(0, 10);
+  const filePath = join(config.auditLogDir, `audit-${date}.ndjson`);
+
+  return {
+    log(event: AuditEvent) {
+      const entry: Record<string, unknown> = {
+        ts: new Date().toISOString(),
+        action: event.action,
+        actor: event.actor,
+        ip: event.ip,
+        path: event.path,
+        method: event.method,
+        statusCode: event.statusCode,
+      };
+
+      if (event.meta) {
+        entry.meta = event.meta;
+      }
+
+      if (config.hmacSecret) {
+        const payload = JSON.stringify(entry);
+        entry._hmac = createHmac("sha256", config.hmacSecret).update(payload).digest("hex");
+      }
+
+      // Sync write: crash-safe, every entry persisted immediately
+      appendFileSync(filePath, JSON.stringify(entry) + "\n");
+    },
+
+    close() {
+      // No-op for sync writes — included for interface consistency
+    },
+  };
+}
+
+/** Paths to skip — health probes, static assets */
+const SKIP_PATHS = ["/health/", "/favicon.ico", "/public/"];
+
+/** HTTP methods that indicate data mutation */
+const MUTATION_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
+
+/**
+ * Hash a bearer token to a short fingerprint for audit trail.
+ * Never log raw tokens.
+ */
+function hashToken(token: string): string {
+  return "bearer:" + createHash("sha256").update(token).digest("hex").slice(0, 12);
+}
+
+/**
+ * Extract actor identity from request.
+ * Returns hashed bearer token or "anonymous".
+ */
+function extractActor(req: { headers: Record<string, string | string[] | undefined> }): string {
+  const authHeader = req.headers.authorization;
+  if (typeof authHeader === "string" && authHeader.startsWith("Bearer ")) {
+    return hashToken(authHeader.slice(7));
+  }
+  return "anonymous";
+}
+
+/**
+ * Express middleware that logs audit events for:
+ * - Auth rejections (401/403)
+ * - Data mutations (POST/PUT/PATCH/DELETE)
+ * - Admin config changes
+ *
+ * Skips health probes and static assets.
+ */
+export function createAuditMiddleware(logger: AuditLogger): RequestHandler {
+  return (req, res, next) => {
+    const reqPath = req.path;
+
+    if (SKIP_PATHS.some((p) => reqPath.startsWith(p))) {
+      next();
+      return;
+    }
+
+    res.on("finish", () => {
+      const statusCode = res.statusCode;
+      const method = req.method;
+      const actor = extractActor(req);
+      const ip = req.ip ?? "unknown";
+
+      // Auth rejections
+      if (statusCode === 401 || statusCode === 403) {
+        logger.log({
+          action: "auth.reject",
+          actor,
+          ip,
+          path: reqPath,
+          method,
+          statusCode,
+        });
+        return;
+      }
+
+      // Data mutations
+      if (MUTATION_METHODS.has(method)) {
+        logger.log({
+          action: "data.mutate",
+          actor,
+          ip,
+          path: reqPath,
+          method,
+          statusCode,
+        });
+      }
+    });
+
+    next();
+  };
+}
