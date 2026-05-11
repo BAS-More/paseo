@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Paseo Stack — Stop Script (Linux/Mac)
+# Paseo Stack - Stop Script (Linux/Mac)
 # Kills services by port: Paseo (6767), CrewAI Bridge (8000), 9Router (20128)
 # Usage: bash scripts/stop-stack.sh
 

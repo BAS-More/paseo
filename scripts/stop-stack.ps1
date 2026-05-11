@@ -1,11 +1,11 @@
-# Paseo Stack — Stop Script (Windows)
-# Kills services by port: 9Router (20128), CrewAI Bridge (8000), Paseo (6767)
-# Usage: powershell -ExecutionPolicy Bypass -File scripts/stop-stack.ps1
-
-$ErrorActionPreference = "Continue"
+$ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
-$ports = @(
+# Paseo Stack - Stop Script (Windows)
+# Kills services by port: Paseo (6767), CrewAI Bridge (8000), 9Router (20128)
+# Usage: powershell -ExecutionPolicy Bypass -File scripts/stop-stack.ps1
+
+$services = @(
     @{ Port = 6767;  Name = "Paseo" },
     @{ Port = 8000;  Name = "CrewAI Bridge" },
     @{ Port = 20128; Name = "9Router" }
@@ -15,7 +15,7 @@ Write-Host ""
 Write-Host "=== Stopping Paseo Stack ===" -ForegroundColor Cyan
 Write-Host ""
 
-foreach ($svc in $ports) {
+foreach ($svc in $services) {
     $port = $svc.Port
     $name = $svc.Name
     $connections = Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue
