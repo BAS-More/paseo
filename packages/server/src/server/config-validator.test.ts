@@ -101,6 +101,35 @@ describe("validateConfig", () => {
     expect(errors.some((e) => e.field === "PASEO_PASSWORD")).toBe(true);
   });
 
+  it("SEC-009: errors in production when PASEO_AUDIT_HMAC_SECRET is unset", () => {
+    const config = makeConfig({
+      auth: { password: "$2b$12$hashed" },
+      corsAllowedOrigins: ["https://app.paseo.sh"],
+    });
+    const errors = validateConfig(config, { env: { NODE_ENV: "production" } });
+    const hmacError = errors.find((e) => e.field === "PASEO_AUDIT_HMAC_SECRET");
+    expect(hmacError).toBeDefined();
+  });
+
+  it("SEC-009: no error when PASEO_AUDIT_HMAC_SECRET is set in env", () => {
+    const config = makeConfig({
+      auth: { password: "$2b$12$hashed" },
+      corsAllowedOrigins: ["https://app.paseo.sh"],
+    });
+    const errors = validateConfig(config, {
+      env: { NODE_ENV: "production", PASEO_AUDIT_HMAC_SECRET: "deadbeef".repeat(8) },
+    });
+    const hmacError = errors.find((e) => e.field === "PASEO_AUDIT_HMAC_SECRET");
+    expect(hmacError).toBeUndefined();
+  });
+
+  it("SEC-009: does NOT error in development mode", () => {
+    const config = makeConfig({ auth: { password: "$2b$12$hashed" } });
+    const errors = validateConfig(config, { env: {} }); // no NODE_ENV
+    const hmacError = errors.find((e) => e.field === "PASEO_AUDIT_HMAC_SECRET");
+    expect(hmacError).toBeUndefined();
+  });
+
   it("errors when CORS origins empty in production", () => {
     const config = makeConfig({
       auth: { password: "$2b$12$hashed" },
