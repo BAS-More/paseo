@@ -15,10 +15,10 @@
       "port": 8000,
       "healthPath": "/health",
       "imageBase": "ghcr.io/bas-more/paseo/crewai-bridge",
-      "required": false,
+      "required": true,
       "order": 2,
-      "drainTimeout": 15,
-      "healthTimeout": 45,
+      "drainTimeout": 30,
+      "healthTimeout": 90,
       "composeService": true
     },
     "soifer": {
