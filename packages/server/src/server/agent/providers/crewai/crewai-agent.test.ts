@@ -363,4 +363,30 @@ describe("CrewAiAgentSession", () => {
     const result = await client.listPersistedAgents!();
     expect(result).toEqual([]);
   });
+
+  it("non-aborted read error emits turn_failed via catch path", async () => {
+    // Stream that throws on first read (non-abort error)
+    const errorStream = new ReadableStream({
+      pull() {
+        throw new Error("Network connection lost");
+      },
+    });
+    const mockFetch = vi.fn().mockResolvedValue({ ok: true, body: errorStream });
+
+    const client = new CrewAiAgentClient({ logger, _fetchForTest: mockFetch });
+    const session = await client.createSession({ model: "c", systemPrompt: "", maxTurns: 1 });
+
+    const events: AgentStreamEvent[] = [];
+    session.subscribe((e) => events.push(e));
+
+    await session.startTurn("test");
+    // Wait for the async stream to fail
+    await new Promise((r) => setTimeout(r, 300));
+
+    const failed = events.find((e) => e.type === "turn_failed");
+    expect(failed).toBeDefined();
+    expect((failed as { error: string }).error).toContain("Network connection lost");
+
+    await session.close();
+  });
 });

@@ -43,6 +43,16 @@ describe("OCC event mapper", () => {
         { type: "thread_started", sessionId: SESSION_ID, provider: PROVIDER },
       ]);
     });
+
+    it("returns empty array for non-init system events", () => {
+      const event: OccStreamEvent = { type: "system", subtype: "compaction" } as OccStreamEvent;
+      const result = mapOccEventToStreamEvents(event, {
+        provider: PROVIDER,
+        sessionId: SESSION_ID,
+        turnId: TURN_ID,
+      });
+      expect(result).toEqual([]);
+    });
   });
 
   describe("stream_event (assistant text delta)", () => {

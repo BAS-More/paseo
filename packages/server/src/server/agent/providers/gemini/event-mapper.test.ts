@@ -162,4 +162,23 @@ describe("Gemini event mapper", () => {
     const result = mapGeminiEventToStreamEvents(event, CTX);
     expect(result).toEqual([]);
   });
+
+  it("init event with no session_id falls back to empty string", () => {
+    const event: GeminiStreamEvent = { type: "init" } as GeminiStreamEvent;
+    const result = mapGeminiEventToStreamEvents(event, CTX);
+    expect(result).toEqual([{ type: "thread_started", provider: PROVIDER, sessionId: "" }]);
+  });
+
+  it("error event with neither error nor message uses fallback string", () => {
+    const event = { type: "error" } as unknown as GeminiStreamEvent;
+    const result = mapGeminiEventToStreamEvents(event, CTX);
+    expect(result).toEqual([
+      {
+        type: "turn_failed",
+        provider: PROVIDER,
+        error: "Unknown error",
+        turnId: TURN_ID,
+      },
+    ]);
+  });
 });

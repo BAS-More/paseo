@@ -601,6 +601,27 @@ describe("OccAgentSession — gap-fill coverage", () => {
     expect(secondCallArgs).toContain("--agents");
     expect(secondCallArgs).toContain("/my/agents.json");
   });
+
+  it("startTurn passes --model to respawned process when model is set", async () => {
+    const mockProc1 = createMockProcess();
+    const mockProc2 = createMockProcess();
+    const mockSpawn = vi.fn().mockReturnValueOnce(mockProc1).mockReturnValueOnce(mockProc2);
+    const client = new OccAgentClient({
+      logger,
+      _spawnForTest: mockSpawn,
+    });
+    const session = await client.createSession({
+      provider: OCC_PROVIDER_ID,
+      cwd: "/test",
+      model: "claude-sonnet-4-20250514",
+    });
+
+    await session.startTurn("next turn with model");
+
+    const secondCallArgs = mockSpawn.mock.calls[1][1] as string[];
+    expect(secondCallArgs).toContain("--model");
+    expect(secondCallArgs).toContain("claude-sonnet-4-20250514");
+  });
 });
 
 describe("OccAgentClient uses spawnProcess by default", () => {
@@ -633,6 +654,18 @@ describe("OccAgentClient uses spawnProcess by default", () => {
     await availablePromise;
 
     expect(spy).toHaveBeenCalledTimes(1);
+    spy.mockRestore();
+  });
+
+  it("isAvailable returns false when spawnFn throws synchronously", async () => {
+    const spy = vi.spyOn(spawnUtils, "spawnProcess").mockImplementation(() => {
+      throw new Error("ENOENT");
+    });
+
+    const client = new OccAgentClient({ logger: createMockLogger() });
+    const available = await client.isAvailable();
+    expect(available).toBe(false);
+
     spy.mockRestore();
   });
 });

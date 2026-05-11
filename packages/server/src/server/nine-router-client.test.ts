@@ -732,3 +732,36 @@ describe("NineRouterClient configuration", () => {
     expect(fetchFn).toHaveBeenCalledWith("http://localhost:20128/api/init", expect.anything());
   });
 });
+
+describe("NineRouterClient branch coverage: !response.ok paths", () => {
+  it("getCombos returns empty array on non-ok response", async () => {
+    const client = new NineRouterClient({ _fetchForTest: mockFetchNotOk() });
+    const result = await client.getCombos();
+    expect(result).toEqual([]);
+  });
+
+  it("createCombo returns null on non-ok response", async () => {
+    const client = new NineRouterClient({ _fetchForTest: mockFetchNotOk() });
+    const result = await client.createCombo({ name: "x", models: [] });
+    expect(result).toBeNull();
+  });
+
+  it("getPricing returns empty object on non-ok response", async () => {
+    const client = new NineRouterClient({ _fetchForTest: mockFetchNotOk() });
+    const result = await client.getPricing();
+    expect(result).toEqual({});
+  });
+
+  it("importOAuthToken returns failure on non-ok response", async () => {
+    const client = new NineRouterClient({ _fetchForTest: mockFetchNotOk() });
+    const result = await client.importOAuthToken("cursor");
+    expect(result).toEqual({ success: false });
+  });
+
+  it("getCombos handles missing combos field gracefully", async () => {
+    const fetchFn = mockFetchOk({});
+    const client = new NineRouterClient({ _fetchForTest: fetchFn });
+    const result = await client.getCombos();
+    expect(result).toEqual([]);
+  });
+});
