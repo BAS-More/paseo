@@ -1,4 +1,4 @@
-import { compareSync } from "bcryptjs";
+import { compare, compareSync } from "bcryptjs";
 import type { RequestHandler } from "express";
 
 /**
@@ -67,6 +67,10 @@ const ROLE_PRIORITY: readonly Role[] = ["admin", "operator", "viewer"];
  *
  * When no role passwords are configured (legacy single-password mode),
  * returns "admin" — backward compatible with existing auth.
+ *
+ * SYNCHRONOUS — blocks the event loop while bcrypt runs. Prefer
+ * `resolveRoleAsync` for new code paths. Kept for callers that can't
+ * thread async (e.g. WebSocket upgrade handshakes in older code).
  */
 export function resolveRole(
   token: string,
@@ -85,6 +89,33 @@ export function resolveRole(
     if (!hash) continue;
 
     const matches = compareFn ? compareFn(token, hash) : compareSync(token, hash);
+    if (matches) return role;
+  }
+
+  return null;
+}
+
+/**
+ * Async variant of resolveRole. Each bcrypt compare is awaited so the event
+ * loop stays responsive while the cost-12 hash check (~10ms per call) runs.
+ * Use this from Express middleware and HTTP route handlers.
+ */
+export async function resolveRoleAsync(
+  token: string,
+  passwords: RolePasswords,
+  compareFn?: (token: string, hash: string) => Promise<boolean>,
+): Promise<Role | null> {
+  const hasAnyRolePassword = passwords.admin || passwords.operator || passwords.viewer;
+
+  if (!hasAnyRolePassword) {
+    return "admin";
+  }
+
+  for (const role of ROLE_PRIORITY) {
+    const hash = passwords[role];
+    if (!hash) continue;
+
+    const matches = await (compareFn ? compareFn(token, hash) : compare(token, hash));
     if (matches) return role;
   }
 
@@ -121,6 +152,10 @@ export function requirePermission(permission: Permission): RequestHandler {
  *
  * When no role passwords are configured, all authenticated requests
  * get "admin" role (backward compatible).
+ *
+ * H-05: uses async bcrypt compare so the event loop stays responsive even
+ * when several role passwords are configured (each compare is ~10ms at
+ * cost 12).
  */
 export function createRbacMiddleware(passwords: RolePasswords): RequestHandler {
   return (req, _res, next) => {
@@ -132,12 +167,16 @@ export function createRbacMiddleware(passwords: RolePasswords): RequestHandler {
     }
 
     const token = authHeader.slice(7);
-    const role = resolveRole(token, passwords);
-
-    if (role) {
-      (req as unknown as Record<string, unknown>).paseoRole = role;
-    }
-
-    next();
+    void (async () => {
+      try {
+        const role = await resolveRoleAsync(token, passwords);
+        if (role) {
+          (req as unknown as Record<string, unknown>).paseoRole = role;
+        }
+        next();
+      } catch (err) {
+        next(err instanceof Error ? err : new Error(String(err)));
+      }
+    })();
   };
 }
