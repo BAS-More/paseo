@@ -16,6 +16,10 @@ services:
       - PASEO_HOME=/data/paseo
       - PASEO_LISTEN=0.0.0.0:6767
       - PASEO_LOG_FORMAT=json
+    secrets:
+      - ANTHROPIC_API_KEY
+      - OPENAI_API_KEY
+      - PASEO_PASSWORD
     networks:
       - paseo-net
     healthcheck:
@@ -48,6 +52,14 @@ volumes:
   paseo-data:
   caddy-data:
   caddy-config:
+
+secrets:
+  ANTHROPIC_API_KEY:
+    environment: ANTHROPIC_API_KEY
+  OPENAI_API_KEY:
+    environment: OPENAI_API_KEY
+  PASEO_PASSWORD:
+    environment: PASEO_PASSWORD
 
 networks:
   paseo-net:
