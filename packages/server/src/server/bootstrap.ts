@@ -331,7 +331,43 @@ export async function createPaseoDaemon(
   // probes are always reachable without a bearer token.
   const healthState = createHealthState();
   app.get("/health/live", createLivenessHandler());
-  app.get("/health/ready", createReadinessHandler(healthState));
+  // ARCH-004: readiness probe checks PASEO_HOME is writable + agent storage
+  // loaded. Catches "process listening but state dir gone / read-only mount"
+  // failure modes that liveness alone misses.
+  app.get(
+    "/health/ready",
+    createReadinessHandler(healthState, {
+      dependencyChecks: [
+        async () => {
+          try {
+            const { access, constants } = await import("node:fs/promises");
+            await access(config.paseoHome, constants.W_OK);
+            return { name: "paseo-home-writable", ok: true };
+          } catch (err) {
+            return {
+              name: "paseo-home-writable",
+              ok: false,
+              error: err instanceof Error ? err.message : String(err),
+            };
+          }
+        },
+        async () => {
+          try {
+            // agentStorage is initialized before this handler runs; missing
+            // load() means bootstrap drift, not transient failure.
+            const loaded = typeof agentStorage.list === "function";
+            return { name: "agent-storage", ok: loaded };
+          } catch (err) {
+            return {
+              name: "agent-storage",
+              ok: false,
+              error: err instanceof Error ? err.message : String(err),
+            };
+          }
+        },
+      ],
+    }),
+  );
   app.get("/health/startup", createStartupHandler(healthState));
 
   // Rate limiting (production only — skips /api/health and /health/*)

@@ -81,10 +81,18 @@ async function main() {
       logger.info(`${signal} received, shutting down gracefully...`);
 
       shutdownPromise = (async () => {
+        // ARCH-014: 30s force-exit floor. 10s was too tight for prod — agent
+        // close, audit flush, backup-on-shutdown, and relay teardown can each
+        // approach 5s under load. Override via PASEO_SHUTDOWN_TIMEOUT_MS.
+        const shutdownTimeoutMs =
+          Number.parseInt(process.env.PASEO_SHUTDOWN_TIMEOUT_MS ?? "", 10) || 30_000;
         const forceExit = setTimeout(() => {
-          logger.warn("Forcing shutdown - HTTP server didn't close in time");
+          logger.warn(
+            { timeoutMs: shutdownTimeoutMs },
+            "Forcing shutdown — graceful stop didn't complete in time",
+          );
           process.exit(1);
-        }, 10000);
+        }, shutdownTimeoutMs);
 
         try {
           if (!daemon) {
