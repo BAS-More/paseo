@@ -1,6 +1,8 @@
 import type { ChildProcess } from "node:child_process";
 import { spawn as nodeSpawn } from "node:child_process";
 
+import { CircuitBreaker } from "./agent/circuit-breaker.js";
+
 type SpawnFn = typeof nodeSpawn;
 type FetchFn = typeof globalThis.fetch;
 
@@ -12,6 +14,7 @@ export interface CrewAiBridgeManagerOptions {
   port?: number;
   _spawnForTest?: SpawnFn;
   _fetchForTest?: FetchFn;
+  _breakerForTest?: CircuitBreaker;
 }
 
 export class CrewAiBridgeManager {
@@ -20,6 +23,7 @@ export class CrewAiBridgeManager {
   private readonly port: number;
   private readonly spawnFn: SpawnFn;
   private readonly fetchFn: FetchFn;
+  private readonly breaker: CircuitBreaker;
   private process: ChildProcess | null = null;
   private status: BridgeStatus = "stopped";
 
@@ -29,6 +33,7 @@ export class CrewAiBridgeManager {
     this.port = options.port ?? 8000;
     this.spawnFn = (options._spawnForTest as SpawnFn) ?? nodeSpawn;
     this.fetchFn = options._fetchForTest ?? globalThis.fetch;
+    this.breaker = options._breakerForTest ?? new CircuitBreaker();
   }
 
   getPort(): number {
@@ -39,15 +44,18 @@ export class CrewAiBridgeManager {
     return this.status;
   }
 
+  getBreakerState(): "closed" | "open" | "half-open" {
+    return this.breaker.state;
+  }
+
   async isRunning(): Promise<boolean> {
-    try {
+    return this.breaker.execute(async () => {
       const response = await this.fetchFn(`http://localhost:${this.port}/health`, {
         signal: AbortSignal.timeout(3000),
       });
-      return response.ok;
-    } catch {
-      return false;
-    }
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      return true;
+    }, false);
   }
 
   async start(): Promise<void> {

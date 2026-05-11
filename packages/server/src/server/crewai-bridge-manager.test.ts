@@ -1,4 +1,6 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
+
+import { CircuitBreaker } from "./agent/circuit-breaker.js";
 import { CrewAiBridgeManager } from "./crewai-bridge-manager.js";
 
 function createMockProcess() {
@@ -226,6 +228,49 @@ describe("CrewAiBridgeManager", () => {
       await startPromise;
 
       expect(manager.getStatus()).toBe("running");
+    });
+  });
+
+  describe("circuit breaker (C-01)", () => {
+    it("opens after 5 consecutive isRunning failures and skips fetch", async () => {
+      vi.useRealTimers();
+      const fetchFn = createMockFetch(false);
+      const breaker = new CircuitBreaker({ failureThreshold: 5, resetTimeoutMs: 30_000 });
+      const localManager = new CrewAiBridgeManager({
+        bridgePath: "/path/to/api.py",
+        _spawnForTest: vi.fn(),
+        _fetchForTest: fetchFn,
+        _breakerForTest: breaker,
+      });
+
+      for (let i = 0; i < 5; i++) {
+        await localManager.isRunning();
+      }
+      expect(localManager.getBreakerState()).toBe("open");
+      expect(fetchFn).toHaveBeenCalledTimes(5);
+
+      const result = await localManager.isRunning();
+      expect(result).toBe(false);
+      expect(fetchFn).toHaveBeenCalledTimes(5);
+      vi.useFakeTimers();
+    });
+
+    it("auto-resets to half-open after cooldown elapses", async () => {
+      const fetchFn = createMockFetch(false);
+      const breaker = new CircuitBreaker({ failureThreshold: 2, resetTimeoutMs: 1000 });
+      const localManager = new CrewAiBridgeManager({
+        bridgePath: "/path/to/api.py",
+        _spawnForTest: vi.fn(),
+        _fetchForTest: fetchFn,
+        _breakerForTest: breaker,
+      });
+
+      await localManager.isRunning();
+      await localManager.isRunning();
+      expect(localManager.getBreakerState()).toBe("open");
+
+      vi.advanceTimersByTime(1000);
+      expect(localManager.getBreakerState()).toBe("half-open");
     });
   });
 });

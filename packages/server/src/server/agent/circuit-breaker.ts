@@ -98,4 +98,22 @@ export class CircuitBreaker {
     this.openedAt = null;
     this.halfOpenAttempts = 0;
   }
+
+  /**
+   * Run `fn` under the circuit breaker. Returns `fallback` when:
+   * - the circuit is open (fn is not invoked), or
+   * - fn rejects (failure recorded, fallback returned).
+   * On resolve, records success and returns the resolved value.
+   */
+  async execute<T>(fn: () => Promise<T>, fallback: T): Promise<T> {
+    if (!this.canExecute()) return fallback;
+    try {
+      const result = await fn();
+      this.recordSuccess();
+      return result;
+    } catch {
+      this.recordFailure();
+      return fallback;
+    }
+  }
 }

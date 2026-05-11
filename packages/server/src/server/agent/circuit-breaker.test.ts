@@ -156,3 +156,68 @@ describe("CircuitBreaker", () => {
     expect(cb.state).toBe("open");
   });
 });
+
+describe("CircuitBreaker.execute", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  it("calls fn and returns its result when closed", async () => {
+    const cb = makeBreaker();
+    const fn = vi.fn().mockResolvedValue("ok");
+    const result = await cb.execute(fn, "fallback");
+    expect(result).toBe("ok");
+    expect(fn).toHaveBeenCalledOnce();
+    expect(cb.state).toBe("closed");
+  });
+
+  it("records success when fn resolves", async () => {
+    const cb = makeBreaker({ failureThreshold: 2 });
+    cb.recordFailure(); // 1 failure so far
+    await cb.execute(() => Promise.resolve(1), 0);
+    cb.recordFailure(); // count reset by success → 1 again, still closed
+    expect(cb.state).toBe("closed");
+  });
+
+  it("records failure and returns fallback when fn throws", async () => {
+    const cb = makeBreaker({ failureThreshold: 3 });
+    const fn = vi.fn().mockRejectedValue(new Error("boom"));
+    const result = await cb.execute(fn, "fallback");
+    expect(result).toBe("fallback");
+    // 1 failure recorded; still closed
+    expect(cb.state).toBe("closed");
+  });
+
+  it("opens after threshold consecutive fn rejections", async () => {
+    const cb = makeBreaker({ failureThreshold: 3 });
+    const fn = vi.fn().mockRejectedValue(new Error("boom"));
+    await cb.execute(fn, "fb");
+    await cb.execute(fn, "fb");
+    await cb.execute(fn, "fb");
+    expect(cb.state).toBe("open");
+  });
+
+  it("skips fn and returns fallback when open", async () => {
+    const cb = makeBreaker({ failureThreshold: 2 });
+    cb.recordFailure();
+    cb.recordFailure();
+    expect(cb.state).toBe("open");
+    const fn = vi.fn();
+    const result = await cb.execute(fn, "fallback");
+    expect(result).toBe("fallback");
+    expect(fn).not.toHaveBeenCalled();
+  });
+
+  it("allows a probe call in half-open and closes on success", async () => {
+    const cb = makeBreaker({ failureThreshold: 2, resetTimeoutMs: 1000 });
+    cb.recordFailure();
+    cb.recordFailure();
+    expect(cb.state).toBe("open");
+
+    vi.advanceTimersByTime(1000);
+    const fn = vi.fn().mockResolvedValue("recovered");
+    const result = await cb.execute(fn, "fallback");
+    expect(result).toBe("recovered");
+    expect(cb.state).toBe("closed");
+  });
+});
