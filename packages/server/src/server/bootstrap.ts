@@ -1,4 +1,5 @@
 import express from "express";
+import { createGlobalRateLimiter, resolveRateLimiterConfig } from "./rate-limiter.js";
 import { createServer as createHTTPServer, type IncomingMessage, type ServerResponse } from "http";
 import { createReadStream, unlinkSync, existsSync } from "fs";
 import { stat } from "fs/promises";
@@ -297,6 +298,12 @@ export async function createPaseoDaemon(
       }
       next();
     });
+  }
+
+  // Rate limiting (production only — skips /api/health)
+  if (!config.isDev) {
+    const rateLimiterConfig = resolveRateLimiterConfig();
+    app.use(createGlobalRateLimiter(rateLimiterConfig));
   }
 
   // CORS - allow same-origin + configured origins
