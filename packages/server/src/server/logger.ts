@@ -2,6 +2,7 @@ import { mkdirSync } from "node:fs";
 import path from "node:path";
 import pino from "pino";
 import pretty from "pino-pretty";
+import { createStream as createRotatingStream } from "rotating-file-stream";
 import type { PersistedConfig } from "./persisted-config.js";
 import { resolvePaseoHome } from "./paseo-home.js";
 
@@ -161,6 +162,11 @@ export function resolveLogConfig(
   };
 }
 
+// Log rotation: 50MB max per file, keep 7 rotated files, compress old logs.
+const LOG_ROTATION_SIZE = "50M";
+const LOG_ROTATION_KEEP = 7;
+const LOG_ROTATION_COMPRESS = "gzip";
+
 export function createRootLogger(
   configInput: LoggerConfigInput,
   options?: ResolveLogConfigOptions,
@@ -170,15 +176,29 @@ export function createRootLogger(
     mkdirSync(path.dirname(config.file.path), { recursive: true });
   }
 
-  const stream =
-    config.console.format === "pretty"
-      ? pretty({
-          colorize: true,
-          singleLine: true,
-          ignore: "pid,hostname",
-          destination: config.file?.path ?? 1,
-        })
-      : pino.destination({ dest: config.file?.path ?? 1, sync: false });
+  let stream: pino.DestinationStream;
+
+  if (config.console.format === "pretty") {
+    stream = pretty({
+      colorize: true,
+      singleLine: true,
+      ignore: "pid,hostname",
+      destination: config.file?.path ?? 1,
+    });
+  } else if (config.file) {
+    // Production: rotating file stream (50MB per file, 7 retained, gzip compressed)
+    const filePath = config.file.path;
+    const dir = path.dirname(filePath);
+    const filename = path.basename(filePath);
+    stream = createRotatingStream(filename, {
+      path: dir,
+      size: LOG_ROTATION_SIZE,
+      maxFiles: LOG_ROTATION_KEEP,
+      compress: LOG_ROTATION_COMPRESS,
+    });
+  } else {
+    stream = pino.destination({ dest: 1, sync: false });
+  }
 
   return pino(
     {
