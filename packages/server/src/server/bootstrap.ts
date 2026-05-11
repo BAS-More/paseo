@@ -4,7 +4,7 @@ import {
   createGlobalRateLimiter,
   resolveRateLimiterConfig,
 } from "./rate-limiter.js";
-import { createRbacMiddleware, type RolePasswords } from "./rbac.js";
+import { createRbacMiddleware, requirePermission, type RolePasswords } from "./rbac.js";
 import {
   createHealthState,
   createLivenessHandler,
@@ -823,9 +823,17 @@ export async function createPaseoDaemon(
 
     // Auth rate limiter on MCP — stricter RPM to limit brute-force (SEC-005).
     const mcpAuthLimiter = createAuthRateLimiter(resolveRateLimiterConfig());
-    app.post(agentMcpRoute, mcpAuthLimiter, handleAgentMcpRequest);
-    app.get(agentMcpRoute, mcpAuthLimiter, handleAgentMcpRequest);
-    app.delete(agentMcpRoute, mcpAuthLimiter, handleAgentMcpRequest);
+    // H-06: MCP endpoint runs tools on behalf of agents — operators and admins
+    // only. Viewers (read-only role) get 403. resolveRole returns "admin" when
+    // no role passwords are set, so single-password mode is unchanged.
+    app.post(agentMcpRoute, mcpAuthLimiter, requirePermission("agent:run"), handleAgentMcpRequest);
+    app.get(agentMcpRoute, mcpAuthLimiter, requirePermission("agent:read"), handleAgentMcpRequest);
+    app.delete(
+      agentMcpRoute,
+      mcpAuthLimiter,
+      requirePermission("agent:delete"),
+      handleAgentMcpRequest,
+    );
     logger.info({ route: agentMcpRoute }, "Agent MCP server mounted on main app");
   } else {
     logger.info("Agent MCP HTTP endpoint disabled");
