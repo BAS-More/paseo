@@ -131,6 +131,81 @@ describe("listBackups", () => {
   });
 });
 
+describe("backup manifest (H-02)", () => {
+  it("createBackup writes manifest.json with SHA-256 per file", () => {
+    const home = createTempHome();
+    const result = createBackup(home);
+
+    const manifestPath = join(result.path, "manifest.json");
+    expect(existsSync(manifestPath)).toBe(true);
+
+    const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as {
+      version: number;
+      createdAt: string;
+      files: Array<{ path: string; size: number; sha256: string }>;
+    };
+    expect(manifest.version).toBe(1);
+    expect(manifest.files.length).toBeGreaterThan(0);
+    expect(manifest.files.every((f) => /^[a-f0-9]{64}$/.test(f.sha256))).toBe(true);
+    expect(manifest.files.some((f) => f.path === "config.json")).toBe(true);
+  });
+
+  it("restoreBackup rejects a backup with a tampered file", () => {
+    const home = createTempHome();
+    const backup = createBackup(home);
+
+    // Tamper with one of the backup files
+    writeFileSync(join(backup.path, "config.json"), '{"tampered":true}');
+
+    expect(() => restoreBackup(backup.path, home)).toThrow(/sha256 mismatch|size mismatch/);
+  });
+
+  it("restoreBackup rejects a backup with a missing file", () => {
+    const home = createTempHome();
+    const backup = createBackup(home);
+
+    rmSync(join(backup.path, "config.json"));
+
+    expect(() => restoreBackup(backup.path, home)).toThrow(/missing/);
+  });
+
+  it("restoreBackup accepts a backup with no manifest (legacy format)", () => {
+    const home = createTempHome();
+    const backup = createBackup(home);
+
+    rmSync(join(backup.path, "manifest.json"));
+
+    // No throw — legacy compat path
+    expect(() => restoreBackup(backup.path, home)).not.toThrow();
+  });
+});
+
+describe("backup atomicity (H-04)", () => {
+  it("listBackups ignores .tmp directories left behind by interrupted writes", () => {
+    const home = createTempHome();
+    const backupsDir = join(home, "backups");
+    mkdirSync(backupsDir, { recursive: true });
+
+    // Simulate an interrupted backup — only the .tmp dir exists.
+    mkdirSync(join(backupsDir, "backup-2026-05-11T00-00-00-000Z.tmp"), { recursive: true });
+    writeFileSync(join(backupsDir, "backup-2026-05-11T00-00-00-000Z.tmp", "partial.json"), "{}");
+
+    expect(listBackups(home)).toEqual([]);
+  });
+
+  it("createBackup publishes via rename (no partial dir at final path)", () => {
+    const home = createTempHome();
+    const before = listBackups(home).length;
+    const result = createBackup(home);
+    const after = listBackups(home);
+
+    expect(after.length).toBe(before + 1);
+    expect(result.path.endsWith(".tmp")).toBe(false);
+    // The .tmp form must NOT linger
+    expect(existsSync(`${result.path}.tmp`)).toBe(false);
+  });
+});
+
 describe("startScheduledBackups", () => {
   it("creates backup on interval and returns cleanup", () => {
     vi.useFakeTimers();
