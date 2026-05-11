@@ -11,6 +11,35 @@ function read(path: string): string {
   return readFileSync(resolve(repoRoot, path), "utf8");
 }
 
+describe("deploy/rollback scripts (H-09)", () => {
+  it("deploy.sh installs a trap on EXIT/INT/TERM", () => {
+    const script = read("scripts/deploy.sh");
+    expect(script).toMatch(/^trap\s+cleanup\s+EXIT\s+INT\s+TERM/m);
+    expect(script).toMatch(/cleanup\(\)\s*\{/);
+  });
+
+  it("rollback.sh installs a trap on EXIT/INT/TERM", () => {
+    const script = read("scripts/rollback.sh");
+    expect(script).toMatch(/^trap\s+cleanup\s+EXIT\s+INT\s+TERM/m);
+    expect(script).toMatch(/cleanup\(\)\s*\{/);
+  });
+});
+
+describe("deploy.sh records image digests (H-10)", () => {
+  const deploy = read("scripts/deploy.sh");
+
+  it("captures RepoDigests for OLD_IMAGES (not just Config.Image)", () => {
+    expect(deploy).toMatch(/RepoDigests/);
+    expect(deploy).toMatch(/OLD_IMAGES\[\$svc\]="\$old_digest"/);
+  });
+
+  it("captures RepoDigests for NEW_IMAGES after pull", () => {
+    // Both OLD and NEW should resolve via the same RepoDigests path.
+    const matches = deploy.match(/RepoDigests/g) ?? [];
+    expect(matches.length).toBeGreaterThanOrEqual(2);
+  });
+});
+
 describe("Caddyfile.deploy (C-02)", () => {
   const caddyfile = read("Caddyfile.deploy");
 
