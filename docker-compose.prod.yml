@@ -1,4 +1,5 @@
 services:
+  # ── Paseo daemon (primary) ──────────────────────────────────
   paseo-daemon:
     image: ${PASEO_IMAGE:-ghcr.io/bas-more/paseo/paseo-daemon:latest}
     build:
@@ -32,6 +33,73 @@ services:
       retries: 3
       start_period: 30s
 
+  # ── Soifer Backend (:3001) ──────────────────────────────────
+  soifer-backend:
+    image: ${SOIFER_IMAGE:-ghcr.io/bas-more/soifer-backend:latest}
+    container_name: soifer-backend
+    restart: unless-stopped
+    expose:
+      - "3001"
+    env_file:
+      - packages/server/.env.production
+    environment:
+      - NODE_ENV=production
+      - SERVER_PORT=3001
+    secrets:
+      - ANTHROPIC_API_KEY
+      - OPENAI_API_KEY
+    networks:
+      - paseo-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3001/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+  # ── 9Router (:20128) ────────────────────────────────────────
+  9router:
+    image: ${ROUTER_IMAGE:-ghcr.io/bas-more/9router:latest}
+    container_name: 9router
+    restart: unless-stopped
+    expose:
+      - "20128"
+    env_file:
+      - packages/server/.env.production
+    environment:
+      - NODE_ENV=production
+    networks:
+      - paseo-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:20128/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  # ── CrewAI Bridge (:8000) ───────────────────────────────────
+  crewai-bridge:
+    image: ${CREWAI_IMAGE:-ghcr.io/bas-more/paseo/crewai-bridge:latest}
+    build:
+      context: packages/crewai-bridge
+      dockerfile: Dockerfile
+    container_name: crewai-bridge
+    restart: unless-stopped
+    expose:
+      - "8000"
+    environment:
+      - PYTHONDONTWRITEBYTECODE=1
+      - PYTHONUNBUFFERED=1
+    networks:
+      - paseo-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+  # ── Caddy ──────────────────────────────────────────────────
   caddy:
     image: caddy:2-alpine
     container_name: paseo-caddy

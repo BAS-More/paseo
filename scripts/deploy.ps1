@@ -1,24 +1,25 @@
 #!/usr/bin/env pwsh
-# Paseo — Atomic blue/green deployment (Windows / Docker Desktop).
+# Full-stack atomic blue/green deployment (Windows / Docker Desktop).
 #
-# Pulls the target image, starts the inactive slot, waits for /health/ready,
-# switches Caddy upstream, drains the old slot, and removes it.
-# Rolls back automatically if the new slot fails health checks.
+# Deploys all 4 long-running services (9Router, CrewAI, Soifer, Paseo) using
+# blue/green container slots behind a Caddy reverse proxy with port-based routing.
+# Health-gates in dependency order. Single Caddy reload switches all upstreams
+# atomically. Rolls back automatically if any required service fails health checks.
 #
 # Usage:
-#   .\scripts\deploy.ps1
-#   .\scripts\deploy.ps1 -Image "ghcr.io/bas-more/paseo/paseo-daemon:v0.3.1"
-#   .\scripts\deploy.ps1 -HealthTimeout 120
+#   .\scripts\deploy.ps1                           # deploy all services :latest
+#   .\scripts\deploy.ps1 -Service paseo            # deploy only Paseo
+#   .\scripts\deploy.ps1 -Build                    # build images locally
+#   .\scripts\deploy.ps1 -HealthTimeout 120        # custom timeout
 #
 # Prerequisites: docker, docker compose, curl
 
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
-# ── Parameters ──────────────────────────────────────────────
 param(
-    [string]$Image = "ghcr.io/bas-more/paseo/paseo-daemon:latest",
-    [int]$HealthTimeout = 90,
+    [string]$Service = "",
+    [switch]$Build,
     [int]$HealthInterval = 3,
     [int]$DrainTimeout = 30
 )
@@ -29,16 +30,24 @@ $ProjectRoot = Split-Path -Parent $ScriptDir
 
 $ComposeProd = Join-Path $ProjectRoot "docker-compose.prod.yml"
 $ComposeDeploy = Join-Path $ProjectRoot "docker-compose.deploy.yml"
+$ConfigFile = Join-Path $ProjectRoot "scripts" "deploy-config.json"
 $StateFile = Join-Path $ProjectRoot ".deploy-state"
 $RollbackFile = Join-Path $ProjectRoot ".deploy-rollback"
 
 $CaddyContainer = "paseo-caddy"
+$AllServices = @("9router", "crewai", "soifer", "paseo")
 
 # ── Helpers ─────────────────────────────────────────────────
 function Write-Log {
     param([string]$Message)
     $ts = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
     Write-Host "[deploy] $ts  $Message"
+}
+
+function Write-Warn {
+    param([string]$Message)
+    $ts = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+    Write-Host "[deploy] $ts  WARNING: $Message" -ForegroundColor Yellow
 }
 
 function Invoke-Compose {
@@ -50,13 +59,31 @@ function Invoke-Compose {
     }
 }
 
-function Get-ActiveSlot {
-    if (Test-Path $StateFile) {
-        return (Get-Content $StateFile -Raw).Trim()
+# Read deploy-config.json
+$DeployConfig = Get-Content $ConfigFile -Raw | ConvertFrom-Json
+
+function Get-SvcConfig {
+    param([string]$Svc)
+    $DeployConfig.services.$Svc
+}
+
+# ── State management (JSON format) ─────────────────────────
+function Load-State {
+    if (-not (Test-Path $StateFile)) {
+        return @{}
     }
-    $running = & docker ps --format "{{.Names}}" 2>$null
-    if ($running -match "^paseo-blue$") { return "blue" }
-    if ($running -match "^paseo-green$") { return "green" }
+    $raw = (Get-Content $StateFile -Raw).Trim()
+    # Backward compat: plain text = Paseo-only old format
+    try {
+        return $raw | ConvertFrom-Json -AsHashtable
+    } catch {
+        return @{ "paseo" = $raw }
+    }
+}
+
+function Get-SlotForService {
+    param([string]$Svc, [hashtable]$State)
+    if ($State.ContainsKey($Svc)) { return $State[$Svc] }
     return "none"
 }
 
@@ -71,79 +98,71 @@ function Get-OppositeSlot {
 }
 
 function Get-ContainerName {
-    param([string]$Slot)
-    return "paseo-$Slot"
-}
-
-function Get-ServiceName {
-    param([string]$Slot)
-    return "paseo-$Slot"
+    param([string]$Svc, [string]$Slot)
+    return "${Svc}-${Slot}"
 }
 
 function Get-ImageEnvVar {
-    param([string]$Slot)
-    return "PASEO_IMAGE_$($Slot.ToUpper())"
+    param([string]$Svc, [string]$Slot)
+    $prefix = switch ($Svc) {
+        "9router" { "ROUTER" }
+        "crewai"  { "CREWAI" }
+        "soifer"  { "SOIFER" }
+        "paseo"   { "PASEO" }
+        default   { throw "Unknown service: $Svc" }
+    }
+    return "${prefix}_IMAGE_$($Slot.ToUpper())"
+}
+
+function Get-UpstreamEnvVar {
+    param([string]$Svc)
+    switch ($Svc) {
+        "9router" { return "ACTIVE_ROUTER_UPSTREAM" }
+        "crewai"  { return "ACTIVE_CREWAI_UPSTREAM" }
+        "soifer"  { return "ACTIVE_SOIFER_UPSTREAM" }
+        "paseo"   { return "ACTIVE_PASEO_UPSTREAM" }
+        default   { throw "Unknown service: $Svc" }
+    }
 }
 
 function Wait-ForHealth {
-    param(
-        [string]$Container,
-        [int]$Timeout,
-        [int]$Interval = $HealthInterval
-    )
+    param([string]$Container, [string]$Svc, [int]$Timeout)
+    $cfg = Get-SvcConfig -Svc $Svc
+    $port = $cfg.port
+    $path = $cfg.healthPath
+    $url = "http://localhost:${port}${path}"
 
-    Write-Log "Waiting up to ${Timeout}s for $Container /health/ready..."
+    Write-Log "Waiting up to ${Timeout}s for $Container ${path}..."
     $deadline = (Get-Date).AddSeconds($Timeout)
 
     while ((Get-Date) -lt $deadline) {
         try {
-            $result = & docker exec $Container curl -sf --max-time 5 http://localhost:6767/health/ready 2>$null
+            $null = & docker exec $Container curl -sf --max-time 5 $url 2>$null
             if ($LASTEXITCODE -eq 0) {
                 Write-Log "$Container is healthy."
                 return $true
             }
-        } catch {
-            # curl not ready yet
-        }
-        Start-Sleep -Seconds $Interval
+        } catch { }
+        Start-Sleep -Seconds $HealthInterval
     }
-
     Write-Log "$Container failed health check after ${Timeout}s."
     return $false
 }
 
-function Switch-CaddyUpstream {
-    param([string]$NewUpstream)
-
-    Write-Log "Switching Caddy upstream to ${NewUpstream}:6767..."
-
-    $env:ACTIVE_UPSTREAM = $NewUpstream
-    Invoke-Compose @("up", "-d", "--no-deps", "caddy")
-
-    Start-Sleep -Seconds 2
-    Write-Log "Caddy config reloaded."
-}
-
 function Stop-WithDrain {
-    param(
-        [string]$Container,
-        [int]$Timeout
-    )
-
+    param([string]$Container, [int]$Timeout)
     $running = & docker ps --format "{{.Names}}" 2>$null
     if ($running -notcontains $Container) {
         Write-Log "$Container is not running, nothing to drain."
         return
     }
-
     Write-Log "Draining $Container (${Timeout}s grace period)..."
-    & docker stop --time $Timeout $Container 2>$null
+    & docker stop --time $Timeout $Container 2>$null | Out-Null
     Write-Log "$Container stopped."
 }
 
 function Remove-OldContainer {
     param([string]$Container)
-
     $all = & docker ps -a --format "{{.Names}}" 2>$null
     if ($all -contains $Container) {
         Write-Log "Removing $Container..."
@@ -151,113 +170,270 @@ function Remove-OldContainer {
     }
 }
 
-function Save-State {
-    param([string]$Slot)
-    $Slot | Out-File -FilePath $StateFile -Encoding utf8 -NoNewline
-    Write-Log "Deploy state saved: active=$Slot"
+# ── OCC preflight check ───────────────────────────────────
+function Check-Occ {
+    try {
+        $ver = & occ --version 2>$null
+        if ($LASTEXITCODE -eq 0) {
+            Write-Log "OCC binary found: $ver"
+        } else {
+            Write-Warn "OCC binary not found on host."
+        }
+    } catch {
+        Write-Warn "OCC binary not found on host. OCC features will be unavailable in containers."
+    }
 }
 
-function Save-RollbackInfo {
-    param(
-        [string]$OldSlot,
-        [string]$OldImage,
-        [string]$NewSlot,
-        [string]$NewImage
-    )
-
-    $ts = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
-    $content = @"
-# Auto-generated by deploy.ps1 — used by rollback.ps1
-ROLLBACK_FROM_SLOT=$NewSlot
-ROLLBACK_FROM_IMAGE=$NewImage
-ROLLBACK_TO_SLOT=$OldSlot
-ROLLBACK_TO_IMAGE=$OldImage
-ROLLBACK_TIMESTAMP=$ts
-"@
-    $content | Out-File -FilePath $RollbackFile -Encoding utf8
-    Write-Log "Rollback info saved to .deploy-rollback"
-}
-
-# ── Preflight checks ───────────────────────────────────────
-$dockerVersion = & docker --version 2>$null
+# ── Preflight ──────────────────────────────────────────────
+$dockerVer = & docker --version 2>$null
 if ($LASTEXITCODE -ne 0) { throw "Docker is not installed or not running." }
 
 if (-not (Test-Path $ComposeProd))   { throw "Missing $ComposeProd" }
 if (-not (Test-Path $ComposeDeploy)) { throw "Missing $ComposeDeploy" }
+if (-not (Test-Path $ConfigFile))    { throw "Missing $ConfigFile" }
 
-Write-Log "=== Paseo Atomic Deploy ==="
-Write-Log "Image:   $Image"
-Write-Log "Timeout: ${HealthTimeout}s health / ${DrainTimeout}s drain"
+Write-Log "=== Full-Stack Atomic Deploy ==="
 
-# ── Step 1: Determine slots ────────────────────────────────
-$Active = Get-ActiveSlot
-$Inactive = Get-OppositeSlot -Slot $Active
+# Determine which services to deploy
+$DeployServices = @()
+if (-not [string]::IsNullOrWhiteSpace($Service)) {
+    if ($AllServices -notcontains $Service) {
+        throw "Unknown service: $Service (valid: $($AllServices -join ', '))"
+    }
+    $DeployServices = @($Service)
+    Write-Log "Single-service deploy: $Service"
+} else {
+    $DeployServices = $AllServices
+    Write-Log "Full-stack deploy: $($AllServices -join ', ')"
+}
 
-Write-Log "Active slot:   $Active"
-Write-Log "Inactive slot: $Inactive (will receive new image)"
+Check-Occ
 
-$OldImage = ""
-if ($Active -ne "none") {
-    try {
-        $OldImage = & docker inspect --format="{{.Config.Image}}" (Get-ContainerName -Slot $Active) 2>$null
-    } catch {
-        $OldImage = "unknown"
+# ── Step 1: Load current state ────────────────────────────
+$CurrentState = Load-State
+Write-Log "Current state: $($CurrentState | ConvertTo-Json -Compress)"
+
+$NewSlots = @{}
+$OldImages = @{}
+$NewImages = @{}
+$NewContainers = @{}
+
+foreach ($svc in $DeployServices) {
+    $active = Get-SlotForService -Svc $svc -State $CurrentState
+    $inactive = Get-OppositeSlot -Slot $active
+    $NewSlots[$svc] = $inactive
+    Write-Log "  ${svc}: active=$active -> deploying to $inactive"
+}
+
+# ── Step 2: Pull/build images ─────────────────────────────
+foreach ($svc in $DeployServices) {
+    $slot = $NewSlots[$svc]
+    $cfg = Get-SvcConfig -Svc $svc
+    $img = "$($cfg.imageBase):latest"
+    $imgVar = Get-ImageEnvVar -Svc $svc -Slot $slot
+
+    # Capture old image for rollback
+    $active = Get-SlotForService -Svc $svc -State $CurrentState
+    if ($active -ne "none") {
+        $oldCtr = Get-ContainerName -Svc $svc -Slot $active
+        try {
+            $OldImages[$svc] = (& docker inspect --format="{{.Config.Image}}" $oldCtr 2>$null)
+        } catch {
+            $OldImages[$svc] = "unknown"
+        }
+    } else {
+        $OldImages[$svc] = "none"
+    }
+
+    if ($Build) {
+        Write-Log "Building $svc image locally..."
+        switch ($svc) {
+            "paseo" {
+                & docker build -t $img -f "$ProjectRoot/Dockerfile" $ProjectRoot
+            }
+            "crewai" {
+                & docker build -t $img -f "$ProjectRoot/packages/crewai-bridge/Dockerfile" "$ProjectRoot/packages/crewai-bridge"
+            }
+            default {
+                Write-Warn "No local Dockerfile for $svc, pulling instead."
+                & docker pull $img
+            }
+        }
+        if ($LASTEXITCODE -ne 0) { throw "Failed to build/pull image for ${svc}: $img" }
+    } else {
+        Write-Log "Pulling $img..."
+        & docker pull $img
+        if ($LASTEXITCODE -ne 0) { throw "Failed to pull image for ${svc}: $img" }
+    }
+
+    $NewImages[$svc] = $img
+    [Environment]::SetEnvironmentVariable($imgVar, $img, "Process")
+}
+
+# ── Step 3: Start all inactive slot containers ─────────────
+foreach ($svc in $DeployServices) {
+    $slot = $NewSlots[$svc]
+    $ctr = Get-ContainerName -Svc $svc -Slot $slot
+    $svcName = "${svc}-${slot}"
+    $NewContainers[$svc] = $ctr
+
+    Write-Log "Starting $ctr..."
+    Remove-OldContainer -Container $ctr
+    Invoke-Compose @("up", "-d", "--no-deps", $svcName)
+}
+
+# ── Step 4: Health-gate in dependency order ────────────────
+$FailedServices = @()
+
+foreach ($svc in $DeployServices) {
+    $ctr = $NewContainers[$svc]
+    $cfg = Get-SvcConfig -Svc $svc
+    $timeout = if ($cfg.healthTimeout) { $cfg.healthTimeout } else { 90 }
+
+    $healthy = Wait-ForHealth -Container $ctr -Svc $svc -Timeout $timeout
+
+    if ($healthy) {
+        Write-Log "${svc}: HEALTHY"
+    } else {
+        if ($cfg.required) {
+            Write-Log "${svc}: FAILED (required) - aborting deploy."
+            $FailedServices += $svc
+            break
+        } else {
+            Write-Warn "${svc}: FAILED (optional) - continuing without it."
+            $FailedServices += $svc
+        }
     }
 }
 
-# ── Step 2: Pull new image ─────────────────────────────────
-Write-Log "Pulling $Image..."
-& docker pull $Image
-if ($LASTEXITCODE -ne 0) { throw "Failed to pull image: $Image" }
+# Check if any required service failed
+$RequiredFailed = $false
+foreach ($fsvc in $FailedServices) {
+    $cfg = Get-SvcConfig -Svc $fsvc
+    if ($cfg.required) {
+        $RequiredFailed = $true
+        break
+    }
+}
 
-# ── Step 3: Start green (inactive) slot ─────────────────────
-$GreenContainer = Get-ContainerName -Slot $Inactive
-$GreenService = Get-ServiceName -Slot $Inactive
-$GreenImageEnv = Get-ImageEnvVar -Slot $Inactive
-
-Write-Log "Starting $GreenContainer with new image..."
-Remove-OldContainer -Container $GreenContainer
-
-# Set the image env var for compose
-[Environment]::SetEnvironmentVariable($GreenImageEnv, $Image, "Process")
-
-Invoke-Compose @("up", "-d", "--no-deps", $GreenService)
-
-# ── Step 4: Health-check green ──────────────────────────────
-$healthy = Wait-ForHealth -Container $GreenContainer -Timeout $HealthTimeout
-
-if (-not $healthy) {
-    Write-Log "ROLLBACK: $GreenContainer failed health check."
-    Write-Log "Removing failed container..."
-    Stop-WithDrain -Container $GreenContainer -Timeout 10
-    Remove-OldContainer -Container $GreenContainer
-    Write-Log "Rollback complete - $Active slot unchanged."
+if ($RequiredFailed) {
+    Write-Log "ROLLBACK: Required service failed. Tearing down all new slots..."
+    foreach ($svc in $DeployServices) {
+        $ctr = $NewContainers[$svc]
+        Stop-WithDrain -Container $ctr -Timeout 10
+        Remove-OldContainer -Container $ctr
+    }
+    Write-Log "Rollback complete - previous slots unchanged."
     exit 1
 }
 
-# ── Step 5: Switch Caddy upstream to green ──────────────────
-Switch-CaddyUpstream -NewUpstream $GreenContainer
-
-# ── Step 6: Drain and remove old (blue) slot ────────────────
-if ($Active -ne "none") {
-    $BlueContainer = Get-ContainerName -Slot $Active
-    Stop-WithDrain -Container $BlueContainer -Timeout $DrainTimeout
-    Remove-OldContainer -Container $BlueContainer
+# Stop failed optional services
+foreach ($fsvc in $FailedServices) {
+    $ctr = $NewContainers[$fsvc]
+    Write-Warn "Stopping failed optional service: $ctr"
+    Stop-WithDrain -Container $ctr -Timeout 10
+    Remove-OldContainer -Container $ctr
+    $NewContainers.Remove($fsvc)
 }
 
-# ── Step 7: Save state ─────────────────────────────────────
-Save-State -Slot $Inactive
-Save-RollbackInfo -OldSlot $Active -OldImage $OldImage -NewSlot $Inactive -NewImage $Image
+# ── Step 5: Switch Caddy (single reload for all upstreams) ─
+Write-Log "Switching Caddy upstreams atomically..."
 
-# ── Step 8: Final verification ──────────────────────────────
-Write-Log "Running final health check..."
-$finalHealthy = Wait-ForHealth -Container $GreenContainer -Timeout 15
+foreach ($svc in $DeployServices) {
+    if (-not $NewContainers.ContainsKey($svc)) { continue }
+    $ctr = $NewContainers[$svc]
+    $envName = Get-UpstreamEnvVar -Svc $svc
+    [Environment]::SetEnvironmentVariable($envName, $ctr, "Process")
+}
 
-if ($finalHealthy) {
+# Export upstreams for services NOT being deployed (keep current)
+foreach ($svc in $AllServices) {
+    $envName = Get-UpstreamEnvVar -Svc $svc
+    $currentVal = [Environment]::GetEnvironmentVariable($envName, "Process")
+    if ([string]::IsNullOrWhiteSpace($currentVal)) {
+        $active = Get-SlotForService -Svc $svc -State $CurrentState
+        if ($active -ne "none") {
+            $ctr = Get-ContainerName -Svc $svc -Slot $active
+            [Environment]::SetEnvironmentVariable($envName, $ctr, "Process")
+        }
+    }
+}
+
+Invoke-Compose @("up", "-d", "--no-deps", "caddy")
+Start-Sleep -Seconds 2
+Write-Log "Caddy reloaded with new upstreams."
+
+# ── Step 6: Drain old slots ───────────────────────────────
+foreach ($svc in $DeployServices) {
+    $active = Get-SlotForService -Svc $svc -State $CurrentState
+    if ($active -eq "none") { continue }
+    $oldCtr = Get-ContainerName -Svc $svc -Slot $active
+    $cfg = Get-SvcConfig -Svc $svc
+    $drainT = if ($cfg.drainTimeout) { $cfg.drainTimeout } else { $DrainTimeout }
+    Stop-WithDrain -Container $oldCtr -Timeout $drainT
+    Remove-OldContainer -Container $oldCtr
+}
+
+# ── Step 7: Save state and rollback info ───────────────────
+$NewState = @{}
+foreach ($key in $CurrentState.Keys) {
+    if ($key -ne "timestamp") {
+        $NewState[$key] = $CurrentState[$key]
+    }
+}
+foreach ($svc in $DeployServices) {
+    if ($NewContainers.ContainsKey($svc)) {
+        $NewState[$svc] = $NewSlots[$svc]
+    }
+}
+$ts = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+$NewState["timestamp"] = $ts
+
+$NewState | ConvertTo-Json | Out-File -FilePath $StateFile -Encoding utf8
+Write-Log "Deploy state saved."
+
+$imagesMap = @{}
+foreach ($svc in $DeployServices) {
+    $imagesMap[$svc] = @{
+        old = if ($OldImages.ContainsKey($svc)) { $OldImages[$svc] } else { "none" }
+        new = if ($NewImages.ContainsKey($svc)) { $NewImages[$svc] } else { "none" }
+    }
+}
+
+$rollbackInfo = @{
+    current   = $NewState
+    previous  = $CurrentState
+    images    = $imagesMap
+    timestamp = $ts
+}
+$rollbackInfo | ConvertTo-Json -Depth 4 | Out-File -FilePath $RollbackFile -Encoding utf8
+Write-Log "Rollback info saved to .deploy-rollback"
+
+# ── Step 8: Post-switch verification ───────────────────────
+Write-Log "Running post-switch verification..."
+$VerifyPass = $true
+
+foreach ($svc in $DeployServices) {
+    if (-not $NewContainers.ContainsKey($svc)) { continue }
+    $ctr = $NewContainers[$svc]
+    $healthy = Wait-ForHealth -Container $ctr -Svc $svc -Timeout 15
+    if ($healthy) {
+        Write-Log "${svc}: verified OK"
+    } else {
+        Write-Warn "${svc}: post-switch health check failed"
+        $VerifyPass = $false
+    }
+}
+
+if ($VerifyPass) {
     Write-Log "=== Deploy complete ==="
-    Write-Log "Active: $GreenContainer ($Image)"
+    foreach ($svc in $DeployServices) {
+        if ($NewContainers.ContainsKey($svc)) {
+            Write-Log "  ${svc}: $($NewContainers[$svc]) ($($NewImages[$svc]))"
+        }
+    }
 } else {
-    Write-Log "WARNING: Post-switch health check failed. Service may be degraded."
-    Write-Log "Run: .\scripts\rollback.ps1 to revert."
+    Write-Warn "Post-switch verification had failures. Services may be degraded."
+    Write-Warn "Run: .\scripts\rollback.ps1 to revert."
     exit 1
 }

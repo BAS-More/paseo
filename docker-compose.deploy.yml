@@ -1,20 +1,156 @@
-# Blue/green atomic deployment overlay.
+# Full-stack blue/green atomic deployment overlay.
 #
-# Extends docker-compose.prod.yml with two daemon services (blue + green)
-# and a dynamic Caddy upstream. Only one is active at a time — the deploy
-# script starts green, health-checks it, then reloads Caddy to point at
-# green before draining blue.
+# Extends docker-compose.prod.yml with blue + green slots for all 4 long-running
+# services. Caddy uses port-based routing -- each service keeps its own port.
+# Only one slot per service is active at a time. The deploy script starts all
+# inactive slots, health-gates in dependency order, then switches Caddy atomically.
+#
+# Deploy order (dependency-driven): 9Router -> CrewAI -> Soifer -> Paseo
 #
 # Usage (scripts handle this automatically):
-#   DEPLOY_SLOT=blue  docker compose -f docker-compose.prod.yml -f docker-compose.deploy.yml up -d paseo-blue caddy
-#   DEPLOY_SLOT=green docker compose -f docker-compose.prod.yml -f docker-compose.deploy.yml up -d paseo-green
+#   docker compose -f docker-compose.prod.yml -f docker-compose.deploy.yml up -d
 #
-# The ACTIVE_UPSTREAM env var tells Caddy which backend to route to.
+# The ACTIVE_*_UPSTREAM env vars tell Caddy which backend to route to.
 # deploy.sh / deploy.ps1 reload Caddy's config via its admin API after
-# the green container passes health checks.
+# all new containers pass health checks.
 
 services:
-  # ── Blue slot (default active) ────────────────────────────
+  # ----------------------------------------------------------------
+  # 9Router -- token & auth layer (:20128)
+  # ----------------------------------------------------------------
+
+  9router-blue:
+    image: ${ROUTER_IMAGE_BLUE:-ghcr.io/bas-more/9router:latest}
+    container_name: 9router-blue
+    restart: unless-stopped
+    expose:
+      - "20128"
+    env_file:
+      - packages/server/.env.production
+    environment:
+      - NODE_ENV=production
+    networks:
+      - paseo-net
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:20128/api/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  9router-green:
+    image: ${ROUTER_IMAGE_GREEN:-ghcr.io/bas-more/9router:latest}
+    container_name: 9router-green
+    restart: unless-stopped
+    expose:
+      - "20128"
+    env_file:
+      - packages/server/.env.production
+    environment:
+      - NODE_ENV=production
+    networks:
+      - paseo-net
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:20128/api/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  # ----------------------------------------------------------------
+  # CrewAI Bridge -- multi-agent orchestration (:8000)
+  # ----------------------------------------------------------------
+
+  crewai-blue:
+    image: ${CREWAI_IMAGE_BLUE:-ghcr.io/bas-more/paseo/crewai-bridge:latest}
+    container_name: crewai-blue
+    restart: unless-stopped
+    expose:
+      - "8000"
+    environment:
+      - PYTHONDONTWRITEBYTECODE=1
+      - PYTHONUNBUFFERED=1
+    networks:
+      - paseo-net
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+  crewai-green:
+    image: ${CREWAI_IMAGE_GREEN:-ghcr.io/bas-more/paseo/crewai-bridge:latest}
+    container_name: crewai-green
+    restart: unless-stopped
+    expose:
+      - "8000"
+    environment:
+      - PYTHONDONTWRITEBYTECODE=1
+      - PYTHONUNBUFFERED=1
+    networks:
+      - paseo-net
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+  # ----------------------------------------------------------------
+  # Soifer Backend -- API service (:3001)
+  # ----------------------------------------------------------------
+
+  soifer-blue:
+    image: ${SOIFER_IMAGE_BLUE:-ghcr.io/bas-more/soifer-backend:latest}
+    container_name: soifer-blue
+    restart: unless-stopped
+    expose:
+      - "3001"
+    env_file:
+      - packages/server/.env.production
+    environment:
+      - NODE_ENV=production
+      - SERVER_PORT=3001
+    secrets:
+      - ANTHROPIC_API_KEY
+      - OPENAI_API_KEY
+    networks:
+      - paseo-net
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:3001/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+  soifer-green:
+    image: ${SOIFER_IMAGE_GREEN:-ghcr.io/bas-more/soifer-backend:latest}
+    container_name: soifer-green
+    restart: unless-stopped
+    expose:
+      - "3001"
+    env_file:
+      - packages/server/.env.production
+    environment:
+      - NODE_ENV=production
+      - SERVER_PORT=3001
+    secrets:
+      - ANTHROPIC_API_KEY
+      - OPENAI_API_KEY
+    networks:
+      - paseo-net
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:3001/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+  # ----------------------------------------------------------------
+  # Paseo -- frontend + daemon (:6767)
+  # ----------------------------------------------------------------
+
   paseo-blue:
     image: ${PASEO_IMAGE_BLUE:-ghcr.io/bas-more/paseo/paseo-daemon:latest}
     container_name: paseo-blue
@@ -23,6 +159,7 @@ services:
       - "6767"
     volumes:
       - paseo-data:/data/paseo
+      - ${OCC_HOST_PATH:-/usr/local/bin/occ}:/usr/local/bin/occ:ro
     env_file:
       - packages/server/.env.production
     environment:
@@ -30,6 +167,9 @@ services:
       - PASEO_HOME=/data/paseo
       - PASEO_LISTEN=0.0.0.0:6767
       - PASEO_LOG_FORMAT=json
+      - ANTHROPIC_BASE_URL=http://${ACTIVE_ROUTER_UPSTREAM:-9router-blue}:20128
+      - CREWAI_BRIDGE_URL=http://${ACTIVE_CREWAI_UPSTREAM:-crewai-blue}:8000
+      - SOIFER_URL=http://${ACTIVE_SOIFER_UPSTREAM:-soifer-blue}:3001
     secrets:
       - ANTHROPIC_API_KEY
       - OPENAI_API_KEY
@@ -37,13 +177,12 @@ services:
     networks:
       - paseo-net
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:6767/health/ready"]
+      test: ["CMD", "curl", "-sf", "http://localhost:6767/health/ready"]
       interval: 10s
       timeout: 5s
       retries: 3
       start_period: 30s
 
-  # ── Green slot (new version) ──────────────────────────────
   paseo-green:
     image: ${PASEO_IMAGE_GREEN:-ghcr.io/bas-more/paseo/paseo-daemon:latest}
     container_name: paseo-green
@@ -52,6 +191,7 @@ services:
       - "6767"
     volumes:
       - paseo-data:/data/paseo
+      - ${OCC_HOST_PATH:-/usr/local/bin/occ}:/usr/local/bin/occ:ro
     env_file:
       - packages/server/.env.production
     environment:
@@ -59,6 +199,9 @@ services:
       - PASEO_HOME=/data/paseo
       - PASEO_LISTEN=0.0.0.0:6767
       - PASEO_LOG_FORMAT=json
+      - ANTHROPIC_BASE_URL=http://${ACTIVE_ROUTER_UPSTREAM:-9router-blue}:20128
+      - CREWAI_BRIDGE_URL=http://${ACTIVE_CREWAI_UPSTREAM:-crewai-blue}:8000
+      - SOIFER_URL=http://${ACTIVE_SOIFER_UPSTREAM:-soifer-blue}:3001
     secrets:
       - ANTHROPIC_API_KEY
       - OPENAI_API_KEY
@@ -66,24 +209,31 @@ services:
     networks:
       - paseo-net
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:6767/health/ready"]
+      test: ["CMD", "curl", "-sf", "http://localhost:6767/health/ready"]
       interval: 10s
       timeout: 5s
       retries: 3
       start_period: 30s
 
-  # ── Caddy — overrides prod to use dynamic upstream ────────
+  # ----------------------------------------------------------------
+  # Caddy -- port-based reverse proxy for all services
+  # ----------------------------------------------------------------
+
   caddy:
     image: caddy:2-alpine
     container_name: paseo-caddy
     restart: unless-stopped
     ports:
-      - "80:80"
-      - "443:443"
-      - "2019:2019" # Caddy admin API for upstream reload
+      - "6767:6767"
+      - "3001:3001"
+      - "20128:20128"
+      - "8000:8000"
+      - "2019:2019"
     environment:
-      - PASEO_DOMAIN=${PASEO_DOMAIN:-localhost}
-      - ACTIVE_UPSTREAM=${ACTIVE_UPSTREAM:-paseo-blue}
+      - ACTIVE_PASEO_UPSTREAM=${ACTIVE_PASEO_UPSTREAM:-paseo-blue}
+      - ACTIVE_SOIFER_UPSTREAM=${ACTIVE_SOIFER_UPSTREAM:-soifer-blue}
+      - ACTIVE_ROUTER_UPSTREAM=${ACTIVE_ROUTER_UPSTREAM:-9router-blue}
+      - ACTIVE_CREWAI_UPSTREAM=${ACTIVE_CREWAI_UPSTREAM:-crewai-blue}
     volumes:
       - ./Caddyfile.deploy:/etc/caddy/Caddyfile:ro
       - caddy-data:/data

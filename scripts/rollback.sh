@@ -1,15 +1,16 @@
 #!/usr/bin/env bash
-# Paseo — Instant rollback to the previous deployment.
+# Full-stack instant rollback to the previous deployment.
 #
-# Reads .deploy-rollback (written by deploy.sh) to determine which image
-# to restore. Starts the previous slot, health-checks it, switches Caddy,
-# and drains the current slot.
+# Reads .deploy-rollback (JSON, written by deploy.sh) to determine which images
+# and slots to restore. Starts previous slots in dependency order, health-checks
+# them, switches Caddy atomically, and drains the current slots.
 #
 # Usage:
-#   ./scripts/rollback.sh                          # rollback to previous
-#   ./scripts/rollback.sh ghcr.io/bas-more/paseo/paseo-daemon:v0.2.0  # rollback to specific image
+#   ./scripts/rollback.sh                              # rollback all services
+#   ./scripts/rollback.sh --service paseo               # rollback only Paseo
+#   ./scripts/rollback.sh --service paseo --image ghcr.io/bas-more/paseo/paseo-daemon:v0.2.0
 #
-# Prerequisites: docker, docker compose, curl
+# Prerequisites: docker, docker compose, curl, jq
 
 set -euo pipefail
 
@@ -19,30 +20,62 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 COMPOSE_PROD="$PROJECT_ROOT/docker-compose.prod.yml"
 COMPOSE_DEPLOY="$PROJECT_ROOT/docker-compose.deploy.yml"
+CONFIG_FILE="$PROJECT_ROOT/scripts/deploy-config.json"
 
 STATE_FILE="$PROJECT_ROOT/.deploy-state"
 ROLLBACK_FILE="$PROJECT_ROOT/.deploy-rollback"
 
-HEALTH_TIMEOUT="${HEALTH_TIMEOUT:-60}"
 HEALTH_INTERVAL="${HEALTH_INTERVAL:-3}"
 DRAIN_TIMEOUT="${DRAIN_TIMEOUT:-30}"
 
-# ── Helpers (same as deploy.sh) ─────────────────────────────
+ALL_SERVICES=("9router" "crewai" "soifer" "paseo")
+
+# ── Parse arguments ────────────────────────────────────────
+SINGLE_SERVICE=""
+OVERRIDE_IMAGE=""
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --service)  SINGLE_SERVICE="$2"; shift 2 ;;
+    --image)    OVERRIDE_IMAGE="$2"; shift 2 ;;
+    -h|--help)
+      echo "Usage: $0 [--service <name>] [--image <image:tag>]"
+      echo "  --service  Rollback only one service"
+      echo "  --image    Override rollback image for single-service rollback"
+      exit 0 ;;
+    *) echo "Unknown argument: $1"; exit 1 ;;
+  esac
+done
+
+# ── Helpers ─────────────────────────────────────────────────
 log()  { printf '[rollback] %s  %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*"; }
+warn() { printf '[rollback] %s  WARNING: %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*"; }
 fail() { log "FATAL: $*"; exit 1; }
 
-get_active_slot() {
-  if [ -f "$STATE_FILE" ]; then
-    cat "$STATE_FILE"
+cfg_svc() {
+  local svc="$1" field="$2"
+  jq -r ".services[\"$svc\"].$field" "$CONFIG_FILE"
+}
+
+load_state() {
+  if [ ! -f "$STATE_FILE" ]; then
+    echo "{}"
     return
   fi
-  if docker ps --format '{{.Names}}' | grep -q '^paseo-blue$'; then
-    echo "blue"
-  elif docker ps --format '{{.Names}}' | grep -q '^paseo-green$'; then
-    echo "green"
-  else
-    echo "none"
+  local content
+  content=$(cat "$STATE_FILE")
+  if ! echo "$content" | jq empty 2>/dev/null; then
+    local old_slot
+    old_slot=$(echo "$content" | tr -d '[:space:]')
+    echo "{\"paseo\": \"$old_slot\"}"
+    return
   fi
+  echo "$content"
+}
+
+get_slot_for_service() {
+  local svc="$1" state="$2"
+  echo "$state" | jq -r ".\"$svc\" // \"none\""
 }
 
 opposite_slot() {
@@ -54,114 +87,236 @@ opposite_slot() {
   esac
 }
 
-container_name() { echo "paseo-$1"; }
-service_name()   { echo "paseo-$1"; }
-image_env()      { echo "PASEO_IMAGE_$(echo "$1" | tr '[:lower:]' '[:upper:]')"; }
+container_name() {
+  local svc="$1" slot="$2"
+  echo "${svc}-${slot}"
+}
+
+image_env() {
+  local svc="$1" slot="$2"
+  local prefix
+  case "$svc" in
+    9router) prefix="ROUTER" ;;
+    crewai)  prefix="CREWAI" ;;
+    soifer)  prefix="SOIFER" ;;
+    paseo)   prefix="PASEO"  ;;
+    *)       fail "Unknown service: $svc" ;;
+  esac
+  echo "${prefix}_IMAGE_$(echo "$slot" | tr '[:lower:]' '[:upper:]')"
+}
+
+upstream_env() {
+  local svc="$1"
+  case "$svc" in
+    9router) echo "ACTIVE_ROUTER_UPSTREAM" ;;
+    crewai)  echo "ACTIVE_CREWAI_UPSTREAM" ;;
+    soifer)  echo "ACTIVE_SOIFER_UPSTREAM" ;;
+    paseo)   echo "ACTIVE_PASEO_UPSTREAM"  ;;
+    *)       fail "Unknown service: $svc" ;;
+  esac
+}
+
+health_port() { cfg_svc "$1" "port"; }
+health_path() { cfg_svc "$1" "healthPath"; }
 
 wait_for_health() {
-  local container="$1"
-  local timeout="$2"
-  local deadline=$((SECONDS + timeout))
+  local ctr="$1" svc="$2" timeout="$3"
+  local port path deadline
+  port=$(health_port "$svc")
+  path=$(health_path "$svc")
+  deadline=$((SECONDS + timeout))
 
-  log "Waiting up to ${timeout}s for $container /health/ready..."
+  log "Waiting up to ${timeout}s for $ctr ${path}..."
   while [ $SECONDS -lt $deadline ]; do
-    if docker exec "$container" curl -sf --max-time 5 http://localhost:6767/health/ready >/dev/null 2>&1; then
-      log "$container is healthy."
+    if docker exec "$ctr" curl -sf --max-time 5 "http://localhost:${port}${path}" >/dev/null 2>&1; then
+      log "$ctr is healthy."
       return 0
     fi
     sleep "$HEALTH_INTERVAL"
   done
-  log "$container failed health check after ${timeout}s."
+  log "$ctr failed health check after ${timeout}s."
   return 1
 }
 
 drain_and_stop() {
-  local container="$1"
-  local timeout="$2"
-
-  if ! docker ps --format '{{.Names}}' | grep -q "^${container}$"; then
-    log "$container is not running."
+  local ctr="$1" timeout="$2"
+  if ! docker ps --format '{{.Names}}' | grep -q "^${ctr}$"; then
+    log "$ctr is not running."
     return 0
   fi
-
-  log "Draining $container (${timeout}s grace period)..."
-  docker stop --time "$timeout" "$container" >/dev/null 2>&1 || true
-  log "$container stopped."
+  log "Draining $ctr (${timeout}s grace period)..."
+  docker stop --time "$timeout" "$ctr" >/dev/null 2>&1 || true
+  log "$ctr stopped."
 }
 
 remove_container() {
-  local container="$1"
-  if docker ps -a --format '{{.Names}}' | grep -q "^${container}$"; then
-    docker rm -f "$container" >/dev/null 2>&1 || true
+  local ctr="$1"
+  if docker ps -a --format '{{.Names}}' | grep -q "^${ctr}$"; then
+    docker rm -f "$ctr" >/dev/null 2>&1 || true
   fi
 }
 
-# ── Resolve rollback target ────────────────────────────────
-ROLLBACK_IMAGE="${1:-}"
+is_required() {
+  [ "$(cfg_svc "$1" "required")" = "true" ]
+}
 
-if [ -z "$ROLLBACK_IMAGE" ]; then
-  if [ ! -f "$ROLLBACK_FILE" ]; then
-    fail "No .deploy-rollback file found and no image specified. Cannot determine rollback target."
-  fi
-
-  # shellcheck source=/dev/null
-  source "$ROLLBACK_FILE"
-  ROLLBACK_IMAGE="${ROLLBACK_TO_IMAGE:-}"
-
-  if [ -z "$ROLLBACK_IMAGE" ] || [ "$ROLLBACK_IMAGE" = "unknown" ]; then
-    fail "Rollback file exists but ROLLBACK_TO_IMAGE is empty. Specify an image explicitly."
-  fi
-
-  log "Rollback file found. Previous image: $ROLLBACK_IMAGE"
-fi
-
-# ── Preflight ──────────────────────────────────────────────
+# ── Resolve rollback targets ─────────────────────────────
 command -v docker >/dev/null 2>&1 || fail "docker not found"
+command -v jq >/dev/null 2>&1     || fail "jq not found"
 [ -f "$COMPOSE_PROD" ]   || fail "Missing $COMPOSE_PROD"
 [ -f "$COMPOSE_DEPLOY" ] || fail "Missing $COMPOSE_DEPLOY"
+[ -f "$CONFIG_FILE" ]    || fail "Missing $CONFIG_FILE"
 
-CURRENT_SLOT=$(get_active_slot)
-TARGET_SLOT=$(opposite_slot "$CURRENT_SLOT")
+COMPOSE_CMD="docker compose -f $COMPOSE_PROD -f $COMPOSE_DEPLOY"
 
-log "=== Paseo Rollback ==="
-log "Current slot:  $CURRENT_SLOT"
-log "Target slot:   $TARGET_SLOT"
-log "Rollback image: $ROLLBACK_IMAGE"
-
-# ── Step 1: Pull rollback image (may already be cached) ────
-log "Pulling $ROLLBACK_IMAGE..."
-docker pull "$ROLLBACK_IMAGE" || log "WARNING: Pull failed; using local cache if available."
-
-# ── Step 2: Start rollback slot ────────────────────────────
-TARGET_CONTAINER=$(container_name "$TARGET_SLOT")
-TARGET_SERVICE=$(service_name "$TARGET_SLOT")
-TARGET_IMAGE_ENV=$(image_env "$TARGET_SLOT")
-
-log "Starting $TARGET_CONTAINER with rollback image..."
-remove_container "$TARGET_CONTAINER"
-
-export "${TARGET_IMAGE_ENV}=${ROLLBACK_IMAGE}"
-docker compose -f "$COMPOSE_PROD" -f "$COMPOSE_DEPLOY" up -d --no-deps "$TARGET_SERVICE"
-
-# ── Step 3: Health-check ───────────────────────────────────
-if ! wait_for_health "$TARGET_CONTAINER" "$HEALTH_TIMEOUT"; then
-  fail "Rollback target $TARGET_CONTAINER failed health check. Manual intervention required."
+# Load rollback metadata
+ROLLBACK_DATA="{}"
+if [ -f "$ROLLBACK_FILE" ]; then
+  ROLLBACK_DATA=$(cat "$ROLLBACK_FILE")
+  # Backward compat: old key=value format
+  if ! echo "$ROLLBACK_DATA" | jq empty 2>/dev/null; then
+    # Parse old format
+    old_image=$(grep -oP 'ROLLBACK_TO_IMAGE=\K.*' "$ROLLBACK_FILE" 2>/dev/null || echo "")
+    ROLLBACK_DATA=$(jq -n --arg img "$old_image" '{images: {paseo: {old: $img}}}')
+  fi
 fi
 
-# ── Step 4: Switch Caddy ───────────────────────────────────
-log "Switching Caddy upstream to $TARGET_CONTAINER..."
-ACTIVE_UPSTREAM="$TARGET_CONTAINER" docker compose -f "$COMPOSE_PROD" -f "$COMPOSE_DEPLOY" up -d --no-deps caddy
+CURRENT_STATE=$(load_state)
+
+# Determine which services to rollback
+ROLLBACK_SERVICES=()
+if [ -n "$SINGLE_SERVICE" ]; then
+  found=false
+  for svc in "${ALL_SERVICES[@]}"; do
+    [ "$svc" = "$SINGLE_SERVICE" ] && found=true
+  done
+  $found || fail "Unknown service: $SINGLE_SERVICE"
+  ROLLBACK_SERVICES=("$SINGLE_SERVICE")
+else
+  ROLLBACK_SERVICES=("${ALL_SERVICES[@]}")
+fi
+
+log "=== Full-Stack Rollback ==="
+log "Services: ${ROLLBACK_SERVICES[*]}"
+
+# Resolve rollback images per service
+declare -A ROLLBACK_IMAGES
+declare -A TARGET_SLOTS
+declare -A TARGET_CONTAINERS
+
+for svc in "${ROLLBACK_SERVICES[@]}"; do
+  current_slot=$(get_slot_for_service "$svc" "$CURRENT_STATE")
+  target_slot=$(opposite_slot "$current_slot")
+  TARGET_SLOTS[$svc]="$target_slot"
+  TARGET_CONTAINERS[$svc]=$(container_name "$svc" "$target_slot")
+
+  if [ -n "$OVERRIDE_IMAGE" ] && [ ${#ROLLBACK_SERVICES[@]} -eq 1 ]; then
+    ROLLBACK_IMAGES[$svc]="$OVERRIDE_IMAGE"
+  else
+    img=$(echo "$ROLLBACK_DATA" | jq -r ".images.\"$svc\".old // \"\"" 2>/dev/null || echo "")
+    if [ -z "$img" ] || [ "$img" = "null" ] || [ "$img" = "none" ] || [ "$img" = "unknown" ]; then
+      if is_required "$svc"; then
+        fail "No rollback image found for required service: $svc. Specify --image explicitly."
+      else
+        warn "No rollback image for optional service: $svc. Skipping."
+        unset "TARGET_CONTAINERS[$svc]"
+        continue
+      fi
+    fi
+    ROLLBACK_IMAGES[$svc]="$img"
+  fi
+
+  log "  $svc: slot $current_slot -> $target_slot (image: ${ROLLBACK_IMAGES[$svc]})"
+done
+
+# ── Step 1: Pull rollback images ──────────────────────────
+for svc in "${ROLLBACK_SERVICES[@]}"; do
+  [ -z "${TARGET_CONTAINERS[$svc]:-}" ] && continue
+  img="${ROLLBACK_IMAGES[$svc]}"
+  log "Pulling $img..."
+  docker pull "$img" || warn "Pull failed for $svc; using local cache if available."
+done
+
+# ── Step 2: Start rollback slots ──────────────────────────
+for svc in "${ROLLBACK_SERVICES[@]}"; do
+  [ -z "${TARGET_CONTAINERS[$svc]:-}" ] && continue
+  ctr="${TARGET_CONTAINERS[$svc]}"
+  slot="${TARGET_SLOTS[$svc]}"
+  img="${ROLLBACK_IMAGES[$svc]}"
+  img_var=$(image_env "$svc" "$slot")
+
+  log "Starting $ctr with rollback image..."
+  remove_container "$ctr"
+  export "${img_var}=${img}"
+  $COMPOSE_CMD up -d --no-deps "$(container_name "$svc" "$slot")"
+done
+
+# ── Step 3: Health-check in dependency order ──────────────
+for svc in "${ROLLBACK_SERVICES[@]}"; do
+  [ -z "${TARGET_CONTAINERS[$svc]:-}" ] && continue
+  ctr="${TARGET_CONTAINERS[$svc]}"
+  timeout_val=$(cfg_svc "$svc" "healthTimeout")
+  [ "$timeout_val" = "null" ] && timeout_val=60
+
+  if ! wait_for_health "$ctr" "$svc" "$timeout_val"; then
+    if is_required "$svc"; then
+      fail "Rollback target $ctr failed health check. Manual intervention required."
+    else
+      warn "$svc rollback failed health check (optional). Continuing."
+      remove_container "$ctr"
+      unset "TARGET_CONTAINERS[$svc]"
+    fi
+  fi
+done
+
+# ── Step 4: Switch Caddy atomically ──────────────────────
+log "Switching Caddy upstreams..."
+
+for svc in "${ROLLBACK_SERVICES[@]}"; do
+  [ -z "${TARGET_CONTAINERS[$svc]:-}" ] && continue
+  ctr="${TARGET_CONTAINERS[$svc]}"
+  env_name=$(upstream_env "$svc")
+  export "${env_name}=${ctr}"
+done
+
+# Keep non-rollback services at current upstream
+for svc in "${ALL_SERVICES[@]}"; do
+  env_name=$(upstream_env "$svc")
+  if [ -z "${!env_name:-}" ]; then
+    active=$(get_slot_for_service "$svc" "$CURRENT_STATE")
+    if [ "$active" != "none" ]; then
+      export "${env_name}=$(container_name "$svc" "$active")"
+    fi
+  fi
+done
+
+$COMPOSE_CMD up -d --no-deps caddy
 sleep 2
 
-# ── Step 5: Drain old slot ─────────────────────────────────
-if [ "$CURRENT_SLOT" != "none" ]; then
-  CURRENT_CONTAINER=$(container_name "$CURRENT_SLOT")
-  drain_and_stop "$CURRENT_CONTAINER" "$DRAIN_TIMEOUT"
-  remove_container "$CURRENT_CONTAINER"
-fi
+# ── Step 5: Drain old slots ──────────────────────────────
+for svc in "${ROLLBACK_SERVICES[@]}"; do
+  current_slot=$(get_slot_for_service "$svc" "$CURRENT_STATE")
+  [ "$current_slot" = "none" ] && continue
+  old_ctr=$(container_name "$svc" "$current_slot")
+  drain_t=$(cfg_svc "$svc" "drainTimeout")
+  [ "$drain_t" = "null" ] && drain_t="$DRAIN_TIMEOUT"
+  drain_and_stop "$old_ctr" "$drain_t"
+  remove_container "$old_ctr"
+done
 
-# ── Step 6: Save state ────────────────────────────────────
-echo "$TARGET_SLOT" > "$STATE_FILE"
+# ── Step 6: Save state ───────────────────────────────────
+NEW_STATE="$CURRENT_STATE"
+for svc in "${ROLLBACK_SERVICES[@]}"; do
+  if [ -n "${TARGET_CONTAINERS[$svc]:-}" ]; then
+    NEW_STATE=$(echo "$NEW_STATE" | jq --arg svc "$svc" --arg slot "${TARGET_SLOTS[$svc]}" '.[$svc] = $slot')
+  fi
+done
+NEW_STATE=$(echo "$NEW_STATE" | jq --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" '. + {timestamp: $ts}')
+echo "$NEW_STATE" > "$STATE_FILE"
 
 log "=== Rollback complete ==="
-log "Active: $TARGET_CONTAINER ($ROLLBACK_IMAGE)"
+for svc in "${ROLLBACK_SERVICES[@]}"; do
+  if [ -n "${TARGET_CONTAINERS[$svc]:-}" ]; then
+    log "  $svc: ${TARGET_CONTAINERS[$svc]} (${ROLLBACK_IMAGES[$svc]})"
+  fi
+done

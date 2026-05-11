@@ -1,0 +1,61 @@
+{
+  "version": 2,
+  "services": {
+    "9router": {
+      "port": 20128,
+      "healthPath": "/api/health",
+      "imageBase": "ghcr.io/bas-more/9router",
+      "required": true,
+      "order": 1,
+      "drainTimeout": 15,
+      "healthTimeout": 60,
+      "composeService": true
+    },
+    "crewai": {
+      "port": 8000,
+      "healthPath": "/health",
+      "imageBase": "ghcr.io/bas-more/paseo/crewai-bridge",
+      "required": false,
+      "order": 2,
+      "drainTimeout": 15,
+      "healthTimeout": 45,
+      "composeService": true
+    },
+    "soifer": {
+      "port": 3001,
+      "healthPath": "/health",
+      "imageBase": "ghcr.io/bas-more/soifer-backend",
+      "required": true,
+      "order": 3,
+      "drainTimeout": 30,
+      "healthTimeout": 90,
+      "composeService": true
+    },
+    "paseo": {
+      "port": 6767,
+      "healthPath": "/health/ready",
+      "imageBase": "ghcr.io/bas-more/paseo/paseo-daemon",
+      "required": true,
+      "order": 4,
+      "drainTimeout": 30,
+      "healthTimeout": 90,
+      "composeService": true
+    },
+    "occ": {
+      "port": null,
+      "healthCommand": "occ --version",
+      "imageBase": null,
+      "required": false,
+      "order": 0,
+      "composeService": false,
+      "note": "Binary on host, not deployed via containers. Version-checked in preflight only."
+    }
+  },
+  "deployOrder": ["9router", "crewai", "soifer", "paseo"],
+  "defaults": {
+    "healthInterval": 3,
+    "drainTimeout": 30,
+    "healthTimeout": 90,
+    "caddyAdminPort": 2019
+  }
+}

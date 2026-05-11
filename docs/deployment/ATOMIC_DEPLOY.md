@@ -1,30 +1,61 @@
 # Atomic Blue/Green Deployment
 
-Zero-downtime deployment for Paseo daemon using blue/green container slots behind a Caddy reverse proxy.
+Zero-downtime deployment for the full 5-service Soifer Platform stack using blue/green container slots behind a Caddy reverse proxy with port-based routing.
+
+## Service Topology
+
+| Service        | Port  | Health Endpoint | Required | Deploy Order   |
+| -------------- | ----- | --------------- | -------- | -------------- |
+| 9Router        | 20128 | `/api/health`   | yes      | 1              |
+| CrewAI Bridge  | 8000  | `/health`       | no       | 2              |
+| Soifer Backend | 3001  | `/health`       | yes      | 3              |
+| Paseo          | 6767  | `/health/ready` | yes      | 4              |
+| OCC            | n/a   | `occ --version` | no       | preflight only |
+
+Deploy order follows dependency: 9Router must be up before Soifer and Paseo can route LLM calls through it. CrewAI is optional -- deploy continues with a warning if it fails.
+
+OCC is a host binary, not a containerized service. It is version-checked during preflight and mounted as a read-only volume into Paseo and Soifer containers.
+
+```
+                          Caddy (sole ingress)
+                ┌──────────────┼──────────────┐
+                │              │              │
+          :6767 │        :3001 │       :20128 │       :8000
+                │              │              │          │
+        ┌───────┴───────┐ ┌───┴───┐   ┌──────┴─────┐ ┌─┴──────┐
+        │ paseo-blue/   │ │soifer-│   │ 9router-   │ │crewai- │
+        │ paseo-green   │ │blue/  │   │ blue/green │ │blue/   │
+        │               │ │green  │   │            │ │green   │
+        └───────────────┘ └───────┘   └────────────┘ └────────┘
+```
 
 ## Quick Reference
 
 ```bash
-# Deploy latest
+# Deploy all services (latest)
 ./scripts/deploy.sh
 
-# Deploy specific tag
-./scripts/deploy.sh ghcr.io/bas-more/paseo/paseo-daemon:v0.3.1
+# Deploy single service
+./scripts/deploy.sh --service paseo
 
-# Rollback to previous
+# Build locally instead of pulling
+./scripts/deploy.sh --build
+
+# Rollback all services
 ./scripts/rollback.sh
 
-# Rollback to specific image
-./scripts/rollback.sh ghcr.io/bas-more/paseo/paseo-daemon:v0.2.0
+# Rollback single service to specific image
+./scripts/rollback.sh --service paseo --image ghcr.io/bas-more/paseo/paseo-daemon:v0.2.0
 ```
 
 Windows (Docker Desktop):
 
 ```powershell
 .\scripts\deploy.ps1
-.\scripts\deploy.ps1 -Image "ghcr.io/bas-more/paseo/paseo-daemon:v0.3.1"
+.\scripts\deploy.ps1 -Service paseo
+.\scripts\deploy.ps1 -Build
 .\scripts\rollback.ps1
-.\scripts\rollback.ps1 -Image "ghcr.io/bas-more/paseo/paseo-daemon:v0.2.0"
+.\scripts\rollback.ps1 -Service paseo -Image "ghcr.io/bas-more/paseo/paseo-daemon:v0.2.0"
 ```
 
 ## Programs in the Deploy Chain
@@ -35,254 +66,291 @@ Eight programs participate in the atomic deployment lifecycle. Each has a distin
 
 **Role:** Container runtime. Pulls images, starts/stops containers, manages networking.
 
-- Runs the `paseo-blue` and `paseo-green` containers.
+- Runs blue and green slots for each service (e.g. `paseo-blue`, `soifer-green`).
 - `docker stop --time N` sends SIGTERM, waits N seconds, then SIGKILL.
-- The supervisor process inside the container forwards SIGTERM to the daemon worker for graceful shutdown (agent drain, WS close frames, HTTP server close).
+- Node.js containers: supervisor forwards SIGTERM to daemon worker for graceful shutdown.
+- Python containers (CrewAI): uvicorn handles SIGTERM natively.
 
 **Failure mode:** If Docker is unresponsive, no deploy or rollback is possible. Verify with `docker info`.
 
 ### 2. Caddy (Reverse Proxy)
 
-**Role:** TLS termination, HTTP/2, upstream routing, security headers.
+**Role:** Port-based routing, security headers, gzip compression.
 
-- Single entry point on ports 80/443.
-- `Caddyfile.deploy` reads `ACTIVE_UPSTREAM` env var to route to either `paseo-blue:6767` or `paseo-green:6767`.
-- Admin API on `:2019` (only exposed in deploy mode) allows config inspection.
-- Upstream switch is achieved by restarting Caddy with the new `ACTIVE_UPSTREAM` value via `docker compose up -d --no-deps caddy`.
+- Sole ingress point. Each service keeps its own port (:6767, :3001, :20128, :8000).
+- `Caddyfile.deploy` reads `ACTIVE_*_UPSTREAM` env vars to route to active slots.
+- Admin API on `:2019` allows config inspection.
+- Single Caddy reload switches ALL upstreams atomically.
 
-**Failure mode:** If Caddy fails to start with the new config, the deploy script detects this and aborts. Existing connections are held by the old Caddy instance until it terminates.
+**Failure mode:** If Caddy fails to start with the new config, the deploy script detects this and aborts. Existing connections are held until Caddy terminates.
 
 ### 3. PM2 (Process Manager)
 
-**Role:** Process supervision inside the container (non-Docker deployments only).
+**Role:** Process supervision inside Node.js containers (non-Docker deployments only).
 
 - `ecosystem.config.cjs` defines the `paseo-daemon` PM2 app.
 - `kill_timeout: 30000` gives the daemon 30 seconds to drain before SIGKILL.
-- `max_restarts: 15` with `min_uptime: 10s` prevents crash-loop flapping.
-- In Docker deployments, the supervisor (`supervisor-entrypoint.ts` + `supervisor.ts`) replaces PM2 and handles SIGTERM forwarding directly.
+- In Docker deployments, the supervisor (`supervisor-entrypoint.ts`) replaces PM2.
 
-**Failure mode:** PM2 is not in the Docker deploy path. Relevant only for bare-metal `npm run prod:start` deployments.
+**Failure mode:** Not in the Docker deploy path. Relevant only for bare-metal deployments.
 
 ### 4. Node.js (Runtime)
 
-**Role:** Executes the Paseo daemon (Express + WebSocket server).
+**Role:** Executes Paseo daemon and Soifer Backend.
 
-- Container runs `node packages/server/dist/scripts/supervisor-entrypoint.js`.
-- Supervisor forks the daemon worker, monitors IPC lifecycle messages (`paseo:ready`, `paseo:shutdown`, `paseo:restart`).
-- SIGTERM to supervisor -> SIGTERM to worker -> graceful shutdown: backup, close agents, drain WebSockets, close HTTP server, flush audit log, flush Sentry.
+- Paseo: `node packages/server/dist/scripts/supervisor-entrypoint.js`
+- SIGTERM to supervisor -> SIGTERM to worker -> graceful shutdown sequence.
 
-**Failure mode:** If Node crashes during startup, the health check loop detects it (container never reaches `/health/ready`) and the deploy rolls back.
+**Failure mode:** If Node crashes during startup, the health check loop detects it and the deploy rolls back.
 
 ### 5. curl
 
 **Role:** Health check probes during deployment.
 
-- `docker exec <container> curl -sf http://localhost:6767/health/ready` verifies the new container is serving.
-- Three health endpoints: `/health/live` (process alive), `/health/startup` (bootstrap complete), `/health/ready` (bootstrap + listening + dependency checks passing).
-- Deploy scripts use `/health/ready` as the gate — this confirms bootstrap is complete, the HTTP server is listening, and all dependency checks pass.
+- `docker exec <container> curl -sf http://localhost:<port><health-path>` verifies each container.
+- Deploy scripts use the service-specific health endpoint as the gate.
 
-**Failure mode:** If curl is missing inside the container, the health check fails. The Dockerfile installs curl in the production stage for this reason.
+**Failure mode:** If curl is missing inside a container, the health check fails. All Dockerfiles install curl for this reason.
 
 ### 6. Docker Compose
 
-**Role:** Multi-container orchestration. Manages service definitions, networks, volumes, secrets.
+**Role:** Multi-container orchestration.
 
-- `docker-compose.prod.yml` defines the single-service production stack.
-- `docker-compose.deploy.yml` extends it with blue/green slots and the deploy-mode Caddy configuration.
-- Compose overlay: `docker compose -f docker-compose.prod.yml -f docker-compose.deploy.yml up -d`.
-- Secret injection via Docker secrets (env-based): `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `PASEO_PASSWORD`.
+- `docker-compose.prod.yml` defines single-instance production services.
+- `docker-compose.deploy.yml` extends it with blue/green slots and deploy-mode Caddy.
+- Compose overlay: `docker compose -f docker-compose.prod.yml -f docker-compose.deploy.yml`.
+- Secret injection via Docker secrets (env-based).
 
-**Failure mode:** Compose syntax errors are caught at invocation time. Network issues between containers are caught by the health check loop.
+**Failure mode:** Compose syntax errors are caught at invocation. Network issues between containers are caught by health checks.
 
 ### 7. Git
 
-**Role:** Version tagging. Not directly invoked by deploy scripts, but is the source of truth for release versions.
+**Role:** Version tagging (not directly invoked by deploy scripts).
 
-- `scripts/push-current-release-tag.mjs` stamps a git tag matching `package.json` version.
-- Docker images are tagged by git SHA and branch in the CI workflow (`deploy-docker.yml`).
-- The `.deploy-rollback` file records image tags for traceability.
+- Docker images are tagged by git SHA and branch in CI.
+- `.deploy-rollback` records image tags for traceability.
 
-**Failure mode:** Not in the deploy hot path. If tags are missing, deploy still works with explicit image references.
+**Failure mode:** Not in the deploy hot path.
 
 ### 8. GitHub Container Registry (ghcr.io)
 
-**Role:** Image storage. The CI pipeline pushes built images here.
+**Role:** Image storage for all 4 services.
 
-- Images at `ghcr.io/bas-more/paseo/paseo-daemon:<tag>`.
-- Tags: `latest` (default branch), `main` (branch), `<sha>` (commit).
 - `docker pull` in the deploy script fetches from GHCR.
 
-**Failure mode:** If GHCR is unreachable, `docker pull` fails and the deploy aborts before any slot switch. Rollback may still work if the previous image is cached locally.
+**Failure mode:** If GHCR is unreachable, `docker pull` fails and the deploy aborts before any slot switch.
 
 ## Deployment Flow
 
 ```
- 1. Pull new image
-    docker pull ghcr.io/bas-more/paseo/paseo-daemon:<tag>
+ 1. Preflight
+    - Check OCC binary version on host
+    - Load deploy-config.json for service topology
+    - Load .deploy-state (JSON) to determine active slots
 
- 2. Identify active slot
-    Read .deploy-state (or detect from running containers)
-    Active: blue  =>  Inactive: green  (or vice versa)
+ 2. Pull/build images for ALL inactive slots
+    9router, crewai, soifer, paseo (or single --service)
 
- 3. Start inactive slot with new image
-    PASEO_IMAGE_GREEN=<tag> docker compose ... up -d paseo-green
+ 3. Start all inactive slot containers
+    9router-green, crewai-green, soifer-green, paseo-green
 
- 4. Health-check loop (up to 90s)
-    docker exec paseo-green curl -sf http://localhost:6767/health/ready
-    ┌────────────────────────────────────────────┐
-    │ FAIL => Remove green, abort. Blue untouched │
-    └────────────────────────────────────────────┘
+ 4. Health-gate in dependency order
+    9Router -> CrewAI -> Soifer -> Paseo
+    ┌─────────────────────────────────────────────────────────┐
+    │ Required service FAIL => tear down ALL new slots, abort │
+    │ Optional service FAIL => continue with warning          │
+    └─────────────────────────────────────────────────────────┘
 
- 5. Switch Caddy upstream
-    ACTIVE_UPSTREAM=paseo-green docker compose ... up -d caddy
-    ┌──────────────────────────────────────────────────┐
-    │ Caddy restarts with new upstream. ~1s gap where  │
-    │ Caddy is reloading. Browsers retry automatically.│
-    └──────────────────────────────────────────────────┘
+ 5. Switch Caddy (single reload switches ALL upstreams atomically)
+    ACTIVE_ROUTER_UPSTREAM=9router-green
+    ACTIVE_CREWAI_UPSTREAM=crewai-green
+    ACTIVE_SOIFER_UPSTREAM=soifer-green
+    ACTIVE_PASEO_UPSTREAM=paseo-green
+    docker compose ... up -d caddy
 
- 6. Drain old slot (30s grace)
-    docker stop --time 30 paseo-blue
-    ├── SIGTERM → supervisor → worker graceful shutdown
-    ├── Close agents, drain WebSockets, close HTTP server
-    ├── Flush audit log, flush Sentry
-    └── After 30s: SIGKILL if still running
+ 6. Drain old slots (service-specific grace periods)
+    9router-blue:  15s
+    crewai-blue:   15s
+    soifer-blue:   30s
+    paseo-blue:    30s
 
- 7. Remove old container
-    docker rm -f paseo-blue
+ 7. Save state
+    .deploy-state (JSON) — per-service active slots
+    .deploy-rollback (JSON) — previous slots + images
 
- 8. Save state
-    echo "green" > .deploy-state
-    Write .deploy-rollback with previous image info
-
- 9. Final health check on green
-    Confirm service is stable after upstream switch
+ 8. Post-switch verification
+    Health-check all new slots. Warn if degraded.
 ```
 
 ## Rollback Procedure
 
-Rollback uses the same blue/green mechanism in reverse.
+Rollback uses the same blue/green mechanism in reverse, reading `.deploy-rollback` for previous image info.
 
 ```
- 1. Read .deploy-rollback for previous image
-    (or accept explicit image via CLI argument)
+ 1. Load .deploy-rollback for per-service previous images
 
- 2. Pull previous image (likely cached locally)
+ 2. Pull previous images (likely cached locally)
 
- 3. Start opposite slot with previous image
+ 3. Start opposite slots with previous images
 
- 4. Health-check (up to 60s)
-    FAIL => Abort. Manual intervention required.
+ 4. Health-check in dependency order
+    Required service FAIL => abort, manual intervention.
+    Optional service FAIL => skip, continue.
 
- 5. Switch Caddy upstream to rollback slot
+ 5. Switch Caddy atomically to rollback slots
 
- 6. Drain current slot (30s)
+ 6. Drain current slots
 
  7. Save state
 ```
 
-Time to rollback: **under 60 seconds** (image already cached locally).
+Time to rollback: **under 60 seconds** (images already cached locally).
 
-## State Files
+## State File Formats
 
-| File               | Purpose                                                                                                                                           |
-| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `.deploy-state`    | Active slot name (`blue` or `green`). Read by deploy/rollback scripts to determine which slot to target next.                                     |
-| `.deploy-rollback` | Previous deployment metadata: slot names, image tags, timestamp. Used by `rollback.sh` / `rollback.ps1` for automatic rollback target resolution. |
+### `.deploy-state` (JSON)
 
-Both files are gitignored (they are deployment-time artifacts, not source code).
+```json
+{
+  "9router": "green",
+  "crewai": "green",
+  "soifer": "green",
+  "paseo": "green",
+  "timestamp": "2026-05-11T12:00:00Z"
+}
+```
+
+**Backward compatibility:** If `.deploy-state` contains plain text (old format like `green`), the scripts treat it as Paseo-only state.
+
+### `.deploy-rollback` (JSON)
+
+```json
+{
+  "current": { "9router": "green", "soifer": "green", "paseo": "green", "timestamp": "..." },
+  "previous": { "9router": "blue", "soifer": "blue", "paseo": "blue", "timestamp": "..." },
+  "images": {
+    "9router": {
+      "old": "ghcr.io/bas-more/9router:v1.0.0",
+      "new": "ghcr.io/bas-more/9router:v1.1.0"
+    },
+    "soifer": { "old": "...", "new": "..." },
+    "paseo": { "old": "...", "new": "..." }
+  },
+  "timestamp": "2026-05-11T12:00:00Z"
+}
+```
+
+Both files are gitignored (deployment-time artifacts, not source code).
 
 ## Configuration
 
-Environment variables for deploy scripts:
+### `scripts/deploy-config.json`
 
-| Variable          | Default     | Description                                                        |
-| ----------------- | ----------- | ------------------------------------------------------------------ |
-| `HEALTH_TIMEOUT`  | `90`        | Seconds to wait for `/health/ready` on the new container           |
-| `HEALTH_INTERVAL` | `3`         | Seconds between health check attempts                              |
-| `DRAIN_TIMEOUT`   | `30`        | Seconds to wait for graceful shutdown (matches PM2 `kill_timeout`) |
-| `PASEO_DOMAIN`    | `localhost` | Domain for Caddy TLS. Set to real domain for Let's Encrypt.        |
+Service topology config defining ports, health paths, image bases, required flag, dependency order, and per-service timeouts. Read by deploy and rollback scripts.
 
-PowerShell equivalents are `-HealthTimeout`, `-HealthInterval`, `-DrainTimeout` parameters.
+### Environment variables for deploy scripts
+
+| Variable          | Default              | Description                                              |
+| ----------------- | -------------------- | -------------------------------------------------------- |
+| `HEALTH_INTERVAL` | `3`                  | Seconds between health check attempts                    |
+| `DRAIN_TIMEOUT`   | `30`                 | Default drain timeout (overridden per-service by config) |
+| `OCC_HOST_PATH`   | `/usr/local/bin/occ` | Path to OCC binary on host (mounted into containers)     |
+
+PowerShell equivalents: `-HealthInterval`, `-DrainTimeout` parameters.
+
+### Per-service timeouts (from deploy-config.json)
+
+| Service | Health Timeout | Drain Timeout |
+| ------- | -------------- | ------------- |
+| 9Router | 60s            | 15s           |
+| CrewAI  | 45s            | 15s           |
+| Soifer  | 90s            | 30s           |
+| Paseo   | 90s            | 30s           |
 
 ## File Layout
 
 ```
 paseo/
-  docker-compose.prod.yml       # Single-service production stack
-  docker-compose.deploy.yml     # Blue/green overlay
-  Caddyfile                     # Production Caddy config (single upstream)
-  Caddyfile.deploy              # Deploy Caddy config (dynamic upstream, admin API)
-  .deploy-state                 # Runtime: active slot (gitignored)
-  .deploy-rollback              # Runtime: rollback metadata (gitignored)
+  docker-compose.prod.yml       # Single-instance production stack (all 5 services)
+  docker-compose.deploy.yml     # Blue/green overlay (8 service slots + Caddy)
+  Caddyfile                     # Production Caddy config (single upstream, TLS)
+  Caddyfile.deploy              # Deploy Caddy config (port-based routing, admin API)
+  .deploy-state                 # Runtime: per-service active slots JSON (gitignored)
+  .deploy-rollback              # Runtime: rollback metadata JSON (gitignored)
   scripts/
-    deploy.sh                   # Linux/Mac atomic deploy
-    deploy.ps1                  # Windows atomic deploy
-    rollback.sh                 # Linux/Mac instant rollback
-    rollback.ps1                # Windows instant rollback
+    deploy-config.json          # Service topology config
+    deploy.sh                   # Linux/Mac full-stack atomic deploy
+    deploy.ps1                  # Windows full-stack atomic deploy
+    rollback.sh                 # Linux/Mac full-stack instant rollback
+    rollback.ps1                # Windows full-stack instant rollback
+  packages/
+    crewai-bridge/
+      Dockerfile                # CrewAI Bridge container image
+      api.py                    # FastAPI application
+      requirements.lock         # Pinned Python dependencies
+  Dockerfile                    # Paseo daemon container image
   ecosystem.config.cjs          # PM2 config (bare-metal only)
   k8s/                          # Kubernetes manifests (separate deploy path)
 ```
 
 ## Graceful Shutdown Sequence
 
-When `docker stop --time 30` sends SIGTERM to the container:
+### Paseo / Soifer (Node.js)
 
-1. **Supervisor** (`supervisor.ts`) receives SIGTERM, sets `shuttingDown = true`, sends SIGTERM to the worker.
-2. **Worker** (`daemon-worker.ts`) calls the bootstrap `stop()` function.
-3. **Stop sequence** (`bootstrap.ts`):
-   - Stop scheduled backups; run one final backup.
-   - Stop loop service.
-   - Close all agents (drain agent fleet).
-   - Flush agent manager and storage.
-   - Shutdown LLM providers.
-   - Kill all terminal sessions.
-   - Stop speech service.
-   - Stop schedule service.
-   - Stop relay transport.
-   - Close WebSocket server (sends WS close frames to connected clients).
-   - Force-drop remaining TCP sockets (`httpServer.closeAllConnections()`).
-   - Close HTTP server.
-   - Clean up socket files.
-   - Close audit logger.
-   - Flush Sentry.
+When `docker stop --time 30` sends SIGTERM:
+
+1. **Supervisor** receives SIGTERM, sends SIGTERM to worker.
+2. **Worker** calls bootstrap `stop()`.
+3. **Stop sequence**: backup, close agents, drain WebSockets, close HTTP server, flush audit log, flush Sentry.
 4. **Worker exits** with code 0.
-5. **Supervisor** detects clean exit, runs `onSupervisorExit` (releases PID lock), exits.
-6. **Docker** sees process exit, marks container as stopped.
+5. **Supervisor** detects clean exit, releases PID lock, exits.
+6. **Docker** marks container as stopped.
 
-The 30-second drain timeout is aligned with the PM2 `kill_timeout` and is sufficient for the agent fleet drain documented in ARCH-014.
+### CrewAI Bridge (Python)
+
+When `docker stop --time 15` sends SIGTERM:
+
+1. **uvicorn** receives SIGTERM, stops accepting new connections.
+2. In-flight SSE streams complete or are cancelled.
+3. **uvicorn** exits cleanly.
 
 ## Health Check Endpoints
 
-| Endpoint          | Condition                                           | Deploy usage                               |
-| ----------------- | --------------------------------------------------- | ------------------------------------------ |
-| `/health/live`    | Always 200 once registered                          | Dockerfile HEALTHCHECK, k8s liveness probe |
-| `/health/startup` | 200 after `bootstrap()` completes                   | k8s startup probe                          |
-| `/health/ready`   | 200 after bootstrap + listening + dependency checks | **Deploy gate** -- used by deploy scripts  |
-
-The deploy scripts use `/health/ready` because it confirms the full initialization chain: config loaded, services started, HTTP server bound, and optional dependency checks (if configured) all passing.
-
-## Relationship to CI/CD
-
-The existing GitHub Actions workflow (`.github/workflows/deploy-docker.yml`) performs a simpler deployment: pull + compose up + health check + rollback on failure. The atomic deploy scripts are designed to be called from that workflow as a drop-in replacement:
-
-```yaml
-# In deploy step, replace:
-#   docker compose -f docker-compose.prod.yml up -d
-# With:
-#   ./scripts/deploy.sh ${{ needs.build.outputs.image_tag }}
-```
-
-The scripts handle their own rollback, so the separate rollback step in the workflow becomes a safety net rather than the primary mechanism.
+| Service | Endpoint          | Condition                                 | Deploy usage           |
+| ------- | ----------------- | ----------------------------------------- | ---------------------- |
+| Paseo   | `/health/ready`   | Bootstrap + listening + dependency checks | **Deploy gate**        |
+| Paseo   | `/health/live`    | Process alive                             | Dockerfile HEALTHCHECK |
+| Paseo   | `/health/startup` | Bootstrap complete                        | k8s startup probe      |
+| Soifer  | `/health`         | Server listening                          | **Deploy gate**        |
+| 9Router | `/api/health`     | Router ready                              | **Deploy gate**        |
+| CrewAI  | `/health`         | FastAPI responding                        | **Deploy gate**        |
 
 ## Failure Scenarios
 
-| Scenario                                    | What happens                                                                              |
-| ------------------------------------------- | ----------------------------------------------------------------------------------------- |
-| New image fails to pull                     | Deploy aborts immediately. Active slot untouched.                                         |
-| New container fails health check            | Container is stopped and removed. Active slot untouched.                                  |
-| Caddy fails to reload                       | Deploy script logs a warning. Traffic may be briefly interrupted but Caddy auto-restarts. |
-| Old container hangs on SIGTERM              | Docker sends SIGKILL after drain timeout (30s).                                           |
-| Deploy script interrupted (Ctrl+C)          | Partial state. Run `rollback.sh` or manually inspect `docker ps`.                         |
-| GHCR outage during rollback                 | Rollback still works if previous image is in local Docker cache.                          |
-| Disk full                                   | Docker pull fails. Deploy aborts before any switch.                                       |
-| Both slots running after interrupted deploy | Next deploy detects active slot from `.deploy-state` and targets the opposite.            |
+| Scenario                                     | What happens                                                       |
+| -------------------------------------------- | ------------------------------------------------------------------ |
+| New image fails to pull                      | Deploy aborts immediately. Active slots untouched.                 |
+| Required service fails health check          | ALL new slots torn down. Active slots untouched.                   |
+| Optional service (CrewAI) fails health check | Warning logged. Deploy continues without it.                       |
+| Caddy fails to reload                        | Deploy logs warning. Traffic may be briefly interrupted.           |
+| Old container hangs on SIGTERM               | Docker sends SIGKILL after drain timeout.                          |
+| Deploy script interrupted (Ctrl+C)           | Partial state. Run `rollback.sh` or inspect `docker ps`.           |
+| GHCR outage during rollback                  | Rollback works if previous image is cached locally.                |
+| Disk full                                    | Docker pull fails. Deploy aborts before any switch.                |
+| Mixed old/new state file format              | Scripts detect plain text and treat as Paseo-only.                 |
+| OCC binary missing on host                   | Warning logged in preflight. Non-blocking.                         |
+| Single-service deploy with `--service`       | Only that service's slot is swapped. Others stay at current slots. |
+
+## Relationship to CI/CD
+
+The deploy scripts can be called from GitHub Actions as a drop-in replacement:
+
+```yaml
+# Full stack deploy
+- run: ./scripts/deploy.sh
+
+# Single service deploy
+- run: ./scripts/deploy.sh --service paseo
+```
+
+The scripts handle their own rollback, so the separate rollback step in the workflow becomes a safety net.

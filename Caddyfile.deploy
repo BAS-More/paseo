@@ -1,13 +1,19 @@
-# Paseo blue/green deploy Caddyfile.
-# ACTIVE_UPSTREAM is set to "paseo-blue" or "paseo-green" by the deploy script.
-# Caddy admin API on :2019 allows config reload without container restart.
+# Full-stack blue/green deploy Caddyfile.
+#
+# Port-based routing: each service keeps its own port. Caddy is the sole
+# ingress point. ACTIVE_*_UPSTREAM env vars are set to "service-blue" or
+# "service-green" by the deploy scripts.
+#
+# Caddy admin API on :2019 allows config inspection and reload without
+# container restart.
 
 {
 	admin :2019
 }
 
-{$PASEO_DOMAIN:localhost} {
-	reverse_proxy {$ACTIVE_UPSTREAM:paseo-blue}:6767
+# ── Paseo (:6767) ───────────────────────────────────────────
+:6767 {
+	reverse_proxy {$ACTIVE_PASEO_UPSTREAM:paseo-blue}:6767
 
 	encode gzip
 
@@ -21,6 +27,44 @@
 		Permissions-Policy "camera=(), microphone=(self), geolocation=(), payment=()"
 		Cross-Origin-Opener-Policy "same-origin"
 		Cross-Origin-Resource-Policy "same-origin"
+		-Server
+	}
+}
+
+# ── Soifer Backend (:3001) ──────────────────────────────────
+:3001 {
+	reverse_proxy {$ACTIVE_SOIFER_UPSTREAM:soifer-blue}:3001
+
+	encode gzip
+
+	header {
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+}
+
+# ── 9Router (:20128) ────────────────────────────────────────
+:20128 {
+	reverse_proxy {$ACTIVE_ROUTER_UPSTREAM:9router-blue}:20128
+
+	encode gzip
+
+	header {
+		X-Content-Type-Options "nosniff"
+		-Server
+	}
+}
+
+# ── CrewAI Bridge (:8000) ───────────────────────────────────
+:8000 {
+	reverse_proxy {$ACTIVE_CREWAI_UPSTREAM:crewai-blue}:8000
+
+	encode gzip
+
+	header {
+		X-Content-Type-Options "nosniff"
 		-Server
 	}
 }
