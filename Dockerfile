@@ -4,7 +4,9 @@
 #   docker compose -f docker-compose.prod.yml up
 
 # ── Stage 1: Build ──────────────────────────────────────────
-FROM node:22-slim AS build
+# Pin to digest for reproducible builds. Update via:
+#   docker pull node:22-slim && docker inspect --format='{{index .RepoDigests 0}}' node:22-slim
+FROM node:22-slim@sha256:PLACEHOLDER AS build
 
 # node-pty requires python3 + make + g++ for node-gyp
 RUN apt-get update && \
@@ -37,7 +39,9 @@ COPY tsconfig.base.json ./
 RUN npm run build --workspace=@bas-more/server
 
 # ── Stage 2: Production ────────────────────────────────────
-FROM node:22-slim AS production
+# Pin to digest for reproducible builds. Update via:
+#   docker pull node:22-slim && docker inspect --format='{{index .RepoDigests 0}}' node:22-slim
+FROM node:22-slim@sha256:PLACEHOLDER AS production
 
 # node-pty native addon needs libstdc++ at runtime (already in slim)
 # curl for healthcheck

@@ -6,8 +6,10 @@ services:
       dockerfile: Dockerfile
     container_name: paseo-daemon
     restart: unless-stopped
-    ports:
-      - "6767:6767"
+    # Port NOT exposed to host — Caddy reverse proxy is the only entry point.
+    # Use `docker exec paseo-daemon curl http://localhost:6767/health/ready` for debugging.
+    expose:
+      - "6767"
     volumes:
       - paseo-data:/data/paseo
     env_file:
@@ -24,11 +26,11 @@ services:
     networks:
       - paseo-net
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:6767/health/live"]
+      test: ["CMD", "curl", "-f", "http://localhost:6767/health/ready"]
       interval: 30s
       timeout: 5s
       retries: 3
-      start_period: 10s
+      start_period: 30s
 
   caddy:
     image: caddy:2-alpine

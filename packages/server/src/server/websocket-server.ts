@@ -58,6 +58,7 @@ import {
   isBearerTokenValid,
   type DaemonAuthConfig,
 } from "./auth.js";
+import { shouldSendMessage } from "./ws-backpressure.js";
 
 const WS_CLOSE_DAEMON_AUTH_FAILED = 4401;
 
@@ -665,6 +666,13 @@ export class VoiceAssistantWebSocketServer {
     for (const ws of this.sessions.keys()) {
       // WebSocket.OPEN = 1
       if (ws.readyState === 1) {
+        if (!shouldSendMessage(ws.bufferedAmount ?? 0)) {
+          this.logger.warn(
+            { bufferedAmount: ws.bufferedAmount, messageType: message.type },
+            "ws_broadcast_dropped_backpressure",
+          );
+          continue;
+        }
         ws.send(payload);
         this.recordOutboundMessage(message, ws);
       }
@@ -781,6 +789,13 @@ export class VoiceAssistantWebSocketServer {
     if (ws.readyState !== 1) {
       return;
     }
+    if (!shouldSendMessage(ws.bufferedAmount ?? 0)) {
+      this.logger.warn(
+        { bufferedAmount: ws.bufferedAmount, messageType: message.type },
+        "ws_send_dropped_backpressure",
+      );
+      return;
+    }
     try {
       ws.send(JSON.stringify(message));
       this.recordOutboundMessage(message, ws);
@@ -791,6 +806,13 @@ export class VoiceAssistantWebSocketServer {
 
   private sendBinaryToClient(ws: WebSocketLike, frame: Uint8Array): void {
     if (ws.readyState !== 1) {
+      return;
+    }
+    if (!shouldSendMessage(ws.bufferedAmount ?? 0)) {
+      this.logger.warn(
+        { bufferedAmount: ws.bufferedAmount },
+        "ws_send_binary_dropped_backpressure",
+      );
       return;
     }
     try {

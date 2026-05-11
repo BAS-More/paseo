@@ -1,5 +1,10 @@
 import express from "express";
-import { createGlobalRateLimiter, resolveRateLimiterConfig } from "./rate-limiter.js";
+import {
+  createAuthRateLimiter,
+  createGlobalRateLimiter,
+  resolveRateLimiterConfig,
+} from "./rate-limiter.js";
+import { createRbacMiddleware, type RolePasswords } from "./rbac.js";
 import {
   createHealthState,
   createLivenessHandler,
@@ -14,7 +19,6 @@ import { createServer as createHTTPServer, type IncomingMessage, type ServerResp
 import { createReadStream, unlinkSync, existsSync } from "fs";
 import { stat } from "fs/promises";
 import { randomUUID } from "node:crypto";
-import { hostname as getHostname } from "node:os";
 import path from "node:path";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
@@ -87,16 +91,6 @@ export function parseListenString(listen: string): ListenTarget {
   throw new Error(`Invalid listen string: ${listen}`);
 }
 
-function formatListenTarget(listenTarget: ListenTarget | null): string | null {
-  if (!listenTarget) {
-    return null;
-  }
-  if (listenTarget.type === "tcp") {
-    return `${listenTarget.host}:${listenTarget.port}`;
-  }
-  return listenTarget.path;
-}
-
 import { VoiceAssistantWebSocketServer } from "./websocket-server.js";
 import { createGitHubService } from "../services/github-service.js";
 import { createPaseoWorktree as createRegisteredPaseoWorktree } from "./paseo-worktree-service.js";
@@ -120,6 +114,7 @@ import { FileBackedProjectRegistry, FileBackedWorkspaceRegistry } from "./worksp
 import { FileBackedChatService } from "./chat/chat-service.js";
 import { CheckoutDiffManager } from "./checkout-diff-manager.js";
 import { LoopService } from "./loop-service.js";
+import { resolveTrustProxy } from "./trust-proxy.js";
 import { ScheduleService } from "./schedule/service.js";
 import { DaemonConfigStore } from "./daemon-config-store.js";
 import { WorkspaceGitServiceImpl } from "./workspace-git-service.js";
@@ -276,6 +271,13 @@ export async function createPaseoDaemon(
   const listenTarget = parseListenString(config.listen);
 
   const app = express();
+
+  // Trust first proxy (Caddy/nginx) for accurate req.ip in production (SEC-011).
+  const trustProxyValue = resolveTrustProxy({ isDev: config.isDev === true });
+  if (trustProxyValue !== undefined) {
+    app.set("trust proxy", trustProxyValue);
+  }
+
   let boundListenTarget: ListenTarget | null = null;
   let workspaceRegistry: FileBackedWorkspaceRegistry | null = null;
 
@@ -368,8 +370,17 @@ export async function createPaseoDaemon(
     }),
   );
 
+  // RBAC — resolve role from bearer token, attach to req.paseoRole.
+  // When no role passwords are configured, all authenticated users get admin.
+  const rolePasswords: RolePasswords = {
+    admin: process.env.PASEO_ROLE_ADMIN,
+    operator: process.env.PASEO_ROLE_OPERATOR,
+    viewer: process.env.PASEO_ROLE_VIEWER,
+  };
+  app.use(createRbacMiddleware(rolePasswords));
+
   // Audit logging — structured trail of auth events + data mutations.
-  // Placed after auth so we capture both rejections and authenticated actions.
+  // Placed after auth+RBAC so we capture both rejections and authenticated actions.
   const auditLogDir = path.join(config.paseoHome, "audit");
   const auditLogger = createAuditLogger({
     auditLogDir,
@@ -401,9 +412,7 @@ export async function createPaseoDaemon(
     res.json({
       status: "server_info",
       serverId,
-      hostname: getHostname(),
       version: daemonVersion,
-      listen: formatListenTarget(boundListenTarget ?? listenTarget),
     });
   });
 
@@ -715,7 +724,7 @@ export async function createPaseoDaemon(
             method: req.method,
             url: req.originalUrl,
             sessionId: req.header("mcp-session-id"),
-            authorization: req.header("authorization"),
+            hasAuth: !!req.header("authorization"),
             body: req.body,
           },
           "Agent MCP request",
@@ -755,6 +764,17 @@ export async function createPaseoDaemon(
           } else if (Array.isArray(callerAgentIdRaw) && typeof callerAgentIdRaw[0] === "string") {
             callerAgentId = callerAgentIdRaw[0];
           }
+          if (callerAgentId) {
+            const callerRecord = await agentStorage.get(callerAgentId);
+            if (!callerRecord) {
+              res.status(400).json({
+                jsonrpc: "2.0",
+                error: { code: -32602, message: "Unknown callerAgentId" },
+                id: null,
+              });
+              return;
+            }
+          }
           transport = await createAgentMcpTransport(callerAgentId);
         }
 
@@ -782,9 +802,11 @@ export async function createPaseoDaemon(
       void runAgentMcpRequest(req, res);
     };
 
-    app.post(agentMcpRoute, handleAgentMcpRequest);
-    app.get(agentMcpRoute, handleAgentMcpRequest);
-    app.delete(agentMcpRoute, handleAgentMcpRequest);
+    // Auth rate limiter on MCP — stricter RPM to limit brute-force (SEC-005).
+    const mcpAuthLimiter = createAuthRateLimiter(resolveRateLimiterConfig());
+    app.post(agentMcpRoute, mcpAuthLimiter, handleAgentMcpRequest);
+    app.get(agentMcpRoute, mcpAuthLimiter, handleAgentMcpRequest);
+    app.delete(agentMcpRoute, mcpAuthLimiter, handleAgentMcpRequest);
     logger.info({ route: agentMcpRoute }, "Agent MCP server mounted on main app");
   } else {
     logger.info("Agent MCP HTTP endpoint disabled");
@@ -958,6 +980,7 @@ export async function createPaseoDaemon(
       logger.warn({ err }, "Shutdown backup failed");
     }
     scriptHealthMonitor.stop();
+    await loopService.stop().catch(() => undefined);
     await closeAllAgents(logger, agentManager);
     await agentManager.flush().catch(() => undefined);
     detachAgentStoragePersistence();

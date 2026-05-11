@@ -1,4 +1,5 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { randomUUID } from "node:crypto";
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { z } from "zod";
 
@@ -407,6 +408,19 @@ export function loadPersistedConfig(paseoHome: string, logger?: LoggerLike): Per
   return result.data as PersistedConfig;
 }
 
+/**
+ * Writes `content` to `targetPath` atomically using a tmp file + rename.
+ * Exported for unit testing.
+ */
+export function writeConfigAtomically(targetPath: string, content: string): void {
+  const tmpPath = path.join(
+    path.dirname(targetPath),
+    `.config.tmp-${process.pid}-${Date.now()}-${randomUUID()}`,
+  );
+  writeFileSync(tmpPath, content);
+  renameSync(tmpPath, targetPath);
+}
+
 export function savePersistedConfig(
   paseoHome: string,
   config: PersistedConfig,
@@ -424,7 +438,7 @@ export function savePersistedConfig(
   }
 
   try {
-    writeFileSync(configPath, JSON.stringify(result.data, null, 2) + "\n");
+    writeConfigAtomically(configPath, JSON.stringify(result.data, null, 2) + "\n");
     log?.info(`Saved to ${configPath}`);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

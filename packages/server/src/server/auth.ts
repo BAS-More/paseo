@@ -92,7 +92,7 @@ export function createRequireBearerMiddleware(
 ): RequestHandler {
   const password = auth?.password;
   return (req, res, next) => {
-    if (!password || shouldBypassBearerAuth(req.method, req.path)) {
+    if (!password || shouldBypassBearerAuth(req.method, req.path, req.headers.origin)) {
       next();
       return;
     }
@@ -118,8 +118,9 @@ export function createRequireBearerMiddleware(
   };
 }
 
-export function shouldBypassBearerAuth(method: string, path: string): boolean {
-  if (method === "OPTIONS") {
+export function shouldBypassBearerAuth(method: string, path: string, origin?: string): boolean {
+  // Only bypass OPTIONS for CORS preflight (must have Origin header)
+  if (method === "OPTIONS" && origin) {
     return true;
   }
   return path === "/api/health";

@@ -356,6 +356,67 @@ describe("createAuditMiddleware", () => {
     expect(events).toHaveLength(1);
     expect(events[0].action).toBe("admin.config");
   });
+
+  it("skips static asset path (/public/app.js)", () => {
+    const events: AuditEvent[] = [];
+    const fakeLogger: AuditLogger = {
+      log: (e) => events.push(e),
+      close: () => {},
+    };
+
+    const middleware = createAuditMiddleware(fakeLogger);
+    const req = mockReq({ method: "GET", path: "/public/app.js" });
+    const res = mockRes();
+    const next = vi.fn();
+
+    middleware(req as never, res as never, next);
+    res._emit("finish");
+
+    expect(events).toHaveLength(0);
+  });
+
+  it("skips GET request to /api/agents (only mutations are logged, not reads)", () => {
+    const events: AuditEvent[] = [];
+    const fakeLogger: AuditLogger = {
+      log: (e) => events.push(e),
+      close: () => {},
+    };
+
+    const middleware = createAuditMiddleware(fakeLogger);
+    const req = mockReq({ method: "GET", path: "/api/agents" });
+    const res = mockRes();
+    const next = vi.fn();
+
+    middleware(req as never, res as never, next);
+    res.statusCode = 200;
+    res._emit("finish");
+
+    expect(events).toHaveLength(0);
+  });
+
+  it("records actor IP from req.ip", () => {
+    const events: AuditEvent[] = [];
+    const fakeLogger: AuditLogger = {
+      log: (e) => events.push(e),
+      close: () => {},
+    };
+
+    const middleware = createAuditMiddleware(fakeLogger);
+    const req = mockReq({
+      method: "POST",
+      path: "/mcp/agents",
+      ip: "203.0.113.42",
+      headers: { authorization: "Bearer tok" },
+    });
+    const res = mockRes();
+    const next = vi.fn();
+
+    middleware(req as never, res as never, next);
+    res.statusCode = 201;
+    res._emit("finish");
+
+    expect(events[0].ip).toBe("203.0.113.42");
+  });
 });
 
 describe("pruneAuditLogs", () => {
