@@ -415,7 +415,10 @@ export async function createPaseoDaemon(
   app.use("/public", express.static(staticDir));
 
   // Middleware
-  app.use(express.json());
+  // H-03: explicit 1mb body cap blocks oversized payloads at the parser.
+  // Default Express limit is 100kb, but making it explicit means the cap
+  // doesn't silently change if upstream defaults shift.
+  app.use(express.json({ limit: "1mb" }));
 
   // Health check endpoint
   app.get("/api/health", (_req, res) => {

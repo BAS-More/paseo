@@ -22,6 +22,8 @@ interface MockProcess extends EventEmitter {
   stdin: { end: ReturnType<typeof vi.fn> };
   pid: number;
   kill: ReturnType<typeof vi.fn>;
+  exitCode: number | null;
+  signalCode: NodeJS.Signals | null;
 }
 
 function createMockProcess(): MockProcess {
@@ -30,7 +32,17 @@ function createMockProcess(): MockProcess {
   proc.stderr = new EventEmitter();
   proc.stdin = { end: vi.fn() };
   proc.pid = 12345;
-  proc.kill = vi.fn();
+  proc.exitCode = null;
+  proc.signalCode = null;
+  // Mirror real-process behavior: a SIGTERM/SIGKILL fires the "exit" event so
+  // terminateWithTreeKill() resolves promptly.
+  proc.kill = vi.fn(() => {
+    setImmediate(() => {
+      proc.exitCode = 0;
+      proc.emit("exit", 0, null);
+    });
+    return true;
+  });
   return proc;
 }
 
