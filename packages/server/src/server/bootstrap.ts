@@ -13,6 +13,7 @@ import {
 } from "./health-probes.js";
 import { initSentry, sentryErrorHandler, flushSentry } from "./sentry.js";
 import { createBackup, startScheduledBackups } from "./db-backup.js";
+import { loadSecret } from "./secret-loader.js";
 import { createAuditLogger, createAuditMiddleware } from "./audit-log.js";
 import { createCacheHeadersMiddleware } from "./cache-headers.js";
 import { createMetrics, createMetricsMiddleware, createMetricsHandler } from "./metrics.js";
@@ -386,7 +387,8 @@ export async function createPaseoDaemon(
 
   // Audit logging — structured trail of auth events + data mutations.
   // Placed after auth+RBAC so we capture both rejections and authenticated actions.
-  const hmacSecret = process.env.PASEO_AUDIT_HMAC_SECRET;
+  // C-03: prefer Docker secret over env var so the value never appears in `env`.
+  const hmacSecret = loadSecret("PASEO_AUDIT_HMAC_SECRET");
   if (!config.isDev && !hmacSecret) {
     logger.warn(
       "PASEO_AUDIT_HMAC_SECRET not set — audit log tamper detection disabled in production",

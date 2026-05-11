@@ -24,6 +24,39 @@ describe("Caddyfile.deploy (C-02)", () => {
   });
 });
 
+describe("CrewAI Dockerfile (H-08)", () => {
+  const dockerfile = read("packages/crewai-bridge/Dockerfile");
+
+  it("creates a non-root user", () => {
+    expect(dockerfile).toMatch(/useradd[^\n]+--uid\s+\d+/);
+  });
+
+  it("switches to non-root via USER directive", () => {
+    expect(dockerfile).toMatch(/^USER\s+(?!root\b)\w+/m);
+  });
+
+  it("does NOT run as root", () => {
+    // No `USER root` after the privileged setup.
+    expect(dockerfile).not.toMatch(/^USER\s+root\b/m);
+  });
+});
+
+describe("compose secrets (C-03)", () => {
+  it("docker-compose.prod.yml registers PASEO_AUDIT_HMAC_SECRET as a secret", () => {
+    const compose = read("docker-compose.prod.yml");
+    // Top-level secrets block must declare it
+    expect(compose).toMatch(/^secrets:[\s\S]*PASEO_AUDIT_HMAC_SECRET:/m);
+    // And paseo-daemon must consume it
+    expect(compose).toMatch(/- PASEO_AUDIT_HMAC_SECRET/);
+  });
+
+  it("docker-compose.deploy.yml registers PASEO_AUDIT_HMAC_SECRET as a secret", () => {
+    const compose = read("docker-compose.deploy.yml");
+    expect(compose).toMatch(/^secrets:[\s\S]*PASEO_AUDIT_HMAC_SECRET:/m);
+    expect(compose).toMatch(/- PASEO_AUDIT_HMAC_SECRET/);
+  });
+});
+
 describe("docker-compose.deploy.yml (C-02 + H-07)", () => {
   const compose = read("docker-compose.deploy.yml");
 

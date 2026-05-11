@@ -53,4 +53,6 @@ export const PASEO_SECRETS = [
   "OPENAI_API_KEY",
   "PASEO_PASSWORD",
   "GITHUB_TOKEN",
+  // C-03: HMAC for audit-log tamper evidence — was env-only.
+  "PASEO_AUDIT_HMAC_SECRET",
 ] as const;

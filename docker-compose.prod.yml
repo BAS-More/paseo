@@ -24,6 +24,7 @@ services:
       - ANTHROPIC_API_KEY
       - OPENAI_API_KEY
       - PASEO_PASSWORD
+      - PASEO_AUDIT_HMAC_SECRET
     networks:
       - paseo-net
     healthcheck:
@@ -131,6 +132,8 @@ secrets:
     environment: OPENAI_API_KEY
   PASEO_PASSWORD:
     environment: PASEO_PASSWORD
+  PASEO_AUDIT_HMAC_SECRET:
+    environment: PASEO_AUDIT_HMAC_SECRET
 
 networks:
   paseo-net:
