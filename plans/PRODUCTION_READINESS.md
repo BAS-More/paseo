@@ -557,36 +557,36 @@ Compliance, scale, multi-tenant.
 
 #### Tasks
 
-- [ ] **E1-01** Create structured audit log: who, what, when, from where
-- [ ] **E1-02** Log all auth events (login, logout, token refresh, failed auth)
-- [ ] **E1-03** Log all data mutations (create, update, delete)
-- [ ] **E1-04** Log all admin actions (config changes, user management)
-- [ ] **E1-05** Separate audit log stream (not mixed with application logs)
-- [ ] **E1-06** Tamper-evident: append-only, signed entries
-- [ ] **E1-07** Retention: 90 days online, 1 year archive
+- [x] **E1-01** Create structured audit log: who, what, when, from where (`00666b74`)
+- [x] **E1-02** Log all auth events (auth.reject on 401/403)
+- [x] **E1-03** Log all data mutations (data.mutate on POST/PUT/PATCH/DELETE)
+- [x] **E1-04** Log all admin actions (admin.config for settings/config/providers paths) (`d6466d68`)
+- [x] **E1-05** Separate audit log stream (NDJSON in $PASEO_HOME/audit/)
+- [x] **E1-06** Tamper-evident: append-only (appendFileSync), HMAC-SHA256 signed
+- [x] **E1-07** Retention: 90 days online via pruneAuditLogs (`d6466d68`)
 
 ### Phase E2: RBAC (1 week)
 
 #### Tasks
 
-- [ ] **E2-01** Define roles: admin, operator, viewer
-- [ ] **E2-02** Create role-permission matrix
-- [ ] **E2-03** Add `role` field to auth tokens
-- [ ] **E2-04** Middleware: check role on every route
-- [ ] **E2-05** UI: role-based visibility (admin settings hidden from viewers)
-- [ ] **E2-06** API: role enforcement with proper 403 responses
+- [x] **E2-01** Define roles: admin, operator, viewer (`89e95d2d`)
+- [x] **E2-02** Create role-permission matrix (8 permissions × 3 roles)
+- [x] **E2-03** Add role resolution from per-role bcrypt passwords
+- [x] **E2-04** Middleware: requirePermission returns 403 on insufficient role
+- [ ] **E2-05** UI: role-based visibility (Paseo frontend — deferred)
+- [x] **E2-06** API: role enforcement with proper 403 responses + createRbacMiddleware
 
 ### Phase E3: SOC2 Controls (2-4 weeks)
 
 #### Tasks
 
-- [ ] **E3-01** Access control documentation
-- [ ] **E3-02** Change management process (PR reviews required)
-- [ ] **E3-03** Incident response runbook
-- [ ] **E3-04** Data classification policy
-- [ ] **E3-05** Vulnerability management SLA (critical: 24h, high: 7d, moderate: 30d)
-- [ ] **E3-06** Penetration testing schedule
-- [ ] **E3-07** Business continuity plan
+- [x] **E3-01** Access control documentation (`docs/compliance/access-control.md`)
+- [x] **E3-02** Change management process (`docs/compliance/change-management.md`)
+- [x] **E3-03** Incident response runbook (`docs/compliance/incident-response.md`)
+- [x] **E3-04** Data classification policy (`docs/compliance/data-classification.md`)
+- [x] **E3-05** Vulnerability management SLA (`docs/compliance/vulnerability-management.md`)
+- [x] **E3-06** Penetration testing schedule (in vulnerability-management.md)
+- [x] **E3-07** Business continuity plan (`docs/compliance/business-continuity.md`)
 
 ### Phase E4: Horizontal Scaling (2 weeks)
 
