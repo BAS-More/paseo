@@ -1,7 +1,8 @@
-import { mkdirSync, appendFileSync, readdirSync, statSync, rmSync, existsSync } from "node:fs";
+import { mkdirSync, readdirSync, statSync, rmSync, existsSync, createWriteStream } from "node:fs";
 import { join } from "node:path";
 import { createHmac, createHash } from "node:crypto";
 import type { RequestHandler } from "express";
+import type { WriteStream } from "node:fs";
 
 /**
  * Structured audit event — who did what, when, from where.
@@ -18,7 +19,8 @@ export interface AuditEvent {
 
 export interface AuditLogger {
   log(event: AuditEvent): void;
-  close(): void;
+  flush(): Promise<void>;
+  close(): Promise<void>;
 }
 
 interface AuditLoggerConfig {
@@ -30,6 +32,9 @@ interface AuditLoggerConfig {
  * Create append-only audit logger writing NDJSON to a dated file.
  * Each entry includes a timestamp. When hmacSecret is provided,
  * entries are signed with HMAC-SHA256 for tamper evidence.
+ *
+ * Uses a write stream internally to avoid blocking the event loop.
+ * Call flush() to drain pending writes, or close() for graceful shutdown.
  */
 export function createAuditLogger(config: AuditLoggerConfig): AuditLogger {
   mkdirSync(config.auditLogDir, { recursive: true });
@@ -37,8 +42,19 @@ export function createAuditLogger(config: AuditLoggerConfig): AuditLogger {
   const date = new Date().toISOString().slice(0, 10);
   const filePath = join(config.auditLogDir, `audit-${date}.ndjson`);
 
+  const stream: WriteStream = createWriteStream(filePath, { flags: "a" });
+  let closed = false;
+  let writeChain: Promise<void> = Promise.resolve();
+
+  // Swallow post-close errors (e.g. temp dir removed while stream finalizes)
+  stream.on("error", () => {});
+
   return {
     log(event: AuditEvent) {
+      if (closed) {
+        return;
+      }
+
       const entry: Record<string, unknown> = {
         ts: new Date().toISOString(),
         action: event.action,
@@ -58,12 +74,34 @@ export function createAuditLogger(config: AuditLoggerConfig): AuditLogger {
         entry._hmac = createHmac("sha256", config.hmacSecret).update(payload).digest("hex");
       }
 
-      // Sync write: crash-safe, every entry persisted immediately
-      appendFileSync(filePath, JSON.stringify(entry) + "\n");
+      const line = JSON.stringify(entry) + "\n";
+      writeChain = writeChain.then(
+        () =>
+          new Promise<void>((resolve, reject) => {
+            stream.write(line, (err) => {
+              if (err) {
+                reject(err);
+              } else {
+                resolve();
+              }
+            });
+          }),
+      );
     },
 
-    close() {
-      // No-op for sync writes — included for interface consistency
+    async flush(): Promise<void> {
+      await writeChain;
+    },
+
+    async close(): Promise<void> {
+      if (closed) {
+        return;
+      }
+      closed = true;
+      await writeChain;
+      await new Promise<void>((resolve) => {
+        stream.end(resolve);
+      });
     },
   };
 }

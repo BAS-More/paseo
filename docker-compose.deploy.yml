@@ -1,0 +1,109 @@
+# Blue/green atomic deployment overlay.
+#
+# Extends docker-compose.prod.yml with two daemon services (blue + green)
+# and a dynamic Caddy upstream. Only one is active at a time — the deploy
+# script starts green, health-checks it, then reloads Caddy to point at
+# green before draining blue.
+#
+# Usage (scripts handle this automatically):
+#   DEPLOY_SLOT=blue  docker compose -f docker-compose.prod.yml -f docker-compose.deploy.yml up -d paseo-blue caddy
+#   DEPLOY_SLOT=green docker compose -f docker-compose.prod.yml -f docker-compose.deploy.yml up -d paseo-green
+#
+# The ACTIVE_UPSTREAM env var tells Caddy which backend to route to.
+# deploy.sh / deploy.ps1 reload Caddy's config via its admin API after
+# the green container passes health checks.
+
+services:
+  # ── Blue slot (default active) ────────────────────────────
+  paseo-blue:
+    image: ${PASEO_IMAGE_BLUE:-ghcr.io/bas-more/paseo/paseo-daemon:latest}
+    container_name: paseo-blue
+    restart: unless-stopped
+    expose:
+      - "6767"
+    volumes:
+      - paseo-data:/data/paseo
+    env_file:
+      - packages/server/.env.production
+    environment:
+      - NODE_ENV=production
+      - PASEO_HOME=/data/paseo
+      - PASEO_LISTEN=0.0.0.0:6767
+      - PASEO_LOG_FORMAT=json
+    secrets:
+      - ANTHROPIC_API_KEY
+      - OPENAI_API_KEY
+      - PASEO_PASSWORD
+    networks:
+      - paseo-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:6767/health/ready"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+  # ── Green slot (new version) ──────────────────────────────
+  paseo-green:
+    image: ${PASEO_IMAGE_GREEN:-ghcr.io/bas-more/paseo/paseo-daemon:latest}
+    container_name: paseo-green
+    restart: unless-stopped
+    expose:
+      - "6767"
+    volumes:
+      - paseo-data:/data/paseo
+    env_file:
+      - packages/server/.env.production
+    environment:
+      - NODE_ENV=production
+      - PASEO_HOME=/data/paseo
+      - PASEO_LISTEN=0.0.0.0:6767
+      - PASEO_LOG_FORMAT=json
+    secrets:
+      - ANTHROPIC_API_KEY
+      - OPENAI_API_KEY
+      - PASEO_PASSWORD
+    networks:
+      - paseo-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:6767/health/ready"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+  # ── Caddy — overrides prod to use dynamic upstream ────────
+  caddy:
+    image: caddy:2-alpine
+    container_name: paseo-caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "2019:2019" # Caddy admin API for upstream reload
+    environment:
+      - PASEO_DOMAIN=${PASEO_DOMAIN:-localhost}
+      - ACTIVE_UPSTREAM=${ACTIVE_UPSTREAM:-paseo-blue}
+    volumes:
+      - ./Caddyfile.deploy:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    networks:
+      - paseo-net
+
+volumes:
+  paseo-data:
+  caddy-data:
+  caddy-config:
+
+secrets:
+  ANTHROPIC_API_KEY:
+    environment: ANTHROPIC_API_KEY
+  OPENAI_API_KEY:
+    environment: OPENAI_API_KEY
+  PASEO_PASSWORD:
+    environment: PASEO_PASSWORD
+
+networks:
+  paseo-net:
+    driver: bridge

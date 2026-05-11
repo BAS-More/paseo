@@ -15,6 +15,7 @@ import { initSentry, sentryErrorHandler, flushSentry } from "./sentry.js";
 import { createBackup, startScheduledBackups } from "./db-backup.js";
 import { createAuditLogger, createAuditMiddleware } from "./audit-log.js";
 import { createCacheHeadersMiddleware } from "./cache-headers.js";
+import { createMetrics, createMetricsMiddleware, createMetricsHandler } from "./metrics.js";
 import { createServer as createHTTPServer, type IncomingMessage, type ServerResponse } from "http";
 import { createReadStream, unlinkSync, existsSync } from "fs";
 import { stat } from "fs/promises";
@@ -321,6 +322,10 @@ export async function createPaseoDaemon(
     });
   }
 
+  // Prometheus metrics — created early so the middleware captures all requests.
+  const metrics = createMetrics();
+  app.use(createMetricsMiddleware(metrics));
+
   // Health probes — registered before rate limiting and auth so k8s/Docker
   // probes are always reachable without a bearer token.
   const healthState = createHealthState();
@@ -381,12 +386,21 @@ export async function createPaseoDaemon(
 
   // Audit logging — structured trail of auth events + data mutations.
   // Placed after auth+RBAC so we capture both rejections and authenticated actions.
+  const hmacSecret = process.env.PASEO_AUDIT_HMAC_SECRET;
+  if (!config.isDev && !hmacSecret) {
+    logger.warn(
+      "PASEO_AUDIT_HMAC_SECRET not set — audit log tamper detection disabled in production",
+    );
+  }
   const auditLogDir = path.join(config.paseoHome, "audit");
   const auditLogger = createAuditLogger({
     auditLogDir,
-    hmacSecret: process.env.PASEO_AUDIT_HMAC_SECRET,
+    hmacSecret,
   });
   app.use(createAuditMiddleware(auditLogger));
+
+  // Prometheus /metrics endpoint — behind auth + RBAC.
+  app.get("/metrics", createMetricsHandler());
 
   // Script proxy — intercepts requests for registered *.localhost hostnames
   // and forwards them to the corresponding local script port. Placed after
@@ -1011,7 +1025,7 @@ export async function createPaseoDaemon(
     if (listenTarget.type === "socket" && existsSync(listenTarget.path)) {
       unlinkSync(listenTarget.path);
     }
-    auditLogger.close();
+    await auditLogger.close();
     await flushSentry();
   };
 

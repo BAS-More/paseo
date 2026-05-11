@@ -1,8 +1,8 @@
-fastapi>=0.100.0
-uvicorn>=0.23.0
-pydantic>=2.0.0
+fastapi==0.136.1
+uvicorn==0.46.0
+pydantic==2.12.5
 
 # Test dependencies
-httpx>=0.24.0
-anyio[asyncio]>=3.7.0
-pytest>=7.0.0
+httpx==0.28.1
+anyio[asyncio]==4.13.0
+pytest==9.0.3

@@ -25,7 +25,7 @@ afterEach(() => {
 });
 
 describe("createAuditLogger", () => {
-  it("writes structured audit event to file", () => {
+  it("writes structured audit event to file", async () => {
     const dir = makeTempDir();
     const logger = createAuditLogger({ auditLogDir: dir });
 
@@ -38,7 +38,7 @@ describe("createAuditLogger", () => {
       statusCode: 200,
     });
 
-    logger.close();
+    await logger.close();
 
     const files = readdirSync(dir);
     const auditFile = files.find((f: string) => f.startsWith("audit-"));
@@ -52,7 +52,7 @@ describe("createAuditLogger", () => {
     expect(entry.ts).toBeDefined();
   });
 
-  it("includes HMAC signature for tamper evidence", () => {
+  it("includes HMAC signature for tamper evidence", async () => {
     const dir = makeTempDir();
     const logger = createAuditLogger({
       auditLogDir: dir,
@@ -68,7 +68,7 @@ describe("createAuditLogger", () => {
       statusCode: 201,
     });
 
-    logger.close();
+    await logger.close();
 
     const files = readdirSync(dir);
     const auditFile = files.find((f: string) => f.startsWith("audit-"));
@@ -79,7 +79,7 @@ describe("createAuditLogger", () => {
     expect(entry._hmac.length).toBeGreaterThan(0);
   });
 
-  it("omits HMAC when no secret configured", () => {
+  it("omits HMAC when no secret configured", async () => {
     const dir = makeTempDir();
     const logger = createAuditLogger({ auditLogDir: dir });
 
@@ -92,7 +92,7 @@ describe("createAuditLogger", () => {
       statusCode: 401,
     });
 
-    logger.close();
+    await logger.close();
 
     const files = readdirSync(dir);
     const auditFile = files.find((f: string) => f.startsWith("audit-"));
@@ -101,7 +101,7 @@ describe("createAuditLogger", () => {
     expect(entry._hmac).toBeUndefined();
   });
 
-  it("includes metadata when provided", () => {
+  it("includes metadata when provided", async () => {
     const dir = makeTempDir();
     const logger = createAuditLogger({ auditLogDir: dir });
 
@@ -115,13 +115,113 @@ describe("createAuditLogger", () => {
       meta: { agentId: "agent-123" },
     });
 
-    logger.close();
+    await logger.close();
 
     const files = readdirSync(dir);
     const auditFile = files.find((f: string) => f.startsWith("audit-"));
     const content = readFileSync(join(dir, auditFile!), "utf8").trim();
     const entry = JSON.parse(content);
     expect(entry.meta).toEqual({ agentId: "agent-123" });
+  });
+
+  it("close() returns a promise (async interface)", async () => {
+    const dir = makeTempDir();
+    const logger = createAuditLogger({ auditLogDir: dir });
+    const result = logger.close();
+    expect(result).toBeInstanceOf(Promise);
+    await result;
+  });
+
+  it("flush() drains pending writes without closing", async () => {
+    const dir = makeTempDir();
+    const logger = createAuditLogger({ auditLogDir: dir });
+
+    logger.log({
+      action: "data.mutate",
+      actor: "bearer:flush-test",
+      ip: "10.0.0.1",
+      path: "/api/test",
+      method: "POST",
+      statusCode: 200,
+    });
+
+    await logger.flush();
+
+    const files = readdirSync(dir);
+    const auditFile = files.find((f: string) => f.startsWith("audit-"));
+    expect(auditFile).toBeDefined();
+    const content = readFileSync(join(dir, auditFile!), "utf8").trim();
+    const entry = JSON.parse(content);
+    expect(entry.action).toBe("data.mutate");
+
+    logger.log({
+      action: "data.mutate",
+      actor: "bearer:flush-test",
+      ip: "10.0.0.1",
+      path: "/api/test2",
+      method: "POST",
+      statusCode: 201,
+    });
+
+    await logger.close();
+
+    const contentAfterClose = readFileSync(join(dir, auditFile!), "utf8").trim();
+    const lines = contentAfterClose.split("\n");
+    expect(lines).toHaveLength(2);
+  });
+
+  it("log() does not block — data is not on disk until flushed", async () => {
+    const dir = makeTempDir();
+    const logger = createAuditLogger({ auditLogDir: dir });
+
+    logger.log({
+      action: "data.mutate",
+      actor: "bearer:async-test",
+      ip: "10.0.0.1",
+      path: "/api/test",
+      method: "POST",
+      statusCode: 200,
+    });
+
+    // After close/flush, data must be on disk
+    await logger.close();
+
+    const files = readdirSync(dir);
+    const auditFile = files.find((f: string) => f.startsWith("audit-"));
+    expect(auditFile).toBeDefined();
+    const content = readFileSync(join(dir, auditFile!), "utf8").trim();
+    expect(content.length).toBeGreaterThan(0);
+    const entry = JSON.parse(content);
+    expect(entry.action).toBe("data.mutate");
+  });
+
+  it("preserves ordering across rapid sequential writes", async () => {
+    const dir = makeTempDir();
+    const logger = createAuditLogger({ auditLogDir: dir });
+
+    for (let i = 0; i < 20; i++) {
+      logger.log({
+        action: `data.mutate.${i}`,
+        actor: "bearer:order-test",
+        ip: "10.0.0.1",
+        path: `/api/test/${i}`,
+        method: "POST",
+        statusCode: 200,
+      });
+    }
+
+    await logger.close();
+
+    const files = readdirSync(dir);
+    const auditFile = files.find((f: string) => f.startsWith("audit-"));
+    const content = readFileSync(join(dir, auditFile!), "utf8").trim();
+    const lines = content.split("\n");
+    expect(lines).toHaveLength(20);
+
+    for (let i = 0; i < 20; i++) {
+      const entry = JSON.parse(lines[i]);
+      expect(entry.action).toBe(`data.mutate.${i}`);
+    }
   });
 });
 
