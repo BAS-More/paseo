@@ -1,5 +1,6 @@
 services:
   paseo-daemon:
+    image: ${PASEO_IMAGE:-ghcr.io/bas-more/paseo/paseo-daemon:latest}
     build:
       context: .
       dockerfile: Dockerfile
