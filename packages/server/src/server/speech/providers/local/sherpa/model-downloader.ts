@@ -44,7 +44,10 @@ interface DownloadToFileOptions {
 
 async function downloadToFile(options: DownloadToFileOptions): Promise<void> {
   const { url, outputPath } = options;
-  const res = await fetch(url);
+  // M-07: model files are large (100MB+) but a hung connection still must not
+  // wedge the daemon. 5 minutes is well above the worst-case good-network case
+  // and far below "forever".
+  const res = await fetch(url, { signal: AbortSignal.timeout(5 * 60_000) });
   if (!res.ok) {
     throw new Error(`Failed to download ${url}: ${res.status} ${res.statusText}`);
   }

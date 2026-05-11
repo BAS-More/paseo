@@ -1,3 +1,5 @@
+import { CircuitBreaker } from "./agent/circuit-breaker.js";
+
 type FetchFn = typeof globalThis.fetch;
 
 export interface SoiferStackHealth {
@@ -24,38 +26,45 @@ export interface SoiferPermissions {
 export interface SoiferBackendClientOptions {
   baseUrl?: string;
   _fetchForTest?: FetchFn;
+  _breakerForTest?: CircuitBreaker;
 }
 
 export class SoiferBackendClient {
   private readonly baseUrl: string;
   private readonly fetchFn: FetchFn;
+  private readonly breaker: CircuitBreaker;
 
   constructor(options?: SoiferBackendClientOptions) {
     this.baseUrl = options?.baseUrl ?? process.env.SOIFER_BACKEND_URL ?? "http://127.0.0.1:3001";
     this.fetchFn = options?._fetchForTest ?? globalThis.fetch;
+    this.breaker = options?._breakerForTest ?? new CircuitBreaker();
+  }
+
+  getBreakerState(): "closed" | "open" | "half-open" {
+    return this.breaker.state;
   }
 
   private async get<T>(path: string, fallback: T): Promise<T> {
-    try {
+    return this.breaker.execute(async () => {
       const response = await this.fetchFn(`${this.baseUrl}${path}`, {
         signal: AbortSignal.timeout(5000),
       });
-      if (!response.ok) return fallback;
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
       return (await response.json()) as T;
-    } catch {
-      return fallback;
-    }
+    }, fallback);
   }
 
   async checkHealth(): Promise<{ reachable: boolean }> {
-    try {
-      const response = await this.fetchFn(`${this.baseUrl}/health`, {
-        signal: AbortSignal.timeout(3000),
-      });
-      return { reachable: response.ok };
-    } catch {
-      return { reachable: false };
-    }
+    return this.breaker.execute<{ reachable: boolean }>(
+      async () => {
+        const response = await this.fetchFn(`${this.baseUrl}/health`, {
+          signal: AbortSignal.timeout(3000),
+        });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        return { reachable: true };
+      },
+      { reachable: false },
+    );
   }
 
   async getStackHealth(): Promise<SoiferStackHealth> {

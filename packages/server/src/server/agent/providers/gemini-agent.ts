@@ -33,6 +33,7 @@ import type {
   ListModelsOptions,
 } from "../agent-sdk-types.js";
 import { spawnProcess } from "../../../utils/spawn.js";
+import { terminateWithTreeKill } from "../../../utils/tree-kill.js";
 import { mapGeminiEventToStreamEvents, type GeminiStreamEvent } from "./gemini/event-mapper.js";
 
 export const GEMINI_PROVIDER_ID: AgentProvider = "gemini";
@@ -499,11 +500,18 @@ class GeminiAgentSession implements AgentSession {
   }
 
   async interrupt(): Promise<void> {
-    this.proc.kill("SIGTERM");
+    // H-01: tree-kill ensures spawned grandchildren (gemini → mcp servers) die too.
+    await terminateWithTreeKill(this.proc, {
+      gracefulTimeoutMs: 5_000,
+      forceTimeoutMs: 5_000,
+    });
   }
 
   async close(): Promise<void> {
-    this.proc.kill("SIGTERM");
+    await terminateWithTreeKill(this.proc, {
+      gracefulTimeoutMs: 5_000,
+      forceTimeoutMs: 5_000,
+    });
     this.emitter.removeAllListeners();
   }
 }

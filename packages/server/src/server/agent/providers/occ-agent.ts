@@ -25,6 +25,7 @@ import type {
   ListModelsOptions,
 } from "../agent-sdk-types.js";
 import { spawnProcess } from "../../../utils/spawn.js";
+import { terminateWithTreeKill } from "../../../utils/tree-kill.js";
 import { mapOccEventToStreamEvents, type OccStreamEvent } from "./occ/event-mapper.js";
 
 export const OCC_PROVIDER_ID: AgentProvider = "occ";
@@ -471,11 +472,18 @@ class OccAgentSession implements AgentSession {
   }
 
   async interrupt(): Promise<void> {
-    this.proc.kill("SIGTERM");
+    // H-01: tree-kill ensures spawned grandchildren (occ → claude binary) die too.
+    await terminateWithTreeKill(this.proc, {
+      gracefulTimeoutMs: 5_000,
+      forceTimeoutMs: 5_000,
+    });
   }
 
   async close(): Promise<void> {
-    this.proc.kill("SIGTERM");
+    await terminateWithTreeKill(this.proc, {
+      gracefulTimeoutMs: 5_000,
+      forceTimeoutMs: 5_000,
+    });
     this.emitter.removeAllListeners();
   }
 }

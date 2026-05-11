@@ -4,11 +4,12 @@
 # ingress point. ACTIVE_*_UPSTREAM env vars are set to "service-blue" or
 # "service-green" by the deploy scripts.
 #
-# Caddy admin API on :2019 allows config inspection and reload without
-# container restart.
+# Caddy admin API bound to localhost:2019 (loopback inside the container) —
+# config inspection and reload require `docker exec paseo-caddy curl ...`.
+# Never exposed to the host network. See C-02 in HARDENING_AUDIT.
 
 {
-	admin :2019
+	admin localhost:2019
 }
 
 # ── Paseo (:6767) ───────────────────────────────────────────

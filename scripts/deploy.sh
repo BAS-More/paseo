@@ -16,6 +16,20 @@
 
 set -euo pipefail
 
+# H-09: trap handler — on any abnormal exit (failure, SIGINT, SIGTERM), print a
+# stack-state snapshot so an operator can diagnose what was running. Does NOT
+# auto-clean up containers (deploy.sh handles its own rollback path on required
+# failures); the trap is purely diagnostic.
+cleanup() {
+  local rc=$?
+  if [ "$rc" -ne 0 ]; then
+    printf '[deploy] cleanup: aborted with exit %s — current container state:\n' "$rc" >&2
+    docker compose -f "${COMPOSE_PROD:-docker-compose.prod.yml}" -f "${COMPOSE_DEPLOY:-docker-compose.deploy.yml}" ps 2>&1 | sed 's/^/[deploy]   /' >&2 || true
+  fi
+  exit "$rc"
+}
+trap cleanup EXIT INT TERM
+
 # ── Configuration ───────────────────────────────────────────
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -306,11 +320,21 @@ for svc in "${DEPLOY_SERVICES[@]}"; do
   img="${img_base}:latest"
   img_var=$(image_env "$svc" "$slot")
 
-  # Capture old image for rollback
+  # Capture old image for rollback.
+  # H-10: prefer RepoDigests (immutable sha256 reference) over the tag. Tags
+  # can be retagged upstream; a digest pins exactly the layer set that was
+  # running before the deploy.
   active=$(get_slot_for_service "$svc" "$CURRENT_STATE")
   if [ "$active" != "none" ]; then
     old_ctr=$(container_name "$svc" "$active")
-    OLD_IMAGES[$svc]=$(docker inspect --format='{{.Config.Image}}' "$old_ctr" 2>/dev/null || echo "unknown")
+    old_digest=$(docker inspect --format='{{if .RepoDigests}}{{index .RepoDigests 0}}{{end}}' "$old_ctr" 2>/dev/null || echo "")
+    if [ -n "$old_digest" ] && [ "$old_digest" != "null" ]; then
+      OLD_IMAGES[$svc]="$old_digest"
+    else
+      # Locally-built images lack a RepoDigest. Fall back to the tag —
+      # less safe but better than nothing.
+      OLD_IMAGES[$svc]=$(docker inspect --format='{{.Config.Image}}' "$old_ctr" 2>/dev/null || echo "unknown")
+    fi
   else
     OLD_IMAGES[$svc]="none"
   fi
@@ -334,7 +358,15 @@ for svc in "${DEPLOY_SERVICES[@]}"; do
     docker pull "$img"
   fi
 
-  NEW_IMAGES[$svc]="$img"
+  # H-10: capture the digest of the image we just pulled so future rollbacks
+  # can pin it precisely. Fall back to the tag if no digest is known (locally
+  # built image).
+  new_digest=$(docker inspect --format='{{if .RepoDigests}}{{index .RepoDigests 0}}{{end}}' "$img" 2>/dev/null || echo "")
+  if [ -n "$new_digest" ] && [ "$new_digest" != "null" ]; then
+    NEW_IMAGES[$svc]="$new_digest"
+  else
+    NEW_IMAGES[$svc]="$img"
+  fi
   export "${img_var}=${img}"
 done
 

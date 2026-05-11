@@ -14,6 +14,19 @@
 
 set -euo pipefail
 
+# H-09: trap handler — on any abnormal exit, print container state so an
+# operator can see whether the rollback finished cleanly. Does NOT delete or
+# stop containers; rollback.sh manages that explicitly.
+cleanup() {
+  local rc=$?
+  if [ "$rc" -ne 0 ]; then
+    printf '[rollback] cleanup: aborted with exit %s — current container state:\n' "$rc" >&2
+    docker compose -f "${COMPOSE_PROD:-docker-compose.prod.yml}" -f "${COMPOSE_DEPLOY:-docker-compose.deploy.yml}" ps 2>&1 | sed 's/^/[rollback]   /' >&2 || true
+  fi
+  exit "$rc"
+}
+trap cleanup EXIT INT TERM
+
 # ── Configuration ───────────────────────────────────────────
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"

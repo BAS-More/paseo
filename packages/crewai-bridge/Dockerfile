@@ -16,6 +16,12 @@ RUN pip install --no-cache-dir -r requirements.lock
 
 COPY api.py __init__.py ./
 
+# H-08: drop privileges to a fixed non-root UID. nogroup (gid 65534) is present
+# in python:3.12-slim by default.
+RUN useradd --system --no-create-home --uid 10001 --gid nogroup bridge \
+  && chown -R bridge:nogroup /app
+USER bridge
+
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 

@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
+import { CircuitBreaker } from "./agent/circuit-breaker.js";
 import { NineRouterClient } from "./nine-router-client.js";
 
 function mockFetchOk(data: unknown) {
@@ -763,5 +764,53 @@ describe("NineRouterClient branch coverage: !response.ok paths", () => {
     const client = new NineRouterClient({ _fetchForTest: fetchFn });
     const result = await client.getCombos();
     expect(result).toEqual([]);
+  });
+});
+
+describe("NineRouterClient circuit breaker (C-01)", () => {
+  it("opens after 5 consecutive failures and skips upstream requests", async () => {
+    const fetchFn = mockFetchError();
+    const breaker = new CircuitBreaker({ failureThreshold: 5, resetTimeoutMs: 30_000 });
+    const client = new NineRouterClient({ _fetchForTest: fetchFn, _breakerForTest: breaker });
+
+    for (let i = 0; i < 5; i++) {
+      await client.checkHealth();
+    }
+    expect(client.getBreakerState()).toBe("open");
+    expect(fetchFn).toHaveBeenCalledTimes(5);
+
+    // 6th call must NOT hit fetch — breaker is open
+    const result = await client.checkHealth();
+    expect(result).toEqual({ reachable: false });
+    expect(fetchFn).toHaveBeenCalledTimes(5);
+  });
+
+  it("treats non-ok response (e.g. 503) as a failure for the breaker", async () => {
+    const fetchFn = mockFetchNotOk();
+    const breaker = new CircuitBreaker({ failureThreshold: 3, resetTimeoutMs: 30_000 });
+    const client = new NineRouterClient({ _fetchForTest: fetchFn, _breakerForTest: breaker });
+
+    await client.getAccounts();
+    await client.getAccounts();
+    await client.getAccounts();
+    expect(client.getBreakerState()).toBe("open");
+  });
+
+  it("auto-resets to half-open after cooldown elapses", async () => {
+    vi.useFakeTimers();
+    try {
+      const fetchFn = mockFetchError();
+      const breaker = new CircuitBreaker({ failureThreshold: 2, resetTimeoutMs: 1000 });
+      const client = new NineRouterClient({ _fetchForTest: fetchFn, _breakerForTest: breaker });
+
+      await client.checkHealth();
+      await client.checkHealth();
+      expect(client.getBreakerState()).toBe("open");
+
+      vi.advanceTimersByTime(1000);
+      expect(client.getBreakerState()).toBe("half-open");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

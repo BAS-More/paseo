@@ -23,7 +23,17 @@ function createMockProcess(): ChildProcess & EventEmitter {
   proc.stdout = new EventEmitter() as unknown as Readable;
   proc.stderr = new EventEmitter() as unknown as Readable;
   proc.stdin = { end: vi.fn() } as unknown as Writable;
-  proc.kill = vi.fn().mockReturnValue(true);
+  proc.exitCode = null;
+  proc.signalCode = null;
+  // Mirror real-process behavior: a SIGTERM/SIGKILL fires the "exit" event so
+  // terminateWithTreeKill() resolves promptly.
+  proc.kill = vi.fn((_signal?: NodeJS.Signals | number) => {
+    setImmediate(() => {
+      (proc as ChildProcess & { exitCode: number | null }).exitCode = 0;
+      proc.emit("exit", 0, null);
+    });
+    return true;
+  }) as ChildProcess["kill"];
   proc.pid = 12345;
   return proc;
 }

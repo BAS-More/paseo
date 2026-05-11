@@ -4,7 +4,7 @@ import {
   createGlobalRateLimiter,
   resolveRateLimiterConfig,
 } from "./rate-limiter.js";
-import { createRbacMiddleware, type RolePasswords } from "./rbac.js";
+import { createRbacMiddleware, requirePermission, type RolePasswords } from "./rbac.js";
 import {
   createHealthState,
   createLivenessHandler,
@@ -13,6 +13,7 @@ import {
 } from "./health-probes.js";
 import { initSentry, sentryErrorHandler, flushSentry } from "./sentry.js";
 import { createBackup, startScheduledBackups } from "./db-backup.js";
+import { loadSecret } from "./secret-loader.js";
 import { createAuditLogger, createAuditMiddleware } from "./audit-log.js";
 import { createCacheHeadersMiddleware } from "./cache-headers.js";
 import { createMetrics, createMetricsMiddleware, createMetricsHandler } from "./metrics.js";
@@ -386,7 +387,8 @@ export async function createPaseoDaemon(
 
   // Audit logging — structured trail of auth events + data mutations.
   // Placed after auth+RBAC so we capture both rejections and authenticated actions.
-  const hmacSecret = process.env.PASEO_AUDIT_HMAC_SECRET;
+  // C-03: prefer Docker secret over env var so the value never appears in `env`.
+  const hmacSecret = loadSecret("PASEO_AUDIT_HMAC_SECRET");
   if (!config.isDev && !hmacSecret) {
     logger.warn(
       "PASEO_AUDIT_HMAC_SECRET not set — audit log tamper detection disabled in production",
@@ -415,7 +417,10 @@ export async function createPaseoDaemon(
   app.use("/public", express.static(staticDir));
 
   // Middleware
-  app.use(express.json());
+  // H-03: explicit 1mb body cap blocks oversized payloads at the parser.
+  // Default Express limit is 100kb, but making it explicit means the cap
+  // doesn't silently change if upstream defaults shift.
+  app.use(express.json({ limit: "1mb" }));
 
   // Health check endpoint
   app.get("/api/health", (_req, res) => {
@@ -818,9 +823,17 @@ export async function createPaseoDaemon(
 
     // Auth rate limiter on MCP — stricter RPM to limit brute-force (SEC-005).
     const mcpAuthLimiter = createAuthRateLimiter(resolveRateLimiterConfig());
-    app.post(agentMcpRoute, mcpAuthLimiter, handleAgentMcpRequest);
-    app.get(agentMcpRoute, mcpAuthLimiter, handleAgentMcpRequest);
-    app.delete(agentMcpRoute, mcpAuthLimiter, handleAgentMcpRequest);
+    // H-06: MCP endpoint runs tools on behalf of agents — operators and admins
+    // only. Viewers (read-only role) get 403. resolveRole returns "admin" when
+    // no role passwords are set, so single-password mode is unchanged.
+    app.post(agentMcpRoute, mcpAuthLimiter, requirePermission("agent:run"), handleAgentMcpRequest);
+    app.get(agentMcpRoute, mcpAuthLimiter, requirePermission("agent:read"), handleAgentMcpRequest);
+    app.delete(
+      agentMcpRoute,
+      mcpAuthLimiter,
+      requirePermission("agent:delete"),
+      handleAgentMcpRequest,
+    );
     logger.info({ route: agentMcpRoute }, "Agent MCP server mounted on main app");
   } else {
     logger.info("Agent MCP HTTP endpoint disabled");

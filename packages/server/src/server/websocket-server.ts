@@ -287,6 +287,7 @@ interface WebSocketRuntimeCounters {
   relayExternalSocketAttached: number;
   originRejected: number;
   hostRejected: number;
+  connectionLimit: number;
 }
 
 const SLOW_REQUEST_THRESHOLD_MS = 500;
@@ -400,6 +401,7 @@ export class VoiceAssistantWebSocketServer {
     relayExternalSocketAttached: 0,
     originRejected: 0,
     hostRejected: 0,
+    connectionLimit: 0,
   };
   private readonly inboundMessageCounts = new Map<string, number>();
   private readonly inboundSessionRequestCounts = new Map<string, number>();
@@ -583,11 +585,28 @@ export class VoiceAssistantWebSocketServer {
   ): WebSocketServer {
     const { allowedOrigins, hostnames } = wsConfig;
     const password = auth?.password;
+    // M-04: cap message size (1 MiB) and concurrent connections so a single
+    // peer can't OOM the daemon. PASEO_WS_MAX_PAYLOAD_BYTES and
+    // PASEO_WS_MAX_CONNECTIONS override the defaults.
+    const maxPayload =
+      Number.parseInt(process.env.PASEO_WS_MAX_PAYLOAD_BYTES ?? "", 10) || 1024 * 1024;
+    const maxConnections = Number.parseInt(process.env.PASEO_WS_MAX_CONNECTIONS ?? "", 10) || 1000;
+
     const wss = new WebSocketServer({
       server,
       path: "/ws",
+      maxPayload,
       handleProtocols: (protocols) => selectWebSocketProtocol(protocols, password),
       verifyClient: ({ req }, callback) => {
+        if (wss.clients.size >= maxConnections) {
+          this.incrementRuntimeCounter("connectionLimit");
+          this.logger.warn(
+            { active: wss.clients.size, max: maxConnections },
+            "Rejected WebSocket upgrade: concurrent connection limit reached",
+          );
+          callback(false, 503, "Server at capacity");
+          return;
+        }
         this.verifyWsUpgrade(req, allowedOrigins, hostnames, callback);
       },
     });

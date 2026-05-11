@@ -62,6 +62,8 @@ export class PushService {
 
   private async sendBatch(messages: ExpoPushMessage[]): Promise<void> {
     try {
+      // M-06: hard timeout — Expo's push endpoint usually replies in <500ms.
+      // 30s is generous; without a cap, a hung TCP connection wedges the loop.
       const response = await fetch(EXPO_PUSH_URL, {
         method: "POST",
         headers: {
@@ -69,6 +71,7 @@ export class PushService {
           Accept: "application/json",
         },
         body: JSON.stringify(messages),
+        signal: AbortSignal.timeout(30_000),
       });
 
       if (!response.ok) {
