@@ -7,6 +7,7 @@ import {
   createStartupHandler,
 } from "./health-probes.js";
 import { initSentry, sentryErrorHandler, flushSentry } from "./sentry.js";
+import { createBackup, startScheduledBackups } from "./db-backup.js";
 import { createServer as createHTTPServer, type IncomingMessage, type ServerResponse } from "http";
 import { createReadStream, unlinkSync, existsSync } from "fs";
 import { stat } from "fs/promises";
@@ -784,6 +785,12 @@ export async function createPaseoDaemon(
   });
   logger.info({ elapsed: elapsed() }, "Speech service created");
 
+  // Start scheduled data backups (production only)
+  let stopBackups: (() => void) | null = null;
+  if (!config.isDev) {
+    stopBackups = startScheduledBackups({ paseoHome: config.paseoHome, logger });
+  }
+
   logger.info({ elapsed: elapsed() }, "Bootstrap complete, ready to start listening");
   healthState.bootstrapped = true;
 
@@ -928,6 +935,13 @@ export async function createPaseoDaemon(
   };
 
   const stop = async () => {
+    stopBackups?.();
+    // Best-effort backup on graceful shutdown
+    try {
+      createBackup(config.paseoHome, { logger });
+    } catch (err) {
+      logger.warn({ err }, "Shutdown backup failed");
+    }
     scriptHealthMonitor.stop();
     await closeAllAgents(logger, agentManager);
     await agentManager.flush().catch(() => undefined);
