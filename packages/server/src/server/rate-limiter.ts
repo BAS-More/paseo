@@ -37,7 +37,7 @@ export function createGlobalRateLimiter(config?: Partial<RateLimiterConfig>): Re
     standardHeaders: "draft-7",
     legacyHeaders: false,
     message: { error: "Too many requests", retryAfterSeconds: 60 },
-    skip: (req) => req.path === "/api/health",
+    skip: (req) => req.path === "/api/health" || req.path.startsWith("/health/"),
   });
 }
 

@@ -83,6 +83,6 @@ EXPOSE 6767
 USER node
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-  CMD curl -f http://localhost:6767/api/health || exit 1
+  CMD curl -f http://localhost:6767/health/live || exit 1
 
 CMD ["node", "packages/server/dist/scripts/supervisor-entrypoint.js"]

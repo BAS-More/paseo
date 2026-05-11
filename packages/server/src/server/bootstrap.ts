@@ -1,5 +1,11 @@
 import express from "express";
 import { createGlobalRateLimiter, resolveRateLimiterConfig } from "./rate-limiter.js";
+import {
+  createHealthState,
+  createLivenessHandler,
+  createReadinessHandler,
+  createStartupHandler,
+} from "./health-probes.js";
 import { createServer as createHTTPServer, type IncomingMessage, type ServerResponse } from "http";
 import { createReadStream, unlinkSync, existsSync } from "fs";
 import { stat } from "fs/promises";
@@ -300,7 +306,14 @@ export async function createPaseoDaemon(
     });
   }
 
-  // Rate limiting (production only — skips /api/health)
+  // Health probes — registered before rate limiting and auth so k8s/Docker
+  // probes are always reachable without a bearer token.
+  const healthState = createHealthState();
+  app.get("/health/live", createLivenessHandler());
+  app.get("/health/ready", createReadinessHandler(healthState));
+  app.get("/health/startup", createStartupHandler(healthState));
+
+  // Rate limiting (production only — skips /api/health and /health/*)
   if (!config.isDev) {
     const rateLimiterConfig = resolveRateLimiterConfig();
     app.use(createGlobalRateLimiter(rateLimiterConfig));
@@ -759,6 +772,7 @@ export async function createPaseoDaemon(
   logger.info({ elapsed: elapsed() }, "Speech service created");
 
   logger.info({ elapsed: elapsed() }, "Bootstrap complete, ready to start listening");
+  healthState.bootstrapped = true;
 
   const start = async () => {
     // Start main HTTP server
@@ -891,6 +905,8 @@ export async function createPaseoDaemon(
         httpServer.listen(listenTarget.path);
       }
     });
+
+    healthState.listening = true;
 
     // Start speech service after listening so synchronous Sherpa native
     // model loading doesn't block the server from accepting connections.
