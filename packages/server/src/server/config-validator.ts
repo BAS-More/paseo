@@ -44,6 +44,24 @@ export function validateConfig(
       });
     }
 
+    // CORS: production should have explicit origins configured
+    if (config.corsAllowedOrigins.length === 0) {
+      errors.push({
+        field: "PASEO_CORS_ORIGINS",
+        message:
+          "No CORS origins configured. Cross-origin requests will be blocked. Set PASEO_CORS_ORIGINS to a comma-separated list of allowed origins (e.g., https://app.paseo.sh).",
+      });
+    }
+
+    // Warn about wildcard CORS in production
+    if (config.corsAllowedOrigins.includes("*")) {
+      errors.push({
+        field: "PASEO_CORS_ORIGINS",
+        message:
+          "CORS wildcard (*) is set in production. This allows any origin to make requests. Use explicit origins for security.",
+      });
+    }
+
     // Warn if listening on 0.0.0.0 without auth
     if (
       config.listen &&

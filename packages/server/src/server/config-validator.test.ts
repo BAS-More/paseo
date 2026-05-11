@@ -51,20 +51,28 @@ describe("validateConfig", () => {
   });
 
   it("returns password error in production without auth", () => {
-    const errors = validateConfig(makeConfig({ auth: undefined }), {
-      env: { NODE_ENV: "production" },
-    });
+    const errors = validateConfig(
+      makeConfig({ auth: undefined, corsAllowedOrigins: ["https://app.paseo.sh"] }),
+      { env: { NODE_ENV: "production" } },
+    );
     expect(errors.some((e) => e.field === "PASEO_PASSWORD")).toBe(true);
   });
 
   it("returns no password error in production with auth", () => {
-    const config = makeConfig({ auth: { password: "$2b$12$hashed" } });
+    const config = makeConfig({
+      auth: { password: "$2b$12$hashed" },
+      corsAllowedOrigins: ["https://app.paseo.sh"],
+    });
     const errors = validateConfig(config, { env: { NODE_ENV: "production" } });
     expect(errors.some((e) => e.field === "PASEO_PASSWORD")).toBe(false);
   });
 
   it("warns about 0.0.0.0 without password in production", () => {
-    const config = makeConfig({ listen: "0.0.0.0:6767", auth: undefined });
+    const config = makeConfig({
+      listen: "0.0.0.0:6767",
+      auth: undefined,
+      corsAllowedOrigins: ["https://app.paseo.sh"],
+    });
     const errors = validateConfig(config, { env: { NODE_ENV: "production" } });
     const listenError = errors.find(
       (e) => e.field === "PASEO_LISTEN" && e.message.includes("all interfaces"),
@@ -76,6 +84,7 @@ describe("validateConfig", () => {
     const config = makeConfig({
       listen: "0.0.0.0:6767",
       auth: { password: "$2b$12$hashed" },
+      corsAllowedOrigins: ["https://app.paseo.sh"],
     });
     const errors = validateConfig(config, { env: { NODE_ENV: "production" } });
     const listenError = errors.find(
@@ -85,10 +94,50 @@ describe("validateConfig", () => {
   });
 
   it("recognizes PASEO_NODE_ENV=production", () => {
-    const errors = validateConfig(makeConfig({ auth: undefined }), {
-      env: { PASEO_NODE_ENV: "production" },
-    });
+    const errors = validateConfig(
+      makeConfig({ auth: undefined, corsAllowedOrigins: ["https://app.paseo.sh"] }),
+      { env: { PASEO_NODE_ENV: "production" } },
+    );
     expect(errors.some((e) => e.field === "PASEO_PASSWORD")).toBe(true);
+  });
+
+  it("errors when CORS origins empty in production", () => {
+    const config = makeConfig({
+      auth: { password: "$2b$12$hashed" },
+      corsAllowedOrigins: [],
+    });
+    const errors = validateConfig(config, { env: { NODE_ENV: "production" } });
+    const corsError = errors.find(
+      (e) => e.field === "PASEO_CORS_ORIGINS" && e.message.includes("No CORS origins"),
+    );
+    expect(corsError).toBeDefined();
+  });
+
+  it("warns about CORS wildcard in production", () => {
+    const config = makeConfig({
+      auth: { password: "$2b$12$hashed" },
+      corsAllowedOrigins: ["*"],
+    });
+    const errors = validateConfig(config, { env: { NODE_ENV: "production" } });
+    const corsWildcard = errors.find(
+      (e) => e.field === "PASEO_CORS_ORIGINS" && e.message.includes("wildcard"),
+    );
+    expect(corsWildcard).toBeDefined();
+  });
+
+  it("no CORS error with explicit origins in production", () => {
+    const config = makeConfig({
+      auth: { password: "$2b$12$hashed" },
+      corsAllowedOrigins: ["https://app.paseo.sh"],
+    });
+    const errors = validateConfig(config, { env: { NODE_ENV: "production" } });
+    expect(errors.some((e) => e.field === "PASEO_CORS_ORIGINS")).toBe(false);
+  });
+
+  it("no CORS check in development mode", () => {
+    const config = makeConfig({ corsAllowedOrigins: [] });
+    const errors = validateConfig(config, { env: {} });
+    expect(errors.some((e) => e.field === "PASEO_CORS_ORIGINS")).toBe(false);
   });
 });
 
@@ -120,10 +169,13 @@ describe("validateConfigOrExit", () => {
       warn: () => {},
       error: () => {},
     };
-    validateConfigOrExit(makeConfig({ auth: undefined }), {
-      env: { NODE_ENV: "production" },
-      logger,
-    });
+    validateConfigOrExit(
+      makeConfig({ auth: undefined, corsAllowedOrigins: ["https://app.paseo.sh"] }),
+      {
+        env: { NODE_ENV: "production" },
+        logger,
+      },
+    );
     expect(exitSpy).toHaveBeenCalledWith(1);
   });
 });
