@@ -70,6 +70,26 @@ describe("CrewAI Dockerfile (H-08)", () => {
   });
 });
 
+describe("container resource limits (M-12)", () => {
+  const compose = read("docker-compose.prod.yml");
+
+  it("every service block declares deploy.resources.limits", () => {
+    // Count `deploy:` directives that include `resources:` underneath.
+    const matches = compose.match(/deploy:\s*\n\s+resources:/g) ?? [];
+    // 5 services in prod compose: paseo-daemon, soifer-backend, 9router, crewai-bridge, caddy
+    expect(matches.length).toBeGreaterThanOrEqual(5);
+  });
+
+  it("each limit declares both cpus and memory", () => {
+    const limitBlocks = compose.match(/limits:\s*\n(?:\s+\w+:\s*[^\n]+\n)+/g) ?? [];
+    expect(limitBlocks.length).toBeGreaterThanOrEqual(5);
+    for (const block of limitBlocks) {
+      expect(block).toMatch(/cpus:/);
+      expect(block).toMatch(/memory:/);
+    }
+  });
+});
+
 describe("compose secrets (C-03)", () => {
   it("docker-compose.prod.yml registers PASEO_AUDIT_HMAC_SECRET as a secret", () => {
     const compose = read("docker-compose.prod.yml");

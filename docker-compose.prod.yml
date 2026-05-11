@@ -7,6 +7,15 @@ services:
       dockerfile: Dockerfile
     container_name: paseo-daemon
     restart: unless-stopped
+    # M-12: prevent any single container from taking down the host on OOM
+    # or runaway CPU. Tune in production based on observed steady state.
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 2G
+        reservations:
+          memory: 512M
     # Port NOT exposed to host — Caddy reverse proxy is the only entry point.
     # Use `docker exec paseo-daemon curl http://localhost:6767/health/ready` for debugging.
     expose:
@@ -39,6 +48,13 @@ services:
     image: ${SOIFER_IMAGE:-ghcr.io/bas-more/soifer-backend:latest}
     container_name: soifer-backend
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 1G
+        reservations:
+          memory: 256M
     expose:
       - "3001"
     env_file:
@@ -63,6 +79,13 @@ services:
     image: ${ROUTER_IMAGE:-ghcr.io/bas-more/9router:latest}
     container_name: 9router
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512M
+        reservations:
+          memory: 128M
     expose:
       - "20128"
     env_file:
@@ -86,6 +109,13 @@ services:
       dockerfile: Dockerfile
     container_name: crewai-bridge
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 1G
+        reservations:
+          memory: 256M
     expose:
       - "8000"
     environment:
@@ -105,6 +135,13 @@ services:
     image: caddy:2-alpine
     container_name: paseo-caddy
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256M
+        reservations:
+          memory: 64M
     ports:
       - "80:80"
       - "443:443"
