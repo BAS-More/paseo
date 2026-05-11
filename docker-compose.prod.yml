@@ -1,0 +1,53 @@
+services:
+  paseo-daemon:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: paseo-daemon
+    restart: unless-stopped
+    ports:
+      - "6767:6767"
+    volumes:
+      - paseo-data:/data/paseo
+    env_file:
+      - packages/server/.env.production
+    environment:
+      - NODE_ENV=production
+      - PASEO_HOME=/data/paseo
+      - PASEO_LISTEN=0.0.0.0:6767
+      - PASEO_LOG_FORMAT=json
+    networks:
+      - paseo-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:6767/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  # TLS reverse proxy (Phase H2 — uncomment when Caddyfile is created)
+  # caddy:
+  #   image: caddy:2-alpine
+  #   container_name: paseo-caddy
+  #   restart: unless-stopped
+  #   ports:
+  #     - "80:80"
+  #     - "443:443"
+  #   volumes:
+  #     - ./Caddyfile:/etc/caddy/Caddyfile:ro
+  #     - caddy-data:/data
+  #     - caddy-config:/config
+  #   networks:
+  #     - paseo-net
+  #   depends_on:
+  #     paseo-daemon:
+  #       condition: service_healthy
+
+volumes:
+  paseo-data:
+  # caddy-data:
+  # caddy-config:
+
+networks:
+  paseo-net:
+    driver: bridge
