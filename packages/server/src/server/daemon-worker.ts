@@ -1,5 +1,6 @@
 import { createPaseoDaemon } from "./bootstrap.js";
 import { loadConfig } from "./config.js";
+import { validateConfigOrExit } from "./config-validator.js";
 import { resolvePaseoHome } from "./paseo-home.js";
 import { createRootLogger } from "./logger.js";
 import type { DaemonLifecycleIntent } from "./bootstrap.js";
@@ -28,6 +29,7 @@ function bootstrapFromEnvironment(): BootstrapResult {
     const paseoHome = resolvePaseoHome();
     const config = loadConfig(paseoHome);
     const logger = createRootLogger({ log: config.log }, { paseoHome, file: false });
+    validateConfigOrExit(config, { logger });
     return { paseoHome, logger, config };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
