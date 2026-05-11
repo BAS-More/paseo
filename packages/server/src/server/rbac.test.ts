@@ -5,6 +5,7 @@ import {
   hasPermission,
   requirePermission,
   resolveRole,
+  resolveRoleAsync,
 } from "./rbac.js";
 
 describe("ROLE_PERMISSIONS", () => {
@@ -102,6 +103,53 @@ describe("resolveRole", () => {
   it("returns admin when no role passwords configured (legacy mode)", () => {
     const role = resolveRole("any-token", {});
     expect(role).toBe("admin");
+  });
+});
+
+describe("resolveRoleAsync (H-05)", () => {
+  it("returns admin for token matching admin password", async () => {
+    const passwords = { admin: "admin-hash" };
+    const role = await resolveRoleAsync(
+      "test",
+      passwords,
+      async (_, hash) => hash === "admin-hash",
+    );
+    expect(role).toBe("admin");
+  });
+
+  it("returns operator when only operator matches", async () => {
+    const passwords = { admin: "admin-hash", operator: "op-hash" };
+    const role = await resolveRoleAsync("test", passwords, async (_, hash) => hash === "op-hash");
+    expect(role).toBe("operator");
+  });
+
+  it("returns null when no password matches", async () => {
+    const role = await resolveRoleAsync("test", { admin: "h" }, async () => false);
+    expect(role).toBeNull();
+  });
+
+  it("returns admin in legacy single-password mode", async () => {
+    const role = await resolveRoleAsync("test", {});
+    expect(role).toBe("admin");
+  });
+
+  it("returns a Promise (not a sync value)", () => {
+    const result = resolveRoleAsync("test", { admin: "h" }, async () => false);
+    expect(result).toBeInstanceOf(Promise);
+  });
+
+  it("awaits each compare before checking the next role", async () => {
+    const order: string[] = [];
+    await resolveRoleAsync(
+      "test",
+      { admin: "h1", operator: "h2", viewer: "h3" },
+      async (_, hash) => {
+        order.push(hash);
+        return false;
+      },
+    );
+    // Admin is checked first, then operator, then viewer (priority order).
+    expect(order).toEqual(["h1", "h2", "h3"]);
   });
 });
 
