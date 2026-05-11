@@ -8,6 +8,30 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function parseJsonStdout(stdout: string): any {
+  const trimmed = stdout.trim();
+  // Find the first { or [ which starts the JSON payload.
+  // Handles leading noise from npx/tsx/Node warnings on CI and
+  // the [truncated; ...] prefix that formatOutputCapture used to prepend.
+  const objStart = trimmed.indexOf("{");
+  const arrStart = trimmed.indexOf("[");
+  let start = -1;
+  if (objStart >= 0 && arrStart >= 0) {
+    start = Math.min(objStart, arrStart);
+  } else if (objStart >= 0) {
+    start = objStart;
+  } else if (arrStart >= 0) {
+    start = arrStart;
+  }
+  if (start < 0) {
+    throw new SyntaxError(
+      `No JSON found in stdout (${trimmed.length} chars): ${trimmed.slice(0, 120)}`,
+    );
+  }
+  return JSON.parse(trimmed.slice(start));
+}
+
 console.log("=== Loop And Schedule Command Tests ===\n");
 
 const ctx = await createE2ETestContext({ timeout: 30000 });
@@ -31,7 +55,7 @@ try {
       { timeout: 30000 },
     );
     assert.strictEqual(created.exitCode, 0, created.stderr);
-    const createdJson = JSON.parse(created.stdout);
+    const createdJson = parseJsonStdout(created.stdout);
     assert.strictEqual(createdJson.name, "review-prs");
     assert.strictEqual(createdJson.cadence, "every:5m");
     assert(
@@ -42,7 +66,7 @@ try {
 
     const listed = await ctx.paseo(["schedule", "ls", "--json"]);
     assert.strictEqual(listed.exitCode, 0, listed.stderr);
-    const listedJson = JSON.parse(listed.stdout);
+    const listedJson = parseJsonStdout(listed.stdout);
     assert(Array.isArray(listedJson), listed.stdout);
     assert(
       listedJson.some((item: { id: string }) => item.id === createdJson.id),
@@ -51,21 +75,21 @@ try {
 
     const inspected = await ctx.paseo(["schedule", "inspect", createdJson.id, "--json"]);
     assert.strictEqual(inspected.exitCode, 0, inspected.stderr);
-    const inspectedJson = JSON.parse(inspected.stdout);
+    const inspectedJson = parseJsonStdout(inspected.stdout);
     assert.strictEqual(inspectedJson.status, "active");
     assert.strictEqual(inspectedJson.prompt, "Review new PRs");
 
     const paused = await ctx.paseo(["schedule", "pause", createdJson.id, "--json"]);
     assert.strictEqual(paused.exitCode, 0, paused.stderr);
-    assert.strictEqual(JSON.parse(paused.stdout).status, "paused");
+    assert.strictEqual(parseJsonStdout(paused.stdout).status, "paused");
 
     const resumed = await ctx.paseo(["schedule", "resume", createdJson.id, "--json"]);
     assert.strictEqual(resumed.exitCode, 0, resumed.stderr);
-    assert.strictEqual(JSON.parse(resumed.stdout).status, "active");
+    assert.strictEqual(parseJsonStdout(resumed.stdout).status, "active");
 
     const deleted = await ctx.paseo(["schedule", "delete", createdJson.id, "--json"]);
     assert.strictEqual(deleted.exitCode, 0, deleted.stderr);
-    assert.strictEqual(JSON.parse(deleted.stdout).id, createdJson.id);
+    assert.strictEqual(parseJsonStdout(deleted.stdout).id, createdJson.id);
     console.log("schedule commands work\n");
   }
 
@@ -85,12 +109,12 @@ try {
       { timeout: 30000 },
     );
     assert.strictEqual(created.exitCode, 0, created.stderr);
-    const createdJson = JSON.parse(created.stdout);
+    const createdJson = parseJsonStdout(created.stdout);
     assert.strictEqual(createdJson.target, "new-agent:codex/gpt-5.4");
 
     const inspected = await ctx.paseo(["schedule", "inspect", createdJson.id, "--json"]);
     assert.strictEqual(inspected.exitCode, 0, inspected.stderr);
-    const inspectedJson = JSON.parse(inspected.stdout);
+    const inspectedJson = parseJsonStdout(inspected.stdout);
     assert.strictEqual(inspectedJson.target.config.provider, "codex");
     assert.strictEqual(inspectedJson.target.config.model, "gpt-5.4");
 
@@ -140,12 +164,12 @@ try {
       { timeout: 30000 },
     );
     assert.strictEqual(run.exitCode, 0, run.stderr);
-    const runJson = JSON.parse(run.stdout);
+    const runJson = parseJsonStdout(run.stdout);
     assert.strictEqual(runJson.name, "smoke-loop");
 
     const listed = await ctx.paseo(["loop", "ls", "--json"]);
     assert.strictEqual(listed.exitCode, 0, listed.stderr);
-    const listedJson = JSON.parse(listed.stdout);
+    const listedJson = parseJsonStdout(listed.stdout);
     assert(Array.isArray(listedJson), listed.stdout);
     assert(
       listedJson.some((item: { id: string }) => item.id === runJson.id),
@@ -156,7 +180,7 @@ try {
       if (attempt >= 40) return "running";
       const inspect = await ctx.paseo(["loop", "inspect", runJson.id, "--json"]);
       assert.strictEqual(inspect.exitCode, 0, inspect.stderr);
-      const inspectJson = JSON.parse(inspect.stdout);
+      const inspectJson = parseJsonStdout(inspect.stdout);
       const current = inspectJson.status;
       if (current !== "running") {
         assert.strictEqual(current, "succeeded", inspect.stdout);
@@ -174,7 +198,7 @@ try {
 
     const stopped = await ctx.paseo(["loop", "stop", runJson.id, "--json"]);
     assert.strictEqual(stopped.exitCode, 0, stopped.stderr);
-    const stoppedJson = JSON.parse(stopped.stdout);
+    const stoppedJson = parseJsonStdout(stopped.stdout);
     assert(["succeeded", "stopped"].includes(stoppedJson.status), stopped.stdout);
     console.log("loop commands work\n");
   }
