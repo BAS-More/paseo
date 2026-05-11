@@ -25,28 +25,29 @@ services:
       retries: 3
       start_period: 10s
 
-  # TLS reverse proxy (Phase H2 — uncomment when Caddyfile is created)
-  # caddy:
-  #   image: caddy:2-alpine
-  #   container_name: paseo-caddy
-  #   restart: unless-stopped
-  #   ports:
-  #     - "80:80"
-  #     - "443:443"
-  #   volumes:
-  #     - ./Caddyfile:/etc/caddy/Caddyfile:ro
-  #     - caddy-data:/data
-  #     - caddy-config:/config
-  #   networks:
-  #     - paseo-net
-  #   depends_on:
-  #     paseo-daemon:
-  #       condition: service_healthy
+  caddy:
+    image: caddy:2-alpine
+    container_name: paseo-caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      - PASEO_DOMAIN=${PASEO_DOMAIN:-localhost}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    networks:
+      - paseo-net
+    depends_on:
+      paseo-daemon:
+        condition: service_healthy
 
 volumes:
   paseo-data:
-  # caddy-data:
-  # caddy-config:
+  caddy-data:
+  caddy-config:
 
 networks:
   paseo-net:
