@@ -17,7 +17,7 @@
 | Auth layer         | ✅     | `packages/server/src/server/auth.ts` — bcrypt bearer tokens (cost 12), sync + async validation, tests exist                                                                                    |
 | Structured logging | ✅     | pino 10.x + pino-pretty, file output to `$PASEO_HOME/logs/`, configurable levels                                                                                                               |
 | .env config        | ✅     | `.env.example` with PASEO_HOME, PASEO_LISTEN, API keys                                                                                                                                         |
-| Test suite         | ⚠️     | ~2400 tests, ~250-294 failures (pre-existing, mostly Windows PTY + unrelated)                                                                                                                  |
+| Test suite         | ⚠️     | 4481 tests across 584 files. 352 failures (151 files) on Windows; root causes: `mkdir -p` on Win, `spawn npx ENOENT`, git config, node-pty EPERM. Likely pass on Linux CI.                     |
 | Deploy workflows   | ✅     | deploy-app, deploy-relay, deploy-website already exist                                                                                                                                         |
 
 ### What's MISSING
@@ -83,11 +83,21 @@ Ship it for daily use by you + team on a local network.
 
 **Goal:** Full `npx vitest run` exits 0.
 
-**Gap:** ~250-294 test failures. Categories:
+**Gap:** 352 test failures across 151 files (Windows local run). Categories identified:
 
-1. Terminal/PTY tests on Windows — FIXED (skip guards committed)
-2. Pre-existing failures in server tests — need triage
-3. Possible env-dependent tests (missing API keys, services)
+1. **Windows platform** (~80%): `mkdir -p` Unix syntax on Windows, `spawn npx ENOENT` in bash subprocess context, git config issues — these pass on Linux CI
+2. **Terminal/PTY** (~5%): node-pty EPERM on Windows — FIXED (skip guards committed)
+3. **E2E timeouts** (~10%): tests needing live services (Codex, Claude, relay) timing out without API keys/services
+4. **Genuine bugs** (~5%): need investigation
+
+Failing file categories:
+
+- 15 daemon-e2e files (git/worktree ops using Unix commands)
+- 12 workspace/git service files (same `mkdir -p` issue)
+- 8 agent provider files (spawn/timeout/ENOENT)
+- 6 session/bootstrap files (git config)
+- 5 e2e smoke tests (need live services)
+- 5 misc (logger, file-explorer, script tests)
 
 #### Tasks
 
