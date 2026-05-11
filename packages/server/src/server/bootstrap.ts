@@ -6,6 +6,7 @@ import {
   createReadinessHandler,
   createStartupHandler,
 } from "./health-probes.js";
+import { initSentry, sentryErrorHandler, flushSentry } from "./sentry.js";
 import { createServer as createHTTPServer, type IncomingMessage, type ServerResponse } from "http";
 import { createReadStream, unlinkSync, existsSync } from "fs";
 import { stat } from "fs/promises";
@@ -234,6 +235,15 @@ export async function createPaseoDaemon(
   const bootstrapStart = performance.now();
   const elapsed = () => `${(performance.now() - bootstrapStart).toFixed(0)}ms`;
   const daemonVersion = resolveDaemonVersion(import.meta.url);
+
+  // Initialize Sentry early so all subsequent errors are captured
+  initSentry({
+    dsn: process.env.SENTRY_DSN,
+    environment: config.isDev ? "development" : "production",
+    release: `paseo-daemon@${daemonVersion}`,
+    enabled: !config.isDev,
+  });
+
   const daemonConfigStore = new DaemonConfigStore(
     config.paseoHome,
     {
@@ -764,6 +774,9 @@ export async function createPaseoDaemon(
     logger.info("Agent MCP HTTP endpoint disabled");
   }
 
+  // Sentry error handler — must be the LAST error-handling middleware
+  app.use(sentryErrorHandler());
+
   const speechService = createSpeechService({
     logger,
     openaiConfig: config.openai,
@@ -946,6 +959,7 @@ export async function createPaseoDaemon(
     if (listenTarget.type === "socket" && existsSync(listenTarget.path)) {
       unlinkSync(listenTarget.path);
     }
+    await flushSentry();
   };
 
   return {
