@@ -125,6 +125,97 @@ export class SoiferBackendClient {
     return this.get("/api/stack/crewai/agents", []);
   }
 
+  // ── Layout mode preference (AC-17) ──
+
+  async getLayoutMode(): Promise<"workspace" | "claude-desktop"> {
+    const result = await this.get<{ layoutMode: "workspace" | "claude-desktop" }>(
+      "/api/stack/preferences/layout-mode",
+      { layoutMode: "workspace" },
+    );
+    return result.layoutMode;
+  }
+
+  async setLayoutMode(layoutMode: "workspace" | "claude-desktop"): Promise<boolean> {
+    return this.breaker.execute(
+      async () => {
+        const response = await this.fetchFn(`${this.baseUrl}/api/stack/preferences/layout-mode`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ layoutMode }),
+          signal: AbortSignal.timeout(5000),
+        });
+        return response.ok;
+      },
+      false,
+    );
+  }
+
+  // ── Project management (AC-36+37) ──
+
+  async renameProject(projectId: string, name: string): Promise<boolean> {
+    return this.breaker.execute(
+      async () => {
+        const response = await this.fetchFn(
+          `${this.baseUrl}/api/stack/projects/${encodeURIComponent(projectId)}/name`,
+          {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ name }),
+            signal: AbortSignal.timeout(5000),
+          },
+        );
+        return response.ok;
+      },
+      false,
+    );
+  }
+
+  async archiveProject(projectId: string, archived: boolean): Promise<boolean> {
+    return this.breaker.execute(
+      async () => {
+        const response = await this.fetchFn(
+          `${this.baseUrl}/api/stack/projects/${encodeURIComponent(projectId)}/archive`,
+          {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ archived }),
+            signal: AbortSignal.timeout(5000),
+          },
+        );
+        return response.ok;
+      },
+      false,
+    );
+  }
+
+  async deleteProject(projectId: string, force = false): Promise<boolean> {
+    return this.breaker.execute(
+      async () => {
+        const qs = force ? "?force=true" : "";
+        const response = await this.fetchFn(
+          `${this.baseUrl}/api/stack/projects/${encodeURIComponent(projectId)}${qs}`,
+          {
+            method: "DELETE",
+            signal: AbortSignal.timeout(5000),
+          },
+        );
+        return response.ok;
+      },
+      false,
+    );
+  }
+
+  // ── Last assistant response (AC-30) ──
+
+  async getLastResponse(
+    sessionId: string,
+  ): Promise<{ sessionId: string; provider: string; text: string | null; timestamp: string | null }> {
+    return this.get(
+      `/api/stack/sessions/${encodeURIComponent(sessionId)}/last-response`,
+      { sessionId, provider: "", text: null, timestamp: null },
+    );
+  }
+
   async getFullStatus(): Promise<{
     health: SoiferStackHealth;
     skills: string[];
