@@ -330,6 +330,17 @@ export function startRelayTransport({
     if (stopped) return;
     if (!connectionId) return;
     if (dataSockets.has(connectionId)) return;
+    // ARCH-005: cap concurrent data sockets to bound memory under burst load.
+    // PASEO_RELAY_MAX_DATA_SOCKETS overrides the 256 default.
+    const maxDataSockets =
+      Number.parseInt(process.env.PASEO_RELAY_MAX_DATA_SOCKETS ?? "", 10) || 256;
+    if (dataSockets.size >= maxDataSockets) {
+      relayLogger.warn(
+        { connectionId, active: dataSockets.size, max: maxDataSockets },
+        "relay_data_socket_limit_reached",
+      );
+      return;
+    }
 
     const url = buildRelayWebSocketUrl({
       endpoint: relayEndpoint,
