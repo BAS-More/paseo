@@ -8,6 +8,8 @@ import invariant from "tiny-invariant";
 import { shallow, useShallow } from "zustand/shallow";
 import { useStoreWithEqualityFn } from "zustand/traditional";
 import { AgentStreamView, type AgentStreamViewHandle } from "@/components/agent-stream-view";
+import { HandoffChips } from "@/components/handoff-chips";
+import type { Handoff } from "@/lib/spec-kit/handoffs";
 import { ArchivedAgentCallout } from "@/components/archived-agent-callout";
 import { Composer } from "@/components/composer";
 import { FileDropZone } from "@/components/file-drop-zone";
@@ -605,6 +607,19 @@ function ChatAgentContent({
   const handleSuggestedPrompt = useCallback((prompt: string) => {
     suggestedPromptSetterRef.current?.(prompt);
   }, []);
+
+  // Handoff chips appear above the composer after a slash-command turn.
+  // Today this state is never populated — daemon's `listCommands` does
+  // not yet return handoff metadata. When that lands, set this from the
+  // most-recently-invoked command's parsed frontmatter. See
+  // packages/app/src/lib/spec-kit/README.md for the integration notes.
+  const [currentHandoffs, _setCurrentHandoffs] = useState<ReadonlyArray<Handoff>>([]);
+  const handleHandoffSelect = useCallback((handoff: Handoff) => {
+    // Both send=true and send!=true populate the composer for now.
+    // Auto-submit for send=true is a follow-up — it needs an
+    // explicit "submit" ref alongside the existing setter ref.
+    suggestedPromptSetterRef.current?.(handoff.prompt);
+  }, []);
   const handleRegisterSuggestedPromptSetter = useCallback(
     (setter: ((text: string) => void) | null) => {
       suggestedPromptSetterRef.current = setter;
@@ -980,6 +995,8 @@ function ChatAgentContent({
               />
             </ReanimatedAnimated.View>
           </View>
+
+          <HandoffChips handoffs={currentHandoffs} onSelect={handleHandoffSelect} />
 
           <AgentComposerSection
             agentId={agentId}
