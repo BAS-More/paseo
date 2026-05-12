@@ -218,8 +218,11 @@ jobs:
           node-version: "22"
           cache: "npm"
 
+      # --include=optional is the npm default but be explicit — some hosted
+      # runners override it via .npmrc. We need lightningcss-linux-x64-gnu
+      # (metro's CSS bundler) and the SDK platform binaries below.
       - name: Install dependencies
-        run: npm install
+        run: npm install --include=optional
 
       - name: Install Playwright browsers
         run: npx playwright install --with-deps chromium
@@ -285,8 +288,10 @@ jobs:
           node-version: "22"
           cache: "npm"
 
+      # --include=optional is the npm default but be explicit — some hosted
+      # runners override it via .npmrc. Needed for SDK platform binaries.
       - name: Install dependencies
-        run: npm install
+        run: npm install --include=optional
 
       - name: Install agent CLIs for provider tests
         run: npm install -g @openai/codex@0.105.0 opencode-ai
