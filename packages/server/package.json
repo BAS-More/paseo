@@ -2,6 +2,7 @@
   "name": "@bas-more/server",
   "version": "0.2.0",
   "description": "Paseo backend server",
+  "license": "AGPL-3.0-or-later",
   "files": [
     "dist/server",
     "dist/src",
