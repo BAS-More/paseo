@@ -34,7 +34,10 @@ function createMockProcess(): ChildProcess & EventEmitter {
     });
     return true;
   }) as ChildProcess["kill"];
-  proc.pid = 12345;
+  // pid 0 makes terminateWithTreeKill skip the OS tree-kill probe (which on
+  // Linux silently succeeds for a non-existent PID, never falling back to
+  // proc.kill) and call signalDirectChild immediately.
+  proc.pid = 0;
   return proc;
 }
 
