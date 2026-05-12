@@ -104,6 +104,19 @@ const SUGGESTED_PROMPTS = [
   "Write tests for recent changes",
 ];
 
+const thinkingMetadataCache = new Map<number, Record<string, unknown>>();
+function buildThinkingMetadata(
+  durationSeconds: number | undefined,
+): Record<string, unknown> | undefined {
+  if (durationSeconds === undefined) return undefined;
+  let cached = thinkingMetadataCache.get(durationSeconds);
+  if (!cached) {
+    cached = { thinkingDurationSeconds: durationSeconds };
+    thinkingMetadataCache.set(durationSeconds, cached);
+  }
+  return cached;
+}
+
 function PromptChip({ prompt, onPress }: { prompt: string; onPress: (prompt: string) => void }) {
   const handlePress = useCallback(() => onPress(prompt), [onPress, prompt]);
   return (
@@ -476,14 +489,19 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
           relation: "below",
         });
         const isLastInSequence = nextItem?.kind !== "tool_call" && nextItem?.kind !== "thought";
+        const isCompleted = item.status === "ready";
+        const durationSeconds = isCompleted
+          ? Math.round((item.timestamp.getTime() - item.startedAt.getTime()) / 1000)
+          : undefined;
         return (
           <ToolCallSlot
             itemId={item.id}
             onInlineDetailsExpandedChangeByItemId={setInlineDetailsExpanded}
             toolName="thinking"
             args={item.text}
-            status={item.status === "ready" ? "completed" : "executing"}
+            status={isCompleted ? "completed" : "executing"}
             isLastInSequence={isLastInSequence}
+            metadata={buildThinkingMetadata(durationSeconds)}
           />
         );
       },

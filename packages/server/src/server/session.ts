@@ -6306,7 +6306,7 @@ export class Session {
       name: workspace.displayName,
       archivingAt: null,
       status: "done",
-      activityAt: null,
+      activityAt: workspace.updatedAt ?? workspace.createdAt,
       diffStat,
       scripts:
         this.scriptRouteStore && this.scriptRuntimeStore
@@ -6394,7 +6394,8 @@ export class Session {
       name: result.worktree.branchName || result.workspace.displayName,
       archivingAt: null,
       status: "done",
-      activityAt: null,
+      activityAt:
+        result.workspace.updatedAt ?? result.workspace.createdAt ?? new Date().toISOString(),
       diffStat: { additions: 0, deletions: 0 },
       scripts: [],
       gitRuntime: {

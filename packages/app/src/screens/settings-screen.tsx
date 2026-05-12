@@ -308,7 +308,7 @@ function GeneralSection({
                 />
               ))}
               <DropdownMenuSeparator />
-              {(["zinc", "midnight", "claude", "ghostty"] as const).map((t) => (
+              {(["zinc", "midnight", "claude", "claudeLight", "ghostty"] as const).map((t) => (
                 <ThemeMenuItem
                   key={t}
                   themeValue={t}
