@@ -118,10 +118,16 @@
     "ws": "^8.20.0"
   },
   "optionalDependencies": {
-    "@rollup/rollup-linux-x64-gnu": "4.60.3",
-    "@rollup/rollup-linux-x64-musl": "4.60.3",
+    "@anthropic-ai/claude-agent-sdk-darwin-arm64": "0.2.138",
+    "@anthropic-ai/claude-agent-sdk-darwin-x64": "0.2.138",
+    "@anthropic-ai/claude-agent-sdk-linux-arm64": "0.2.138",
+    "@anthropic-ai/claude-agent-sdk-linux-arm64-musl": "0.2.138",
+    "@anthropic-ai/claude-agent-sdk-linux-x64": "0.2.138",
+    "@anthropic-ai/claude-agent-sdk-linux-x64-musl": "0.2.138",
     "@rollup/rollup-darwin-arm64": "4.60.3",
-    "@rollup/rollup-darwin-x64": "4.60.3"
+    "@rollup/rollup-darwin-x64": "4.60.3",
+    "@rollup/rollup-linux-x64-gnu": "4.60.3",
+    "@rollup/rollup-linux-x64-musl": "4.60.3"
   },
   "overrides": {
     "@tootallnate/once": ">=3.0.1",

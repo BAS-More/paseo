@@ -158,10 +158,18 @@ export function requirePermission(permission: Permission): RequestHandler {
  * cost 12).
  */
 export function createRbacMiddleware(passwords: RolePasswords): RequestHandler {
+  const hasAnyRolePassword = Boolean(passwords.admin || passwords.operator || passwords.viewer);
   return (req, _res, next) => {
     const authHeader = req.header("authorization");
     if (!authHeader?.startsWith("Bearer ")) {
-      // No token → no role (auth middleware handles 401)
+      // Anonymous request. When no role passwords are configured (legacy
+      // single-password or no-auth mode), grandfather in as admin so
+      // requirePermission() stays backward-compatible with non-Bearer
+      // transports (e.g. MCP StreamableHTTP client) when role enforcement
+      // is off. Bearer auth middleware upstream remains the only gate.
+      if (!hasAnyRolePassword) {
+        (req as unknown as Record<string, unknown>).paseoRole = "admin" as Role;
+      }
       next();
       return;
     }
