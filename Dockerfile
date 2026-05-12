@@ -6,7 +6,7 @@
 # ── Stage 1: Build ──────────────────────────────────────────
 # Pin to digest for reproducible builds. Update via:
 #   docker pull node:22-slim && docker inspect --format='{{index .RepoDigests 0}}' node:22-slim
-FROM node:22-slim@sha256:PLACEHOLDER AS build
+FROM node:22-slim@sha256:868499d55378719bffa87b0ed1f099591823c029b543043c09c2483468e93201 AS build
 
 # node-pty requires python3 + make + g++ for node-gyp
 RUN apt-get update && \
@@ -41,7 +41,7 @@ RUN npm run build --workspace=@bas-more/server
 # ── Stage 2: Production ────────────────────────────────────
 # Pin to digest for reproducible builds. Update via:
 #   docker pull node:22-slim && docker inspect --format='{{index .RepoDigests 0}}' node:22-slim
-FROM node:22-slim@sha256:PLACEHOLDER AS production
+FROM node:22-slim@sha256:868499d55378719bffa87b0ed1f099591823c029b543043c09c2483468e93201 AS production
 
 # node-pty native addon needs libstdc++ at runtime (already in slim)
 # curl for healthcheck

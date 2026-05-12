@@ -31,7 +31,10 @@ function createMockProcess(): MockProcess {
   proc.stdout = new EventEmitter();
   proc.stderr = new EventEmitter();
   proc.stdin = { end: vi.fn() };
-  proc.pid = 12345;
+  // pid 0: terminateWithTreeKill skips the OS tree-kill probe (which silently
+  // succeeds on Linux for a non-existent PID, never falling back) and calls
+  // signalDirectChild immediately.
+  proc.pid = 0;
   proc.exitCode = null;
   proc.signalCode = null;
   // Mirror real-process behavior: a SIGTERM/SIGKILL fires the "exit" event so
