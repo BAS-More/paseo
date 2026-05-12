@@ -65,14 +65,23 @@ function defaultResolve(specifier: string): string {
 // systems `glibcVersionRuntime` is a populated string; on musl it is absent.
 // process.report is always defined in Node 22; the optional chains keep this
 // safe across other runtimes.
+interface ReportHeader {
+  glibcVersionRuntime?: string;
+}
+
+interface NodeReport {
+  header?: ReportHeader;
+}
+
+interface ProcessReportLike {
+  getReport?: () => NodeReport;
+}
+
 function detectMusl(): boolean {
   if (process.platform !== "linux") {
     return false;
   }
-  type ReportWithHeader = { header?: { glibcVersionRuntime?: string } };
-  const report = (
-    process.report as unknown as { getReport?: () => ReportWithHeader } | undefined
-  )?.getReport?.();
+  const report = (process.report as unknown as ProcessReportLike | undefined)?.getReport?.();
   const glibc = report?.header?.glibcVersionRuntime;
   return !glibc;
 }
