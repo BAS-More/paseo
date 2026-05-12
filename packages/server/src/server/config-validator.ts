@@ -74,9 +74,33 @@ export function validateConfig(
           "Listening on all interfaces without PASEO_PASSWORD is unsafe. Set PASEO_PASSWORD or bind to 127.0.0.1.",
       });
     }
+
+    // SEC-009: PASEO_AUDIT_HMAC_SECRET must be set in production. Without it,
+    // audit log entries can be tampered with after the fact — the HMAC chain
+    // provides tamper evidence. loadSecret reads /run/secrets/<name> first,
+    // then falls back to env, so we honor both paths.
+    const hmacFromEnv = env.PASEO_AUDIT_HMAC_SECRET;
+    const hmacFromSecret = secretFileExists("/run/secrets/PASEO_AUDIT_HMAC_SECRET");
+    if (!hmacFromEnv && !hmacFromSecret) {
+      errors.push({
+        field: "PASEO_AUDIT_HMAC_SECRET",
+        message:
+          "PASEO_AUDIT_HMAC_SECRET is required in production for tamper-evident audit logs. Set as Docker secret or environment variable (32+ random bytes recommended).",
+      });
+    }
   }
 
   return errors;
+}
+
+function secretFileExists(path: string): boolean {
+  try {
+    // Lazy-import fs so this module stays lightweight in tests.
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    return require("node:fs").existsSync(path);
+  } catch {
+    return false;
+  }
 }
 
 /**

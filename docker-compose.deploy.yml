@@ -23,6 +23,13 @@ services:
     image: ${ROUTER_IMAGE_BLUE:-ghcr.io/bas-more/9router:latest}
     container_name: 9router-blue
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512M
+        reservations:
+          memory: 128M
     expose:
       - "20128"
     env_file:
@@ -42,6 +49,13 @@ services:
     image: ${ROUTER_IMAGE_GREEN:-ghcr.io/bas-more/9router:latest}
     container_name: 9router-green
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512M
+        reservations:
+          memory: 128M
     expose:
       - "20128"
     env_file:
@@ -65,6 +79,13 @@ services:
     image: ${CREWAI_IMAGE_BLUE:-ghcr.io/bas-more/paseo/crewai-bridge:latest}
     container_name: crewai-blue
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 1G
+        reservations:
+          memory: 256M
     expose:
       - "8000"
     environment:
@@ -83,6 +104,13 @@ services:
     image: ${CREWAI_IMAGE_GREEN:-ghcr.io/bas-more/paseo/crewai-bridge:latest}
     container_name: crewai-green
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 1G
+        reservations:
+          memory: 256M
     expose:
       - "8000"
     environment:
@@ -105,6 +133,13 @@ services:
     image: ${SOIFER_IMAGE_BLUE:-ghcr.io/bas-more/soifer-backend:latest}
     container_name: soifer-blue
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 1G
+        reservations:
+          memory: 256M
     expose:
       - "3001"
     env_file:
@@ -128,6 +163,13 @@ services:
     image: ${SOIFER_IMAGE_GREEN:-ghcr.io/bas-more/soifer-backend:latest}
     container_name: soifer-green
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 1G
+        reservations:
+          memory: 256M
     expose:
       - "3001"
     env_file:
@@ -155,6 +197,13 @@ services:
     image: ${PASEO_IMAGE_BLUE:-ghcr.io/bas-more/paseo/paseo-daemon:latest}
     container_name: paseo-blue
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 2G
+        reservations:
+          memory: 512M
     expose:
       - "6767"
     volumes:
@@ -188,6 +237,13 @@ services:
     image: ${PASEO_IMAGE_GREEN:-ghcr.io/bas-more/paseo/paseo-daemon:latest}
     container_name: paseo-green
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 2G
+        reservations:
+          memory: 512M
     expose:
       - "6767"
     volumes:

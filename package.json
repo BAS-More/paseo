@@ -46,9 +46,9 @@
     "typecheck:daemon": "npm run typecheck --workspace=@bas-more/relay && npm run typecheck --workspace=@bas-more/server && npm run typecheck --workspace=@bas-more/cli",
     "test": "npm run test --workspaces --if-present",
     "format": "oxfmt .",
-    "format:files": "oxfmt",
+    "format:files": "oxfmt --no-error-on-unmatched-pattern",
     "format:check": "oxfmt --check .",
-    "format:check:files": "oxfmt --check",
+    "format:check:files": "oxfmt --check --no-error-on-unmatched-pattern",
     "lint": "oxlint",
     "lint:fix": "oxlint --fix",
     "crewai:bridge": "python packages/crewai-bridge/api.py",
@@ -116,6 +116,12 @@
     "playwright": "^1.56.1",
     "typescript": "^5.9.3",
     "ws": "^8.20.0"
+  },
+  "optionalDependencies": {
+    "@rollup/rollup-linux-x64-gnu": "4.60.3",
+    "@rollup/rollup-linux-x64-musl": "4.60.3",
+    "@rollup/rollup-darwin-arm64": "4.60.3",
+    "@rollup/rollup-darwin-x64": "4.60.3"
   },
   "overrides": {
     "@tootallnate/once": ">=3.0.1",

@@ -71,21 +71,29 @@ describe("CrewAI Dockerfile (H-08)", () => {
 });
 
 describe("container resource limits (M-12)", () => {
-  const compose = read("docker-compose.prod.yml");
+  const composeProd = read("docker-compose.prod.yml");
+  const composeDeploy = read("docker-compose.deploy.yml");
 
-  it("every service block declares deploy.resources.limits", () => {
-    // Count `deploy:` directives that include `resources:` underneath.
-    const matches = compose.match(/deploy:\s*\n\s+resources:/g) ?? [];
+  it("every prod service block declares deploy.resources.limits", () => {
+    const matches = composeProd.match(/deploy:\s*\n\s+resources:/g) ?? [];
     // 5 services in prod compose: paseo-daemon, soifer-backend, 9router, crewai-bridge, caddy
     expect(matches.length).toBeGreaterThanOrEqual(5);
   });
 
+  it("every deploy (blue/green) slot declares deploy.resources.limits", () => {
+    const matches = composeDeploy.match(/deploy:\s*\n\s+resources:/g) ?? [];
+    // 8 service slots: 9router/crewai/soifer/paseo × blue+green
+    expect(matches.length).toBeGreaterThanOrEqual(8);
+  });
+
   it("each limit declares both cpus and memory", () => {
-    const limitBlocks = compose.match(/limits:\s*\n(?:\s+\w+:\s*[^\n]+\n)+/g) ?? [];
-    expect(limitBlocks.length).toBeGreaterThanOrEqual(5);
-    for (const block of limitBlocks) {
-      expect(block).toMatch(/cpus:/);
-      expect(block).toMatch(/memory:/);
+    for (const compose of [composeProd, composeDeploy]) {
+      const limitBlocks = compose.match(/limits:\s*\n(?:\s+\w+:\s*[^\n]+\n)+/g) ?? [];
+      expect(limitBlocks.length).toBeGreaterThan(0);
+      for (const block of limitBlocks) {
+        expect(block).toMatch(/cpus:/);
+        expect(block).toMatch(/memory:/);
+      }
     }
   });
 });
