@@ -33,7 +33,10 @@ jobs:
         run: npm ci
 
       - name: Audit production dependencies
-        run: npm audit --omit=dev --audit-level=high
+        # Pipe through audit-allowlist.mjs so verified-safe findings (e.g.
+        # GHSA-rmmr-r34h-pfm5 / GHSA-3q49-cfcf-g5fm — 2026-05-11 supply chain)
+        # don't block deploy. Script exits 1 only on un-allowlisted high/critical.
+        run: npm audit --omit=dev --json | node scripts/audit-allowlist.mjs
 
   build:
     runs-on: ubuntu-latest
