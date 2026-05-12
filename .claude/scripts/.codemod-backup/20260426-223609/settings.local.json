@@ -1,0 +1,130 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"C:/Users/Avi Bendetsky/.claude/hooks/ezra-dash-hook.js\"",
+            "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "node \"C:/Users/Avi Bendetsky/.claude/hooks/ezra-session-sync.js\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Write|Edit|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"C:/Users/Avi Bendetsky/.claude/hooks/ezra-guard.js\"",
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "node \"C:/Users/Avi Bendetsky/.claude/hooks/ezra-oversight.js\"",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "Write|Edit|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"C:/Users/Avi Bendetsky/.claude/hooks/ezra-tier-gate.js\"",
+            "timeout": 3
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"C:/Users/Avi Bendetsky/.claude/hooks/ezra-session-sync.js\"",
+            "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "node \"C:/Users/Avi Bendetsky/.claude/hooks/ezra-progress-hook.js\"",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"C:/Users/Avi Bendetsky/.claude/hooks/ezra-progress-hook.js\"",
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "node \"C:/Users/Avi Bendetsky/.claude/hooks/ezra-drift-hook.js\"",
+            "timeout": 3
+          },
+          {
+            "type": "command",
+            "command": "node \"C:/Users/Avi Bendetsky/.claude/hooks/ezra-avios-bridge.js\"",
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "node \"C:/Users/Avi Bendetsky/.claude/hooks/ezra-version-hook.js\"",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "Write|Edit|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"C:/Users/Avi Bendetsky/.claude/hooks/ezra-memory-hook.js\"",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  },
+  "permissions": {
+    "allow": [
+      "Bash(npx playwright *)",
+      "mcp__claude-bridge__run_command",
+      "mcp__total-recall__session_start",
+      "mcp__avios-context-mcp__avios_list_projects",
+      "mcp__avios-context-mcp__avios_get_session_context",
+      "mcp__total-recall__task_list",
+      "mcp__avios-context-mcp__avios_get_project_state",
+      "mcp__total-recall__load_context",
+      "mcp__total-recall__health_check",
+      "mcp__avios-context-mcp__avios_log_sprint_item",
+      "mcp__avios-context-mcp__avios_add_decision",
+      "mcp__avios-context-mcp__avios_save_session",
+      "mcp__avios-context__avios_list_projects",
+      "mcp__avios-context__avios_get_session_context",
+      "mcp__avios-context__avios_get_project_state",
+      "mcp__avios-context__avios_log_sprint_item",
+      "mcp__avios-context__avios_add_decision",
+      "mcp__avios-context__avios_save_session",
+      "Bash(node \"C:/Dev/ezra-claude-code/bin/cli.js\" --global)",
+      "Bash(node \"C:/Dev/avios-context-mcp/scripts/session-boot.cjs\")",
+      "Bash(node \"C:/Dev/avios-context-mcp/scripts/integrity-guard.cjs\" backup)",
+      "Bash(gh pr create --title 'docs: add CLAUDE.md project context file' --body ':*)",
+      "Bash(git --version)",
+      "Bash(bash --version)",
+      "Bash(npm --version)",
+      "Bash(npm install *)"
+    ]
+  }
+}

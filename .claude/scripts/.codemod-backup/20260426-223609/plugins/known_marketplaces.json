@@ -1,0 +1,18 @@
+{
+  "claude-reflect-marketplace": {
+    "source": {
+      "source": "github",
+      "repo": "bayramannakov/claude-reflect"
+    },
+    "installLocation": "C:\\Users\\Avi Bendetsky\\.claude\\plugins\\marketplaces\\claude-reflect-marketplace",
+    "lastUpdated": "2026-04-21T11:48:10.394Z"
+  },
+  "severity1-marketplace": {
+    "source": {
+      "source": "github",
+      "repo": "severity1/severity1-marketplace"
+    },
+    "installLocation": "C:\\Users\\Avi Bendetsky\\.claude\\plugins\\marketplaces\\severity1-marketplace",
+    "lastUpdated": "2026-04-21T11:48:14.231Z"
+  }
+}

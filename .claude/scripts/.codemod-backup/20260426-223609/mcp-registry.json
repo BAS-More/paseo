@@ -1,0 +1,89 @@
+{
+  "_comment": "Unified MCP registry. Single source of truth for criticality, autostart, watchdog behavior. Read by mcp-watchdog.ps1.",
+  "version": "1.0.0",
+  "generated_at": "2026-04-23",
+  "watchdog": {
+    "enabled": true,
+    "log_file": "C:/Users/Avi Bendetsky/.claude/_logs/mcp-watchdog.jsonl",
+    "max_restarts_per_hour": 5,
+    "alert_on_critical_down": true
+  },
+  "servers": {
+    "total-recall": {
+      "critical": true,
+      "must_run": false,
+      "description": "Persistent cross-session memory. Stdio MCP — spawned per-session by Claude Code; standalone Start-Process can't keep it alive (no stdin client), so watchdog only drift-checks the entry file.",
+      "command": "node",
+      "args": ["C:/Dev/Total-Recall/src/index.js"],
+      "entry_check": "C:/Dev/Total-Recall/src/index.js",
+      "process_match": "Total-Recall\\\\src\\\\index\\.js",
+      "clients": ["vscode", "claude-code", "claude-desktop"],
+      "timeout_sec": 30,
+      "autostart": true,
+      "restart_on_crash": true
+    },
+    "fact-mcp": {
+      "critical": true,
+      "must_run": false,
+      "description": "FACT cache-first retrieval. Stdio MCP — spawned per-session by Claude Code; standalone Start-Process can't keep it alive (no stdin client), so watchdog only drift-checks the entry file.",
+      "command": "node",
+      "args": ["C:/Dev/fact-mcp/dist/index.js"],
+      "entry_check": "C:/Dev/fact-mcp/dist/index.js",
+      "process_match": "fact-mcp\\\\dist\\\\index\\.js",
+      "clients": ["vscode", "claude-code"],
+      "timeout_sec": 30,
+      "autostart": true,
+      "restart_on_crash": true
+    },
+    "avios-context-mcp": {
+      "critical": false,
+      "must_run": false,
+      "description": "Avi-OS project context and session state. Stdio MCP — spawned per-session by Claude Code; standalone Start-Process can't keep it alive (no stdin client), so watchdog only drift-checks the entry file.",
+      "command": "node",
+      "args": ["C:/Dev/avios-context-mcp/src/index.js"],
+      "entry_check": "C:/Dev/avios-context-mcp/src/index.js",
+      "process_match": "avios-context-mcp\\\\src\\\\index\\.js",
+      "clients": ["claude-code"],
+      "timeout_sec": 30,
+      "autostart": true,
+      "restart_on_crash": true
+    },
+    "claude-bridge": {
+      "critical": false,
+      "must_run": false,
+      "description": "Bridges Claude Desktop to Claude Code CLI and filesystem.",
+      "command": "node",
+      "args": ["C:/Dev/claude-bridge/dist/index.js"],
+      "entry_check": "C:/Dev/claude-bridge/dist/index.js",
+      "process_match": "claude-bridge\\\\dist\\\\index\\.js",
+      "clients": ["claude-code"],
+      "timeout_sec": 20,
+      "autostart": false,
+      "restart_on_crash": false
+    },
+    "claude-vault": {
+      "critical": true,
+      "must_run": false,
+      "description": "Credential vault. Critical for secret resolution.",
+      "command": "python",
+      "args": ["C:/Dev/tools/vault/vault_mcp.py"],
+      "entry_check": "C:/Dev/tools/vault/vault_mcp.py",
+      "process_match": "vault_mcp\\.py",
+      "clients": ["claude-code"],
+      "timeout_sec": 15,
+      "autostart": false,
+      "restart_on_crash": true
+    },
+    "playwright": {
+      "critical": false,
+      "must_run": false,
+      "description": "Browser automation via npx.",
+      "command": "npx",
+      "args": ["-y", "@playwright/mcp@latest"],
+      "clients": ["vscode", "claude-code"],
+      "timeout_sec": 60,
+      "autostart": false,
+      "restart_on_crash": false
+    }
+  }
+}

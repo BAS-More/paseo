@@ -1,0 +1,19 @@
+{
+  "version": 2,
+  "plugins": {
+    "claude-reflect@claude-reflect-marketplace": [
+      {
+        "scope": "user",
+        "installPath": "C:\\Users\\Avi Bendetsky\\.claude\\plugins\\cache\\claude-reflect-marketplace\\claude-reflect\\3.1.0",
+        "version": "3.1.0",
+        "installedAt": "2026-04-21T11:57:05.535Z",
+<<<<<<< Updated upstream
+        "lastUpdated": "2026-04-26T07:28:53.730Z",
+=======
+        "lastUpdated": "2026-04-26T11:37:41.295Z",
+>>>>>>> Stashed changes
+        "gitCommitSha": "8dc9db43c9bfaa53b567d63f3f48385bcf3d3084"
+      }
+    ]
+  }
+}

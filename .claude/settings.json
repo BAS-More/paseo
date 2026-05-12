@@ -1,0 +1,494 @@
+{
+    "cleanupPeriodDays": 99999,
+    "env": {
+        "GIT_ASKPASS": "$HOME\\.claude\\scripts\\gh-askpass.bat",
+        "GIT_TERMINAL_PROMPT": "0",
+        "ANTHROPIC_BASE_URL": "http://localhost:20128/v1",
+        "ANTHROPIC_MODEL": "cc/claude-sonnet-4-5-20250929",
+        "ANTHROPIC_DEFAULT_OPUS_MODEL": "cc/claude-opus-4-7",
+        "ANTHROPIC_DEFAULT_SONNET_MODEL": "cc/claude-sonnet-4-6",
+        "ANTHROPIC_DEFAULT_HAIKU_MODEL": "cc/claude-haiku-4-5-20251001",
+        "ANTHROPIC_AUTH_TOKEN": "sk-24e8fd7fbdd1cb74-ue2itw-4ec08b64"
+    },
+    "permissions": {
+        "allow": [
+            "Bash(npm test *)",
+            "Bash(npm run *)",
+            "Bash(npx tsc *)",
+            "Bash(npx vitest *)",
+            "Bash(npx jest *)",
+            "Bash(npx c8 *)",
+            "Bash(npx eslint *)",
+            "Bash(npx biome *)",
+            "Bash(npx prettier *)",
+            "Bash(npx lint-staged *)",
+            "Bash(npx commitlint *)",
+            "Bash(gh pr view *)",
+            "Bash(gh pr list *)",
+            "Bash(gh pr checks *)",
+            "Bash(gh pr status *)",
+            "Bash(gh pr diff *)",
+            "Bash(gh issue view *)",
+            "Bash(gh issue list *)",
+            "Bash(gh run list *)",
+            "Bash(gh run view *)",
+            "Bash(gh auth status)",
+            "Bash(gitleaks detect *)",
+            "Bash(gitleaks protect *)",
+            "Bash(gitleaks version)",
+            "Bash(semgrep scan *)",
+            "Bash(semgrep ci *)",
+            "Bash(semgrep --version)",
+            "mcp__context7__*",
+            "mcp__filesystem__read_file",
+            "mcp__filesystem__list_directory",
+            "mcp__filesystem__search_files",
+            "mcp__sequential-thinking__*",
+            "Bash(node * bin/install.js*)",
+            "Bash(node *C:/Dev/token-shield/bin/install.js*)",
+            "Bash(npm install -g codeburn*)",
+            "Bash(npm link*)",
+            "Bash(npm ci*)",
+            "Bash(npm run build*)",
+            "Bash(claude plugin install:*)",
+            "Bash(claude plugin marketplace:*)",
+            "Bash(claude plugin list:*)",
+            "Bash(claude plugin uninstall:*)",
+            "Bash(git clone --depth 1 https:/github.com/Jeffallan/claude-skills.git*)",
+            "Bash(cp -r /tmp/jcs/skills/*)",
+            "Bash(rm -rf /tmp/jcs*)",
+            "Bash(curl * | gpg --import*)",
+            "Bash(gpg --import-ownertrust*)",
+            "Bash(gpg --import*)",
+            "Bash(Register-ScheduledTask*TeamClaude*)",
+            "Write(C:\\Dev\\tools\\teamclaude-*.sh)"
+        ],
+        "deny": [
+            "Bash(rm -rf /)",
+            "Bash(rm -rf /*)",
+            "Bash(rm -rf ~)",
+            "Bash(rm -rf ~/*)",
+            "Bash(rm -rf $HOME*)",
+            "Bash(rm -rf C:)",
+            "Bash(rm -rf C:/*)",
+            "Bash(rm -rf C:\\\\)",
+            "Bash(rm -rf .git*)",
+            "Bash(rm -rf .claude*)",
+            "Bash(rm -rf docs*)",
+            "Bash(rm -rf C:/Users*)",
+            "Bash(rm -rf C:\\\\Users*)",
+            "Bash(rm -rf /etc*)",
+            "Bash(rm -rf /var*)",
+            "Bash(rm -rf /usr*)",
+            "Bash(git push --force origin main*)",
+            "Bash(git push --force origin master*)",
+            "Bash(git push -f origin main*)",
+            "Bash(git push -f origin master*)",
+            "Bash(git push --mirror*)",
+            "Bash(git filter-branch*)",
+            "Bash(git reflog expire --expire=now*)",
+            "Bash(git reset --hard origin/main*)",
+            "Bash(git reset --hard origin/master*)",
+            "Bash(sudo rm *)",
+            "Bash(chmod -R 777 *)",
+            "Bash(curl * | bash*)",
+            "Bash(curl * | sh*)",
+            "Bash(wget * | bash*)",
+            "Bash(wget * | sh*)",
+            "Bash(iwr * | iex*)",
+            "Bash(powershell * Invoke-Expression*)",
+            "Bash(powershell * iex *)",
+            "Bash(powershell * -enc *)",
+            "Bash(powershell * Start-Process * -Verb RunAs*)",
+            "Bash(cat .env.production*)",
+            "Bash(cat .env*)",
+            "Bash(type .env*)",
+            "Bash(Get-Content .env*)",
+            "Bash(cat *id_rsa*)",
+            "Bash(type *id_rsa*)",
+            "Bash(cat C:/Dev/tools/vault/vault.py*)",
+            "Bash(reg add *)",
+            "Bash(reg delete *)",
+            "Bash(reg import *)",
+            "Bash(net user *)",
+            "Bash(net localgroup administrators *)",
+            "Bash(netsh *)",
+            "Bash(schtasks /create*)",
+            "Bash(schtasks /change*)",
+            "Bash(docker run * --privileged*)",
+            "Bash(docker run * -v /:*)",
+            "Bash(docker run * --cap-add=ALL*)"
+        ]
+    },
+    "model": "claude-sonnet-4-5-thinking",
+    "hooks": {
+        "PreToolUse": [
+            {
+                "matcher": "Write|Edit|MultiEdit",
+                "hooks": [
+                    {
+                        "type": "command",
+                        "command": "node \"$HOME/.claude/hooks/plan-gate.js\"",
+                        "timeout": 5
+                    },
+                    {
+                        "type": "command",
+                        "command": "node \"$HOME/.claude/hooks/claude-config-guard.js\"",
+                        "timeout": 3
+                    },
+                    {
+                        "type": "command",
+                        "command": "node \"$HOME/.claude/hooks/test-first-lock.js\"",
+                        "timeout": 8
+                    }
+                ]
+            },
+            {
+                "matcher": "Grep|Glob|Bash",
+                "hooks": [
+                    {
+                        "type": "command",
+                        "command": "node \"$HOME/.claude/hooks/knowledge-graph/knowledge-graph-hook.cjs\"",
+                        "timeout": 10,
+                        "statusMessage": "Enriching with Knowledge-Graph graph context..."
+                    }
+                ]
+            },
+            {
+                "matcher": "Bash|PowerShell",
+                "hooks": [
+                    {
+                        "type": "command",
+                        "command": "node \"$HOME/.claude/hooks/mass-delete-guard.js\"",
+                        "timeout": 5
+                    }
+                ]
+            },
+            {
+                "matcher": "mcp__.*",
+                "hooks": [
+                    {
+                        "type": "command",
+                        "command": "node \"$HOME/.claude/hooks/mcp-usage-counter.js\"",
+                        "timeout": 3
+                    }
+                ]
+            }
+        ],
+        "PostToolUse": [
+            {
+                "matcher": "Write|Edit|MultiEdit",
+                "hooks": [
+                    {
+                        "type": "command",
+                        "command": "node \"$HOME/.claude/hooks/typecheck-edited.js\"",
+                        "timeout": 60
+                    },
+                    {
+                        "type": "command",
+                        "command": "node \"$HOME/.claude/hooks/doc-drift-watcher.js\"",
+                        "timeout": 5
+                    },
+                    {
+                        "type": "command",
+                        "command": "node \"$HOME/.claude/hooks/rules-subrepo-reminder.js\"",
+                        "timeout": 3
+                    },
+                    {
+                        "type": "command",
+                        "command": "node \"$HOME/.claude/hooks/lint-edited.js\"",
+                        "timeout": 35
+                    },
+                    {
+                        "type": "command",
+                        "command": "node \"$HOME/.claude/hooks/stuck-detector.js\"",
+                        "timeout": 5
+                    }
+                ]
+            },
+            {
+                "matcher": "Bash",
+                "hooks": [
+                    {
+                        "type": "command",
+                        "command": "node \"$HOME/.claude/hooks/knowledge-graph/knowledge-graph-hook.cjs\"",
+                        "timeout": 10,
+                        "statusMessage": "Checking Knowledge-Graph index freshness..."
+                    },
+                    {
+                        "type": "command",
+                        "command": "node \"$HOME/.claude/hooks/strike-counter.js\"",
+                        "timeout": 3
+                    }
+                ]
+            }
+        ],
+        "UserPromptSubmit": [
+            {
+                "hooks": [
+                    {
+                        "type": "command",
+                        "command": "node \"$HOME/.claude/hooks/secret-scanner.js\"",
+                        "timeout": 3
+                    },
+                    {
+                        "type": "command",
+                        "command": "node \"$HOME/.claude/hooks/plan-first-prompt.js\"",
+                        "timeout": 3
+                    },
+                    {
+                        "type": "command",
+                        "command": "python \"C:/Dev/tools/Misc/toolkit-check.py\"",
+                        "timeout": 5
+                    },
+                    {
+                        "type": "command",
+                        "command": "node \"$HOME/.claude/hooks/best-practice-advisor.js\"",
+                        "timeout": 3
+                    },
+                    {
+                        "type": "command",
+                        "command": "node \"$HOME/.claude/hooks/reflect-detect.js\"",
+                        "timeout": 3
+                    },
+                    {
+                        "type": "command",
+                        "command": "node \"$HOME/.claude/hooks/critic-surface.js\"",
+                        "timeout": 3
+                    },
+                    {
+                        "type": "command",
+                        "command": "node \"$HOME/.claude/hooks/token-shield-surface.js\"",
+                        "timeout": 3
+                    }
+                ]
+            },
+            {
+                "hooks": [
+                    {
+                        "type": "command",
+                        "command": "node \"$HOME/.claude/hooks/caveman-mode-tracker.js\"",
+                        "timeout": 5,
+                        "statusMessage": "Tracking caveman mode..."
+                    }
+                ]
+            }
+        ],
+        "Stop": [
+            {
+                "hooks": [
+                    {
+                        "type": "command",
+                        "command": "node \"$HOME/.claude/hooks/am-i-done-gate.js\"",
+                        "timeout": 5
+                    },
+                    {
+                        "type": "command",
+                        "command": "node \"$HOME/.claude/hooks/reflect-drain.js\"",
+                        "timeout": 5
+                    },
+                    {
+                        "type": "command",
+                        "command": "node \"$HOME/.claude/hooks/phase-loop.js\"",
+                        "timeout": 60
+                    },
+                    {
+                        "type": "command",
+                        "command": "node \"$HOME/.claude/hooks/session-close.js\"",
+                        "timeout": 10
+                    },
+                    {
+                        "type": "command",
+                        "command": "node \"$HOME/.claude/hooks/token-shield-validator.js\"",
+                        "timeout": 5
+                    },
+                    {
+                        "type": "command",
+                        "command": "node \"$HOME/.claude/hooks/session-timing.js\"",
+                        "timeout": 3
+                    },
+                    {
+                        "type": "command",
+                        "command": "node \"$HOME/.claude/hooks/critic-suggest.js\"",
+                        "timeout": 5
+                    }
+                ]
+            }
+        ],
+        "SessionStart": [
+            {
+                "hooks": [
+                    {
+                        "type": "command",
+                        "command": "node \"$HOME/.claude/hooks/session-timing.js\"",
+                        "timeout": 3
+                    },
+                    {
+                        "type": "command",
+                        "command": "node \"$HOME/.claude/hooks/session-boot.js\"",
+                        "timeout": 6
+                    },
+                    {
+                        "type": "command",
+                        "command": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"$HOME/.claude/scripts/mcp-drift-check.ps1\"",
+                        "timeout": 5
+                    },
+                    {
+                        "type": "command",
+                        "command": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"$HOME/.claude/scripts/mcp-watchdog.ps1\" -Silent",
+                        "timeout": 5
+                    },
+                    {
+                        "type": "command",
+                        "command": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"$HOME/.claude/scripts/hook-integrity.ps1\" -Mode verify",
+                        "timeout": 5
+                    },
+                    {
+                        "type": "command",
+                        "command": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"$HOME/.claude/scripts/portability-drift-check.ps1\"",
+                        "timeout": 5
+                    },
+                    {
+                        "type": "command",
+                        "command": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"$HOME/.claude/scripts/sync-pull.ps1\" -Quick",
+                        "timeout": 8
+                    },
+                    {
+                        "type": "command",
+                        "command": "node \"$HOME/.claude/hooks/disk-secret-sweep.js\"",
+                        "timeout": 10
+                    },
+                    {
+                        "type": "command",
+                        "command": "node \"$HOME/.claude/hooks/token-shield-validator.js\"",
+                        "timeout": 5
+                    },
+                    {
+                        "type": "command",
+                        "command": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"$HOME/.claude/scripts/bitlocker-tripwire.ps1\"",
+                        "timeout": 5
+                    },
+                    {
+                        "type": "command",
+                        "command": "node \"$HOME/.claude/hooks/drift-check.js\"",
+                        "timeout": 5
+                    }
+                ]
+            },
+            {
+                "hooks": [
+                    {
+                        "type": "command",
+                        "command": "node \"$HOME/.claude/hooks/caveman-activate.js\"",
+                        "timeout": 5,
+                        "statusMessage": "Loading caveman mode..."
+                    }
+                ]
+            },
+            {
+                "hooks": [
+                    {
+                        "type": "command",
+                        "command": "node \"$HOME/.claude/hooks/chat-count-alarm.js\"",
+                        "timeout": 5
+                    }
+                ]
+            },
+            {
+                "hooks": [
+                    {
+                        "type": "command",
+                        "command": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"C:/Dev/tools/project-sweep/show-health.ps1\"",
+                        "timeout": 8
+                    }
+                ]
+            },
+            {
+                "matcher": "",
+                "hooks": [
+                    {
+                        "type": "command",
+                        "command": "node \"$HOME/.claude/hooks/health-check-on-boot.js\""
+                    }
+                ]
+            }
+        ],
+        "PermissionRequest": [
+            {
+                "hooks": [
+                    {
+                        "type": "command",
+                        "command": "node \"$HOME/.claude/hooks/permission-auto.js\"",
+                        "timeout": 3
+                    }
+                ]
+            }
+        ]
+    },
+    "statusLine": {
+        "type": "command",
+        "command": "powershell -ExecutionPolicy Bypass -File \"$HOME/.claude/hooks/caveman-statusline.ps1\""
+    },
+    "enabledPlugins": {
+        "claude-reflect@claude-reflect-marketplace": true,
+        "prompt-improver@severity1-marketplace": true,
+        "fullstack-dev-skills@fullstack-dev-skills": true,
+        "antigravity-bundle-essentials@antigravity-awesome-skills": true,
+        "antigravity-bundle-full-stack-developer@antigravity-awesome-skills": true,
+        "antigravity-bundle-typescript-javascript@antigravity-awesome-skills": true,
+        "antigravity-bundle-llm-application-developer@antigravity-awesome-skills": true,
+        "antigravity-bundle-devops-cloud@antigravity-awesome-skills": true,
+        "antigravity-bundle-agent-architect@antigravity-awesome-skills": true,
+        "antigravity-bundle-qa-testing@antigravity-awesome-skills": true,
+        "antigravity-bundle-observability-monitoring@antigravity-awesome-skills": true,
+        "antigravity-bundle-automation-builder@antigravity-awesome-skills": true,
+        "antigravity-bundle-architecture-design@antigravity-awesome-skills": true,
+        "antigravity-bundle-ddd-evented-architecture@antigravity-awesome-skills": true,
+        "antigravity-bundle-python-pro@antigravity-awesome-skills": true,
+        "antigravity-bundle-documents-presentations@antigravity-awesome-skills": true,
+        "antigravity-bundle-integration-apis@antigravity-awesome-skills": true,
+        "antigravity-bundle-mobile-developer@antigravity-awesome-skills": true,
+        "antigravity-bundle-security-engineer@antigravity-awesome-skills": true,
+        "antigravity-bundle-data-analytics@antigravity-awesome-skills": true,
+        "antigravity-bundle-web-designer@antigravity-awesome-skills": true,
+        "antigravity-bundle-web-wizard@antigravity-awesome-skills": true,
+        "antigravity-bundle-startup-founder@antigravity-awesome-skills": true,
+        "antigravity-bundle-systems-programming@antigravity-awesome-skills": true,
+        "antigravity-bundle-expo-react-native@antigravity-awesome-skills": true,
+        "antigravity-bundle-marketing-growth@antigravity-awesome-skills": true,
+        "antigravity-bundle-revops-crm-automation@antigravity-awesome-skills": true,
+        "antigravity-bundle-odoo-erp@antigravity-awesome-skills": true,
+        "antigravity-bundle-business-analyst@antigravity-awesome-skills": true,
+        "antigravity-bundle-commerce-payments@antigravity-awesome-skills": true,
+        "antigravity-bundle-seo-specialist@antigravity-awesome-skills": true
+    },
+    "extraKnownMarketplaces": {
+        "claude-reflect-marketplace": {
+            "source": {
+                "source": "github",
+                "repo": "bayramannakov/claude-reflect"
+            }
+        },
+        "severity1-marketplace": {
+            "source": {
+                "source": "github",
+                "repo": "severity1/severity1-marketplace"
+            }
+        },
+        "fullstack-dev-skills": {
+            "source": {
+                "source": "github",
+                "repo": "jeffallan/claude-skills"
+            }
+        },
+        "antigravity-awesome-skills": {
+            "source": {
+                "source": "github",
+                "repo": "sickn33/antigravity-awesome-skills"
+            }
+        }
+    },
+    "awaySummaryEnabled": false,
+    "hasCompletedOnboarding": true,
+    "theme": "auto"
+}
