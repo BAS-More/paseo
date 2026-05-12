@@ -43,6 +43,7 @@ import { BranchSwitcher } from "@/components/branch-switcher";
 import { Combobox, type ComboboxOption } from "@/components/ui/combobox";
 import { Shortcut } from "@/components/ui/shortcut";
 import type { ShortcutKey } from "@/utils/format-shortcut";
+import { useShortcutKeys } from "@/hooks/use-shortcut-keys";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -825,6 +826,16 @@ function WorkspaceHeaderMenu({
   onCopyBranchName,
   onOpenSetupTab,
 }: WorkspaceHeaderMenuProps) {
+  const newAgentShortcutKeys = useShortcutKeys("workspace-tab-new");
+  const newTerminalShortcutKeys = useShortcutKeys("workspace-terminal-new");
+  const newAgentTrailing = useMemo(
+    () => (newAgentShortcutKeys ? <Shortcut chord={newAgentShortcutKeys} /> : null),
+    [newAgentShortcutKeys],
+  );
+  const newTerminalTrailing = useMemo(
+    () => (newTerminalShortcutKeys ? <Shortcut chord={newTerminalShortcutKeys} /> : null),
+    [newTerminalShortcutKeys],
+  );
   const renderTriggerIcon = useCallback(
     ({ hovered, open }: { hovered: boolean; open: boolean }) => (
       <WorkspaceHeaderMenuTriggerIcon hovered={hovered} open={open} isMobile={isMobile} />
@@ -846,6 +857,7 @@ function WorkspaceHeaderMenu({
         <DropdownMenuItem
           testID="workspace-header-new-agent"
           leading={menuNewAgentIcon}
+          trailing={newAgentTrailing}
           onSelect={onCreateDraftTab}
         >
           New agent
@@ -853,6 +865,7 @@ function WorkspaceHeaderMenu({
         <DropdownMenuItem
           testID="workspace-header-new-terminal"
           leading={menuNewTerminalIcon}
+          trailing={newTerminalTrailing}
           disabled={createTerminalDisabled}
           onSelect={onCreateTerminal}
         >

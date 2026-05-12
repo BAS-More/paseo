@@ -53,6 +53,7 @@ import type { Theme } from "@/styles/theme";
 import { useIsCompactFormFactor } from "@/constants/layout";
 import { useAppSettings } from "@/hooks/use-settings";
 import { Sparkles } from "lucide-react-native";
+import { getProviderIcon } from "@/components/provider-icons";
 import Animated, {
   Easing,
   cancelAnimation,
@@ -566,6 +567,7 @@ interface AssistantMessageProps {
   client?: DaemonClient | null;
   disableOuterSpacing?: boolean;
   spacing?: "default" | "compactTop" | "compactBottom" | "compactBoth";
+  provider?: string;
 }
 
 export const assistantMessageStylesheet = StyleSheet.create((theme) => ({
@@ -1491,9 +1493,11 @@ export const AssistantMessage = memo(function AssistantMessage({
   client,
   disableOuterSpacing,
   spacing = "default",
+  provider,
 }: AssistantMessageProps) {
   const { settings: appSettings } = useAppSettings();
   const isClaudeDesktop = appSettings.layoutMode === "claude-desktop";
+  const AvatarIcon = useMemo(() => (provider ? getProviderIcon(provider) : Sparkles), [provider]);
   const [messageHovered, setMessageHovered] = useState(false);
   const [copyHovered, setCopyHovered] = useState(false);
   const resolvedDisableOuterSpacing = useDisableOuterSpacing(
@@ -1797,7 +1801,7 @@ export const AssistantMessage = memo(function AssistantMessage({
         {isClaudeDesktop ? (
           <>
             <View style={assistantMessageStylesheet.avatar}>
-              <Sparkles size={14} color="#fff" />
+              <AvatarIcon size={14} color="#fff" />
             </View>
             <View style={assistantMessageStylesheet.avatarContent}>{renderedBlocks}</View>
           </>

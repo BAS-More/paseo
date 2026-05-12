@@ -1,5 +1,7 @@
 import type { WorkspaceTabDescriptor } from "@/screens/workspace/workspace-tabs-types";
 import { encodeFilePathForPathSegment } from "@/utils/host-routes";
+import { formatShortcut } from "@/utils/format-shortcut";
+import { getShortcutOs } from "@/utils/shortcut-platform";
 
 export type WorkspaceTabMenuSurface = "desktop" | "mobile";
 
@@ -193,6 +195,7 @@ export function buildWorkspaceTabMenuEntries(
     key: "close",
     label: "Close",
     icon: "x",
+    hint: formatShortcut(["mod", "W"], getShortcutOs()),
     testID: `${menuTestIDBase}-close`,
     onSelect: () => {
       void onCloseTab(tab.tabId);

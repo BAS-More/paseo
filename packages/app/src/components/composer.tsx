@@ -30,6 +30,7 @@ import {
 } from "./agent-status-bar";
 import { ContextWindowMeter } from "./context-window-meter";
 import { useImageAttachmentPicker } from "@/hooks/use-image-attachment-picker";
+import * as Clipboard from "expo-clipboard";
 import { useSessionStore } from "@/stores/session-store";
 import {
   MessageInput,
@@ -381,6 +382,22 @@ interface DispatchComposerKeyboardActionArgs {
   isConnected: boolean;
   handleCancelAgent: () => void;
   focusMessageInputForKeyboardAction: () => void;
+  serverId: string;
+  agentId: string;
+}
+
+function copyLastAssistantResponse(serverId: string, agentId: string): boolean {
+  const session = useSessionStore.getState().sessions[serverId];
+  const tail = session?.agentStreamTail?.get(agentId);
+  if (!tail) return false;
+  for (let i = tail.length - 1; i >= 0; i -= 1) {
+    const item = tail[i];
+    if (item?.kind === "assistant_message" && item.text.trim()) {
+      void Clipboard.setStringAsync(item.text);
+      return true;
+    }
+  }
+  return false;
 }
 
 function dispatchComposerKeyboardAction(args: DispatchComposerKeyboardActionArgs): boolean {
@@ -393,8 +410,14 @@ function dispatchComposerKeyboardAction(args: DispatchComposerKeyboardActionArgs
     isConnected,
     handleCancelAgent,
     focusMessageInputForKeyboardAction,
+    serverId,
+    agentId,
   } = args;
   if (!isPaneFocused) return false;
+
+  if (action.id === "agent.copy-last-response") {
+    return copyLastAssistantResponse(serverId, agentId);
+  }
 
   if (action.id === "agent.interrupt") {
     if (messageInputRef.current?.runKeyboardAction("dictation-cancel")) return true;
@@ -1198,6 +1221,8 @@ export function Composer({
         isConnected,
         handleCancelAgent,
         focusMessageInputForKeyboardAction,
+        serverId,
+        agentId,
       }),
     [
       focusMessageInputForKeyboardAction,
@@ -1205,6 +1230,8 @@ export function Composer({
       isAgentRunning,
       isCancellingAgent,
       isConnected,
+      serverId,
+      agentId,
       isPaneFocused,
     ],
   );
@@ -1213,6 +1240,7 @@ export function Composer({
     handlerId: keyboardHandlerIdRef.current,
     actions: [
       "agent.interrupt",
+      "agent.copy-last-response",
       "message-input.focus",
       "message-input.send",
       "message-input.dictation-toggle",

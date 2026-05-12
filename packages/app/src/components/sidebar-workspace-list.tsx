@@ -50,6 +50,7 @@ import {
   SquareTerminal,
   Monitor,
   MoreVertical,
+  Pencil,
   Plus,
   Trash2,
 } from "lucide-react-native";
@@ -112,6 +113,7 @@ import {
   markWorkspaceArchivePending,
 } from "@/contexts/session-workspace-upserts";
 import { openExternalUrl } from "@/utils/open-external-url";
+import { useAppSettings } from "@/hooks/use-settings";
 import {
   requireWorkspaceExecutionDirectory,
   resolveWorkspaceMapKeyByIdentity,
@@ -178,6 +180,7 @@ const ThemedFolderPlus = withUnistyles(FolderPlus);
 const ThemedGlobe = withUnistyles(Globe);
 const ThemedSquareTerminal = withUnistyles(SquareTerminal);
 const ThemedMoreVertical = withUnistyles(MoreVertical);
+const ThemedPencil = withUnistyles(Pencil);
 const ThemedTrash2 = withUnistyles(Trash2);
 const ThemedSettings = withUnistyles(Settings);
 const ThemedCopy = withUnistyles(Copy);
@@ -273,6 +276,7 @@ interface WorkspaceRowInnerProps {
   onCopyPath?: () => void;
   archiveShortcutKeys?: ShortcutKey[][] | null;
   onRename?: (newName: string) => void;
+  onDelete?: () => void;
 }
 
 function getWorkspaceArchiveStatus(
@@ -607,6 +611,8 @@ const copyLeadingIcon = <ThemedCopy size={14} uniProps={foregroundMutedColorMapp
 const pinLeadingIcon = <ThemedPin size={14} uniProps={foregroundMutedColorMapping} />;
 const unpinLeadingIcon = <ThemedPinOff size={14} uniProps={foregroundMutedColorMapping} />;
 const archiveLeadingIcon = <ThemedArchive size={14} uniProps={foregroundMutedColorMapping} />;
+const pencilLeadingIcon = <ThemedPencil size={14} uniProps={foregroundMutedColorMapping} />;
+const deleteLeadingIcon = <ThemedTrash2 size={14} uniProps={redColorMapping} />;
 
 function renderKebabTriggerIcon({ hovered }: { hovered?: boolean }) {
   return (
@@ -682,6 +688,8 @@ function WorkspaceRowRightGroup({
   archivePendingLabel,
   archiveShortcutKeys,
   onArchive,
+  onRename,
+  onDelete,
   onCopyBranchName,
   onCopyPath,
 }: {
@@ -700,6 +708,8 @@ function WorkspaceRowRightGroup({
   archivePendingLabel?: string;
   archiveShortcutKeys?: ShortcutKey[][] | null;
   onArchive?: () => void;
+  onRename?: () => void;
+  onDelete?: () => void;
   onCopyBranchName?: () => void;
   onCopyPath?: () => void;
 }) {
@@ -723,6 +733,8 @@ function WorkspaceRowRightGroup({
           onTogglePin={onTogglePin}
           onCopyPath={onCopyPath}
           onCopyBranchName={onCopyBranchName}
+          onRename={onRename}
+          onDelete={onDelete}
           onArchive={onArchive}
           archiveLabel={archiveLabel}
           archiveStatus={archiveStatus}
@@ -751,6 +763,8 @@ function WorkspaceKebabMenu({
   onTogglePin,
   onCopyPath,
   onCopyBranchName,
+  onRename,
+  onDelete,
   onArchive,
   archiveLabel,
   archiveStatus,
@@ -762,6 +776,8 @@ function WorkspaceKebabMenu({
   onTogglePin: () => void;
   onCopyPath?: () => void;
   onCopyBranchName?: () => void;
+  onRename?: () => void;
+  onDelete?: () => void;
   onArchive: () => void;
   archiveLabel?: string;
   archiveStatus?: "idle" | "pending" | "success";
@@ -809,6 +825,15 @@ function WorkspaceKebabMenu({
         >
           {isPinned ? "Unpin" : "Pin"}
         </DropdownMenuItem>
+        {onRename ? (
+          <DropdownMenuItem
+            testID={`sidebar-workspace-menu-rename-${workspaceKey}`}
+            leading={pencilLeadingIcon}
+            onSelect={onRename}
+          >
+            Rename
+          </DropdownMenuItem>
+        ) : null}
         <DropdownMenuItem
           testID={`sidebar-workspace-menu-archive-${workspaceKey}`}
           leading={archiveLeadingIcon}
@@ -819,6 +844,16 @@ function WorkspaceKebabMenu({
         >
           {archiveLabel ?? "Archive"}
         </DropdownMenuItem>
+        {onDelete ? (
+          <DropdownMenuItem
+            testID={`sidebar-workspace-menu-delete-${workspaceKey}`}
+            leading={deleteLeadingIcon}
+            onSelect={onDelete}
+            destructive
+          >
+            Delete
+          </DropdownMenuItem>
+        ) : null}
       </DropdownMenuContent>
     </DropdownMenu>
   );
@@ -1225,6 +1260,8 @@ function ProjectHeaderRow({
   removeProjectStatus = "idle",
   dragHandleProps,
 }: ProjectHeaderRowProps) {
+  const { settings: appSettings } = useAppSettings();
+  const isClaudeDesktop = appSettings.layoutMode === "claude-desktop";
   const [isHovered, setIsHovered] = useState(false);
   const isMobileBreakpoint = useIsCompactFormFactor();
   const handleBeginWorkspaceSetup = useCallback(() => {
@@ -1260,10 +1297,11 @@ function ProjectHeaderRow({
       styles.projectRow,
       isDragging && styles.projectRowDragging,
       selected && styles.sidebarRowSelected,
+      selected && isClaudeDesktop && styles.sidebarRowSelectedAccent,
       isHovered && styles.projectRowHovered,
       pressed && styles.projectRowPressed,
     ],
-    [isDragging, selected, isHovered],
+    [isDragging, selected, isHovered, isClaudeDesktop],
   );
 
   const rowChildren = (
@@ -1371,8 +1409,11 @@ function WorkspaceRowInner({
   onCopyPath,
   archiveShortcutKeys,
   onRename,
+  onDelete,
 }: WorkspaceRowInnerProps) {
   const _isCompact = useIsCompactFormFactor();
+  const { settings: appSettings } = useAppSettings();
+  const isClaudeDesktop = appSettings.layoutMode === "claude-desktop";
   const [isHovered, setIsHovered] = useState(false);
   const [isRenaming, setIsRenaming] = useState(false);
   const [renameText, setRenameText] = useState("");
@@ -1401,6 +1442,13 @@ function WorkspaceRowInner({
 
   const handleDoubleClick = useCallback(() => {
     if (!onRename || platformIsNative) return;
+    setRenameText(workspace.name);
+    setIsRenaming(true);
+    setTimeout(() => renameInputRef.current?.focus(), 0);
+  }, [onRename, workspace.name]);
+
+  const handleMenuRename = useCallback(() => {
+    if (!onRename) return;
     setRenameText(workspace.name);
     setIsRenaming(true);
     setTimeout(() => renameInputRef.current?.focus(), 0);
@@ -1437,10 +1485,11 @@ function WorkspaceRowInner({
       styles.workspaceRow,
       isDragging && styles.workspaceRowDragging,
       selected && styles.sidebarRowSelected,
+      selected && isClaudeDesktop && styles.sidebarRowSelectedAccent,
       isHovered && styles.workspaceRowHovered,
       pressed && styles.workspaceRowPressed,
     ],
-    [isDragging, selected, isHovered],
+    [isDragging, selected, isHovered, isClaudeDesktop],
   );
 
   const isDesktop = !isTouchPlatform;
@@ -1525,6 +1574,8 @@ function WorkspaceRowInner({
               archivePendingLabel={archivePendingLabel}
               archiveShortcutKeys={archiveShortcutKeys}
               onArchive={onArchive}
+              onRename={onRename ? handleMenuRename : undefined}
+              onDelete={onDelete}
               onCopyBranchName={onCopyBranchName}
               onCopyPath={onCopyPath}
             />
@@ -1720,6 +1771,25 @@ function WorkspaceRowWithMenu({
     [toast, workspace.serverId, workspace.workspaceId],
   );
 
+  const handleDelete = useCallback(() => {
+    void (async () => {
+      const confirmed = await confirmDialog({
+        title: "Delete chat?",
+        message: `Delete "${workspace.name}"? This cannot be undone.`,
+        confirmLabel: "Delete",
+        cancelLabel: "Cancel",
+        destructive: true,
+      });
+      if (!confirmed) return;
+
+      if (isWorktree) {
+        handleArchiveWorktree();
+      } else {
+        handleArchiveWorkspace();
+      }
+    })();
+  }, [handleArchiveWorktree, handleArchiveWorkspace, isWorktree, workspace.name]);
+
   const archiveShortcutKeys = useShortcutKeys("archive-worktree");
 
   useKeyboardActionHandler({
@@ -1760,6 +1830,7 @@ function WorkspaceRowWithMenu({
       isPinned={isPinned}
       onTogglePin={handleTogglePin}
       onRename={handleRename}
+      onDelete={handleDelete}
     />
   );
 }
@@ -2920,6 +2991,10 @@ const styles = StyleSheet.create((theme) => ({
   },
   sidebarRowSelected: {
     backgroundColor: theme.colors.surfaceSidebarHover,
+  },
+  sidebarRowSelectedAccent: {
+    borderLeftWidth: 3,
+    borderLeftColor: theme.colors.accent,
   },
   workspaceRowContainer: {
     position: "relative",

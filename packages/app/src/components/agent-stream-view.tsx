@@ -209,6 +209,12 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
     const resolvedServerId = serverId ?? agent.serverId ?? "";
 
     const client = useSessionStore((state) => state.sessions[resolvedServerId]?.client ?? null);
+    const agentProvider = useSessionStore((state) => {
+      const session = state.sessions[resolvedServerId];
+      const agentEntry =
+        session?.agents?.get(agentId) ?? session?.agentDetails?.get(agentId) ?? null;
+      return agentEntry?.provider ?? "claude";
+    });
     const streamHead = useSessionStore((state) =>
       state.sessions[resolvedServerId]?.agentStreamHead?.get(agentId),
     );
@@ -474,10 +480,11 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
             serverId={serverId}
             client={client}
             spacing={spacing}
+            provider={agentProvider}
           />
         );
       },
-      [handleInlinePathPress, streamRenderStrategy, workspaceRoot, serverId, client],
+      [handleInlinePathPress, streamRenderStrategy, workspaceRoot, serverId, client, agentProvider],
     );
 
     const renderThoughtItem = useCallback(
