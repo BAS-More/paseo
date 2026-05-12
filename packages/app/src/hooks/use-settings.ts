@@ -82,6 +82,9 @@ export function useAppSettings(): UseAppSettingsReturn {
         const next = { ...prev, ...updates };
         queryClient.setQueryData<AppSettings>(APP_SETTINGS_QUERY_KEY, next);
         await AsyncStorage.setItem(APP_SETTINGS_KEY, JSON.stringify(next));
+        if (updates.layoutMode) {
+          syncLayoutModeToBackend(updates.layoutMode);
+        }
       } catch (err) {
         console.error("[AppSettings] Failed to save settings:", err);
         throw err;
@@ -184,6 +187,23 @@ export async function persistAppSettings(updates: Partial<AppSettings>): Promise
   const next = { ...current, ...updates };
   appQueryClient.setQueryData<AppSettings>(APP_SETTINGS_QUERY_KEY, next);
   await AsyncStorage.setItem(APP_SETTINGS_KEY, JSON.stringify(next));
+}
+
+/**
+ * Fire-and-forget sync of layoutMode to Soifer Backend so the preference
+ * is available stack-wide (9Router, CrewAI, OCC). Failures are silent —
+ * AsyncStorage remains the source of truth for the frontend.
+ */
+function syncLayoutModeToBackend(layoutMode: LayoutMode): void {
+  void (async () => {
+    try {
+      const { SoiferBackendClient } = await import("@server/server/soifer-backend-client");
+      const client = new SoiferBackendClient();
+      await client.setLayoutMode(layoutMode);
+    } catch {
+      // Soifer Backend may be offline — that's fine
+    }
+  })();
 }
 
 export async function loadAppSettingsFromStorage(): Promise<AppSettings> {

@@ -2426,6 +2426,30 @@ export class Session {
     });
   }
 
+  private syncRenameToSoifer(cwd: string, displayName: string): void {
+    void (async () => {
+      try {
+        const { SoiferBackendClient } = await import("./soifer-backend-client.js");
+        const client = new SoiferBackendClient();
+        await client.renameProjectByPath(cwd, displayName);
+      } catch {
+        // Soifer Backend may be offline — fire-and-forget
+      }
+    })();
+  }
+
+  private syncArchiveToSoifer(cwd: string): void {
+    void (async () => {
+      try {
+        const { SoiferBackendClient } = await import("./soifer-backend-client.js");
+        const client = new SoiferBackendClient();
+        await client.archiveProjectByPath(cwd, true);
+      } catch {
+        // Soifer Backend may be offline — fire-and-forget
+      }
+    })();
+  }
+
   public resetPeakInflight(): void {
     this.peakInflightRequests = this.inflightRequests;
   }
@@ -7344,6 +7368,7 @@ export class Session {
           error: null,
         },
       });
+      this.syncRenameToSoifer(existing.cwd, request.displayName);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Failed to rename workspace";
       this.sessionLogger.error(
@@ -7385,6 +7410,7 @@ export class Session {
           error: null,
         },
       });
+      this.syncArchiveToSoifer(existing.cwd);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Failed to archive workspace";
       this.sessionLogger.error(
