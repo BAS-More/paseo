@@ -302,3 +302,5 @@ jobs:
           PASEO_VOICE_MODE_ENABLED: "0"
           PASEO_CLI_TEST_SHARD: ${{ matrix.shard }}
           PASEO_CLI_TEST_SHARD_TOTAL: "3"
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
