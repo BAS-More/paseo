@@ -1,6 +1,9 @@
 import { DaemonClient } from "../packages/server/src/client/daemon-client.js";
-import { buildRelayWebSocketUrl } from "../packages/server/src/shared/daemon-endpoints.js";
-import { buildDaemonWebSocketUrl } from "../packages/server/src/shared/daemon-endpoints.js";
+import {
+  buildDaemonWebSocketUrl,
+  buildRelayWebSocketUrl,
+  shouldUseTlsForDefaultHostedRelay,
+} from "../packages/server/src/shared/daemon-endpoints.js";
 
 const OFFER = {
   serverId: "srv_ETXtcjYRGrCI",
@@ -86,24 +89,27 @@ async function measurePings(
 async function main() {
   console.log("=== Relay Latency Measurement ===\n");
 
-  // Measure direct connection
+  // Measure direct connection (localhost — no TLS)
   console.log("Connecting direct...");
   const directClient = await connectClient("Direct", {
-    url: buildDaemonWebSocketUrl(DIRECT_ENDPOINT),
+    url: buildDaemonWebSocketUrl(DIRECT_ENDPOINT, { useTls: false }),
+    clientId: "measure-relay-latency:direct",
   });
 
   await measurePings("Direct (localhost:6767)", directClient, PING_COUNT, WARMUP_COUNT);
 
-  // Measure relay connection
+  // Measure relay connection (TLS inferred from hosted-relay port)
   console.log("\nConnecting via relay...");
   const relayUrl = buildRelayWebSocketUrl({
     endpoint: OFFER.relay.endpoint,
     serverId: OFFER.serverId,
     role: "client",
+    useTls: shouldUseTlsForDefaultHostedRelay(OFFER.relay.endpoint),
   });
 
   const relayClient = await connectClient("Relay", {
     url: relayUrl,
+    clientId: "measure-relay-latency:relay",
     e2ee: {
       enabled: true,
       daemonPublicKeyB64: OFFER.daemonPublicKeyB64,
