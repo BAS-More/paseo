@@ -89,6 +89,92 @@ function resolveRootGhsas(name, vulnerabilities, seen = new Set()) {
   return ids;
 }
 
+function findFirstTitle(via) {
+  if (!Array.isArray(via)) return "";
+  const titleEntry = via.find(
+    (v) => typeof v === "object" && v && typeof v.title === "string" && v.title.length > 0,
+  );
+  return titleEntry ? titleEntry.title : "";
+}
+
+function partitionAllowlist(now) {
+  const active = new Map();
+  const expired = [];
+  for (const entry of ALLOWLIST) {
+    if (Date.parse(entry.expires) < now) {
+      expired.push(entry);
+      continue;
+    }
+    active.set(entry.ghsa, entry);
+  }
+  return { active, expired };
+}
+
+function classifyVulnerabilities(vulns, activeByGhsa) {
+  const failures = [];
+  const allowed = [];
+  const informational = [];
+  for (const [name, vuln] of Object.entries(vulns)) {
+    const severity = typeof vuln.severity === "string" ? vuln.severity : "info";
+    const rootGhsas = resolveRootGhsas(name, vulns);
+    const matched = [...rootGhsas].find((id) => activeByGhsa.has(id));
+    const summary = {
+      package: name,
+      severity,
+      title: findFirstTitle(vuln.via),
+      rootGhsas: [...rootGhsas],
+    };
+    if (matched) {
+      allowed.push({ ...summary, allowedBy: activeByGhsa.get(matched) });
+    } else if (FAILING.has(severity)) {
+      failures.push(summary);
+    } else {
+      informational.push(summary);
+    }
+  }
+  return { failures, allowed, informational };
+}
+
+function reportExpired(expired) {
+  if (expired.length === 0) return;
+  console.error("audit-allowlist: EXPIRED allowlist entries (now failing again):");
+  for (const e of expired) {
+    console.error(`  - ${e.ghsa} (${e.package}): expired ${e.expires} — ${e.reason}`);
+  }
+}
+
+function reportAllowed(allowed) {
+  if (allowed.length === 0) return;
+  console.error(`audit-allowlist: ${allowed.length} finding(s) suppressed by allowlist:`);
+  const byEntry = new Map();
+  for (const item of allowed) {
+    const key = item.allowedBy.ghsa;
+    if (!byEntry.has(key)) byEntry.set(key, { entry: item.allowedBy, pkgs: [] });
+    byEntry.get(key).pkgs.push(item.package);
+  }
+  for (const { entry, pkgs } of byEntry.values()) {
+    console.error(`  - ${entry.ghsa} (${entry.package}): ${pkgs.length} pkg(s)`);
+    console.error(`    reason: ${entry.reason}`);
+  }
+}
+
+function reportInformational(informational) {
+  if (informational.length === 0) return;
+  console.error(`audit-allowlist: ${informational.length} non-failing finding(s):`);
+  for (const item of informational) {
+    console.error(`  - ${item.package} (${item.severity}) ${item.title}`);
+  }
+}
+
+function reportFailures(failures) {
+  if (failures.length === 0) return;
+  console.error(`audit-allowlist: ${failures.length} high/critical finding(s) NOT in allowlist:`);
+  for (const item of failures) {
+    const ghsas = item.rootGhsas.join(", ") || "no GHSA";
+    console.error(`  - ${item.package} (${item.severity}) ${item.title} [${ghsas}]`);
+  }
+}
+
 function main(raw) {
   let parsed;
   try {
@@ -98,80 +184,19 @@ function main(raw) {
     process.exit(2);
   }
 
-  const now = Date.now();
-  const activeByGhsa = new Map();
-  const expired = [];
-  for (const entry of ALLOWLIST) {
-    if (Date.parse(entry.expires) < now) {
-      expired.push(entry);
-      continue;
-    }
-    activeByGhsa.set(entry.ghsa, entry);
-  }
-  if (expired.length > 0) {
-    console.error("audit-allowlist: EXPIRED allowlist entries (now failing again):");
-    for (const e of expired) {
-      console.error(`  - ${e.ghsa} (${e.package}): expired ${e.expires} — ${e.reason}`);
-    }
-  }
+  const { active, expired } = partitionAllowlist(Date.now());
+  reportExpired(expired);
 
-  const vulns = parsed.vulnerabilities ?? {};
-  const failures = [];
-  const allowed = [];
-  const informational = [];
+  const { failures, allowed, informational } = classifyVulnerabilities(
+    parsed.vulnerabilities ?? {},
+    active,
+  );
 
-  for (const [name, vuln] of Object.entries(vulns)) {
-    const severity = typeof vuln.severity === "string" ? vuln.severity : "info";
-    const rootGhsas = resolveRootGhsas(name, vulns);
-    const matched = [...rootGhsas].find((id) => activeByGhsa.has(id));
-
-    const title = Array.isArray(vuln.via)
-      ? vuln.via
-          .map((v) => (typeof v === "object" && v && typeof v.title === "string" ? v.title : ""))
-          .filter(Boolean)[0] ?? ""
-      : "";
-
-    const summary = { package: name, severity, title, rootGhsas: [...rootGhsas] };
-
-    if (matched) {
-      allowed.push({ ...summary, allowedBy: activeByGhsa.get(matched) });
-      continue;
-    }
-    if (FAILING.has(severity)) {
-      failures.push(summary);
-    } else {
-      informational.push(summary);
-    }
-  }
-
-  if (allowed.length > 0) {
-    console.error(`audit-allowlist: ${allowed.length} finding(s) suppressed by allowlist:`);
-    const byEntry = new Map();
-    for (const item of allowed) {
-      const key = item.allowedBy.ghsa;
-      if (!byEntry.has(key)) byEntry.set(key, { entry: item.allowedBy, pkgs: [] });
-      byEntry.get(key).pkgs.push(item.package);
-    }
-    for (const { entry, pkgs } of byEntry.values()) {
-      console.error(`  - ${entry.ghsa} (${entry.package}): ${pkgs.length} pkg(s)`);
-      console.error(`    reason: ${entry.reason}`);
-    }
-  }
-
-  if (informational.length > 0) {
-    console.error(`audit-allowlist: ${informational.length} non-failing finding(s):`);
-    for (const item of informational) {
-      console.error(`  - ${item.package} (${item.severity}) ${item.title}`);
-    }
-  }
+  reportAllowed(allowed);
+  reportInformational(informational);
 
   if (failures.length > 0) {
-    console.error(`audit-allowlist: ${failures.length} high/critical finding(s) NOT in allowlist:`);
-    for (const item of failures) {
-      console.error(
-        `  - ${item.package} (${item.severity}) ${item.title} [${item.rootGhsas.join(", ") || "no GHSA"}]`,
-      );
-    }
+    reportFailures(failures);
     process.exit(1);
   }
 
