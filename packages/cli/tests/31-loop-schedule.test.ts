@@ -29,7 +29,45 @@ function parseJsonStdout(stdout: string): any {
       `No JSON found in stdout (${trimmed.length} chars): ${trimmed.slice(0, 120)}`,
     );
   }
-  return JSON.parse(trimmed.slice(start));
+  const candidate = trimmed.slice(start);
+  try {
+    return JSON.parse(candidate);
+  } catch {
+    // stdout may contain trailing text after the JSON (e.g. log lines from
+    // the daemon supervisor). Walk forward to find where the top-level JSON
+    // object/array closes by tracking brace/bracket depth, ignoring strings.
+    const open = candidate[0];
+    const close = open === "{" ? "}" : "]";
+    let depth = 0;
+    let inString = false;
+    let escaped = false;
+    for (let i = 0; i < candidate.length; i++) {
+      const ch = candidate[i];
+      if (escaped) {
+        escaped = false;
+        continue;
+      }
+      if (ch === "\\") {
+        escaped = true;
+        continue;
+      }
+      if (ch === '"') {
+        inString = !inString;
+        continue;
+      }
+      if (inString) continue;
+      if (ch === open) depth++;
+      else if (ch === close) {
+        depth--;
+        if (depth === 0) {
+          return JSON.parse(candidate.slice(0, i + 1));
+        }
+      }
+    }
+    throw new SyntaxError(
+      `Unbalanced JSON in stdout (${candidate.length} chars): ${candidate.slice(0, 200)}`,
+    );
+  }
 }
 
 console.log("=== Loop And Schedule Command Tests ===\n");
