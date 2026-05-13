@@ -155,6 +155,7 @@ import { findAdjacentPane } from "@/utils/split-navigation";
 import { isAbsolutePath } from "@/utils/path";
 import { useIsCompactFormFactor, useCanRenderDesktopPaneSplits } from "@/constants/layout";
 import { getIsElectron, isNative, isWeb } from "@/constants/platform";
+import { useAppSettings } from "@/hooks/use-settings";
 import { useContainerWidthBelow } from "@/hooks/use-container-width";
 import { buildHostRootRoute, buildSettingsHostRoute } from "@/utils/host-routes";
 
@@ -1363,6 +1364,7 @@ function buildWorkspaceTerminalScopeKey(serverId: string, workspaceId: string): 
   return `${serverId}:${workspaceId}`;
 }
 
+// oxlint-disable-next-line complexity -- layout orchestrator: conditionals are shallow UI branches
 function WorkspaceScreenContent({
   serverId,
   workspaceId,
@@ -1372,6 +1374,21 @@ function WorkspaceScreenContent({
   const toast = useToast();
   const isMobile = useIsCompactFormFactor();
   const isFocusModeEnabled = usePanelStore((state) => state.desktop.focusModeEnabled);
+  const { settings: appSettings } = useAppSettings();
+  const isClaudeDesktop = appSettings.layoutMode === "claude-desktop";
+
+  const claudeDesktopHeaderLeft = useMemo(
+    () => (
+      <>
+        <SidebarMenuToggle />
+        <View style={styles.claudeDesktopHeaderCenter}>
+          <Text style={styles.claudeDesktopSkillsLabel}>Skills</Text>
+          <ThemedEllipsis size={16} uniProps={mutedColorMapping} />
+        </View>
+      </>
+    ),
+    [],
+  );
 
   const normalizedServerId = useMemo(() => trimNonEmpty(decodeSegment(serverId)) ?? "", [serverId]);
 
@@ -3204,42 +3221,49 @@ function WorkspaceScreenContent({
           />
           <View style={styles.threePaneRow}>
             <View style={styles.centerColumn}>
-              {showScreenHeader && (
-                <ScreenHeader
-                  onRowLayout={onHeaderLayout}
-                  left={
-                    <>
-                      <SidebarMenuToggle />
-                      <WorkspaceHeaderTitleBar
-                        isLoading={isWorkspaceHeaderLoading}
-                        title={workspaceHeaderTitle}
-                        subtitle={workspaceHeaderSubtitle}
-                        showSubtitle={shouldShowWorkspaceHeaderSubtitle}
-                        currentBranchName={currentBranchName}
-                        isGitCheckout={isGitCheckout}
-                        normalizedServerId={normalizedServerId}
-                        normalizedWorkspaceId={normalizedWorkspaceId}
-                        showWorkspaceSetup={showWorkspaceSetup}
-                        showCreateBrowserTab={showCreateBrowserTab}
-                        isMobile={isMobile}
-                        createTerminalDisabled={createTerminalDisabled}
-                        menuNewAgentIcon={menuNewAgentIcon}
-                        menuNewTerminalIcon={menuNewTerminalIcon}
-                        menuNewBrowserIcon={MENU_NEW_BROWSER_ICON}
-                        menuCopyIcon={menuCopyIcon}
-                        menuSettingsIcon={menuSettingsIcon}
-                        onCreateDraftTab={handleCreateDraftTab}
-                        onCreateTerminal={handleCreateTerminal}
-                        onCreateBrowser={handleCreateBrowserTab}
-                        onCopyWorkspacePath={handleCopyWorkspacePath}
-                        onCopyBranchName={handleCopyBranchName}
-                        onOpenSetupTab={handleOpenSetupTab}
-                      />
-                    </>
-                  }
-                  right={headerRight}
-                />
-              )}
+              {showScreenHeader &&
+                (isClaudeDesktop ? (
+                  <ScreenHeader
+                    onRowLayout={onHeaderLayout}
+                    left={claudeDesktopHeaderLeft}
+                    borderless
+                  />
+                ) : (
+                  <ScreenHeader
+                    onRowLayout={onHeaderLayout}
+                    left={
+                      <>
+                        <SidebarMenuToggle />
+                        <WorkspaceHeaderTitleBar
+                          isLoading={isWorkspaceHeaderLoading}
+                          title={workspaceHeaderTitle}
+                          subtitle={workspaceHeaderSubtitle}
+                          showSubtitle={shouldShowWorkspaceHeaderSubtitle}
+                          currentBranchName={currentBranchName}
+                          isGitCheckout={isGitCheckout}
+                          normalizedServerId={normalizedServerId}
+                          normalizedWorkspaceId={normalizedWorkspaceId}
+                          showWorkspaceSetup={showWorkspaceSetup}
+                          showCreateBrowserTab={showCreateBrowserTab}
+                          isMobile={isMobile}
+                          createTerminalDisabled={createTerminalDisabled}
+                          menuNewAgentIcon={menuNewAgentIcon}
+                          menuNewTerminalIcon={menuNewTerminalIcon}
+                          menuNewBrowserIcon={MENU_NEW_BROWSER_ICON}
+                          menuCopyIcon={menuCopyIcon}
+                          menuSettingsIcon={menuSettingsIcon}
+                          onCreateDraftTab={handleCreateDraftTab}
+                          onCreateTerminal={handleCreateTerminal}
+                          onCreateBrowser={handleCreateBrowserTab}
+                          onCopyWorkspacePath={handleCopyWorkspacePath}
+                          onCopyBranchName={handleCopyBranchName}
+                          onOpenSetupTab={handleOpenSetupTab}
+                        />
+                      </>
+                    }
+                    right={headerRight}
+                  />
+                ))}
 
               {isMobile ? (
                 <MobileWorkspaceTabSwitcher
@@ -3261,7 +3285,7 @@ function WorkspaceScreenContent({
                 />
               ) : null}
 
-              {shouldRenderDesktopPaneFallback ? (
+              {shouldRenderDesktopPaneFallback && !isClaudeDesktop ? (
                 <WorkspaceDesktopTabsRow
                   paneId={focusedPaneIdOrUndefined}
                   isFocused={isRouteFocused}
@@ -3302,7 +3326,7 @@ function WorkspaceScreenContent({
               </View>
             </View>
 
-            {showExplorerSidebar && workspaceDirectory ? (
+            {showExplorerSidebar && workspaceDirectory && !isClaudeDesktop ? (
               <ExplorerSidebar
                 serverId={normalizedServerId}
                 workspaceId={normalizedWorkspaceId}
@@ -3401,6 +3425,16 @@ const styles = StyleSheet.create((theme) => ({
       xs: theme.spacing[1],
       md: theme.spacing[2],
     },
+  },
+  claudeDesktopHeaderCenter: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: theme.spacing[3],
+  },
+  claudeDesktopSkillsLabel: {
+    color: theme.colors.foregroundMuted,
+    fontSize: theme.fontSize.sm,
+    fontWeight: theme.fontWeight.normal,
   },
   headerActionButton: {
     paddingVertical: theme.spacing[2],
