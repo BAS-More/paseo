@@ -256,8 +256,10 @@ try {
   }
 } finally {
   await ctx.stop();
-  await rm(ctx.paseoHome, { recursive: true, force: true });
-  await rm(ctx.workDir, { recursive: true, force: true });
+  // Brief delay so the daemon's child processes finish writing before cleanup
+  await sleep(500);
+  await rm(ctx.paseoHome, { recursive: true, force: true, maxRetries: 3, retryDelay: 500 });
+  await rm(ctx.workDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 500 });
 }
 
 console.log("=== Loop And Schedule Command Tests Passed ===");
