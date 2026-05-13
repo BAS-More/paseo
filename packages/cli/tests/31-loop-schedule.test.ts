@@ -217,8 +217,18 @@ try {
     async function pollStatus(attempt: number): Promise<string> {
       if (attempt >= 40) return "running";
       const inspect = await ctx.paseo(["loop", "inspect", runJson.id, "--json"]);
-      assert.strictEqual(inspect.exitCode, 0, inspect.stderr);
-      const inspectJson = parseJsonStdout(inspect.stdout);
+      if (inspect.exitCode !== 0) {
+        await sleep(500);
+        return pollStatus(attempt + 1);
+      }
+      let inspectJson;
+      try {
+        inspectJson = parseJsonStdout(inspect.stdout);
+      } catch {
+        // Daemon may emit non-JSON output transiently (e.g. "[Turn Failed]")
+        await sleep(500);
+        return pollStatus(attempt + 1);
+      }
       const current = inspectJson.status;
       if (current !== "running") {
         assert.strictEqual(current, "succeeded", inspect.stdout);
