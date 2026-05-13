@@ -469,17 +469,22 @@ function SidebarFooter({
   handleSettings: () => void;
 }) {
   const newAgentKeys = useShortcutKeys("new-agent");
+  const { settings: footerSettings } = useAppSettings();
+  const isClaudeDesktopFooter = footerSettings.layoutMode === "claude-desktop";
+
   return (
     <View style={styles.sidebarFooter}>
-      <View style={styles.footerHostSlot}>
-        <HostPickerTrigger
-          triggerRef={hostTriggerRef}
-          setIsHostPickerOpen={setIsHostPickerOpen}
-          hostOptionsEmpty={hostOptions.length === 0}
-          hostStatusDotStyle={hostStatusDotStyle}
-          activeHostLabel={activeHostLabel}
-        />
-      </View>
+      {isClaudeDesktopFooter ? null : (
+        <View style={styles.footerHostSlot}>
+          <HostPickerTrigger
+            triggerRef={hostTriggerRef}
+            setIsHostPickerOpen={setIsHostPickerOpen}
+            hostOptionsEmpty={hostOptions.length === 0}
+            hostStatusDotStyle={hostStatusDotStyle}
+            activeHostLabel={activeHostLabel}
+          />
+        </View>
+      )}
       <View style={styles.footerIconRow}>
         <Tooltip delayDuration={300}>
           <TooltipTrigger asChild>
@@ -503,18 +508,20 @@ function SidebarFooter({
           theme={theme}
         />
       </View>
-      <Combobox
-        options={hostOptions}
-        value={activeServerId ?? ""}
-        onSelect={handleHostSelect}
-        renderOption={renderHostOption}
-        searchable={false}
-        title="Switch host"
-        searchPlaceholder="Search hosts..."
-        open={isHostPickerOpen}
-        onOpenChange={setIsHostPickerOpen}
-        anchorRef={hostTriggerRef}
-      />
+      {isClaudeDesktopFooter ? null : (
+        <Combobox
+          options={hostOptions}
+          value={activeServerId ?? ""}
+          onSelect={handleHostSelect}
+          renderOption={renderHostOption}
+          searchable={false}
+          title="Switch host"
+          searchPlaceholder="Search hosts..."
+          open={isHostPickerOpen}
+          onOpenChange={setIsHostPickerOpen}
+          anchorRef={hostTriggerRef}
+        />
+      )}
     </View>
   );
 }

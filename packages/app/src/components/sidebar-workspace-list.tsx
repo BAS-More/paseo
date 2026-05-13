@@ -692,6 +692,7 @@ function WorkspaceRowRightGroup({
   onDelete,
   onCopyBranchName,
   onCopyPath,
+  isClaudeDesktopLayout = false,
 }: {
   workspace: SidebarWorkspaceEntry;
   isHovered: boolean;
@@ -712,11 +713,12 @@ function WorkspaceRowRightGroup({
   onDelete?: () => void;
   onCopyBranchName?: () => void;
   onCopyPath?: () => void;
+  isClaudeDesktopLayout?: boolean;
 }) {
   const showKebab = Boolean(onArchive && (isHovered || isTouchPlatform));
   return (
     <View style={styles.workspaceRowRight}>
-      {showScriptsIcon ? (
+      {showScriptsIcon && !isClaudeDesktopLayout ? (
         <View testID="workspace-globe-icon" accessibilityLabel="Scripts available">
           {hasRunningService ? (
             <ThemedGlobe size={12} uniProps={blueColorMapping} />
@@ -742,7 +744,7 @@ function WorkspaceRowRightGroup({
           archiveShortcutKeys={archiveShortcutKeys}
         />
       ) : null}
-      {!showKebab && workspace.diffStat ? (
+      {!showKebab && workspace.diffStat && !isClaudeDesktopLayout ? (
         <DiffStat
           additions={workspace.diffStat.additions}
           deletions={workspace.diffStat.deletions}
@@ -1531,11 +1533,13 @@ function WorkspaceRowInner({
         >
           <View style={styles.workspaceRowMain}>
             <View style={styles.workspaceRowLeft}>
-              <WorkspaceStatusIndicator
-                bucket={workspace.statusBucket}
-                workspaceKind={workspace.workspaceKind}
-                loading={isArchiving || isCreating}
-              />
+              {isClaudeDesktop ? null : (
+                <WorkspaceStatusIndicator
+                  bucket={workspace.statusBucket}
+                  workspaceKind={workspace.workspaceKind}
+                  loading={isArchiving || isCreating}
+                />
+              )}
               {isRenaming ? (
                 <TextInput
                   ref={renameInputRef}
@@ -1578,9 +1582,10 @@ function WorkspaceRowInner({
               onDelete={onDelete}
               onCopyBranchName={onCopyBranchName}
               onCopyPath={onCopyPath}
+              isClaudeDesktopLayout={isClaudeDesktop}
             />
           </View>
-          {prHint ? (
+          {prHint && !isClaudeDesktop ? (
             <View style={styles.workspacePrBadgeRow}>
               <PrBadge hint={prHint} />
               <ChecksBadge checks={prHint.checks} />
