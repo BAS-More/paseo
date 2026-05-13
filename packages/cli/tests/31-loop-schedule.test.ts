@@ -242,10 +242,20 @@ try {
   }
 } finally {
   await ctx.stop();
-  // Brief delay so the daemon's child processes finish writing before cleanup
-  await sleep(500);
-  await rm(ctx.paseoHome, { recursive: true, force: true, maxRetries: 3, retryDelay: 500 });
-  await rm(ctx.workDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 500 });
+  // Daemon child processes (loop workers) may still be writing after stop()
+  // returns.  Cleanup is best-effort — never let it crash the test.  The
+  // dirs live in /tmp and the OS will reap them regardless.
+  await sleep(1000);
+  try {
+    await rm(ctx.paseoHome, { recursive: true, force: true, maxRetries: 5, retryDelay: 1000 });
+  } catch {
+    /* ENOTEMPTY from lingering child processes — harmless */
+  }
+  try {
+    await rm(ctx.workDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 1000 });
+  } catch {
+    /* best-effort */
+  }
 }
 
 console.log("=== Loop And Schedule Command Tests Passed ===");
