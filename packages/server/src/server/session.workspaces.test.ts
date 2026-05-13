@@ -1772,7 +1772,7 @@ test("subdirectory agents map to an existing parent workspace descriptor", async
   expect(result.entries[0]).toMatchObject({
     id: "ws-repo-subdir",
     status: "done",
-    activityAt: null,
+    activityAt: "2026-03-01T12:00:00.000Z",
   });
 });
 
