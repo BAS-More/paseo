@@ -79,6 +79,12 @@ export function useAppSettings(): UseAppSettingsReturn {
       try {
         const prev =
           queryClient.getQueryData<AppSettings>(APP_SETTINGS_QUERY_KEY) ?? DEFAULT_CLIENT_SETTINGS;
+
+        // Auto-link theme when switching layout mode (unless caller explicitly sets theme)
+        if (updates.layoutMode === "claude-desktop" && updates.theme === undefined) {
+          updates = { ...updates, theme: "claudeLight" };
+        }
+
         const next = { ...prev, ...updates };
         queryClient.setQueryData<AppSettings>(APP_SETTINGS_QUERY_KEY, next);
         await AsyncStorage.setItem(APP_SETTINGS_KEY, JSON.stringify(next));
@@ -211,7 +217,15 @@ export async function loadAppSettingsFromStorage(): Promise<AppSettings> {
     const stored = await AsyncStorage.getItem(APP_SETTINGS_KEY);
     if (stored) {
       const parsed = JSON.parse(stored) as Partial<AppSettings>;
-      return { ...DEFAULT_CLIENT_SETTINGS, ...pickAppSettings(parsed) };
+      const result = { ...DEFAULT_CLIENT_SETTINGS, ...pickAppSettings(parsed) };
+
+      // Migration: auto-link Claude Light theme for existing claude-desktop users
+      if (result.layoutMode === "claude-desktop" && result.theme !== "claudeLight") {
+        result.theme = "claudeLight";
+        await AsyncStorage.setItem(APP_SETTINGS_KEY, JSON.stringify(result));
+      }
+
+      return result;
     }
 
     const legacyStored = await AsyncStorage.getItem(LEGACY_SETTINGS_KEY);
