@@ -224,6 +224,21 @@ jobs:
       - name: Install dependencies
         run: npm install --include=optional
 
+      # Belt-and-suspenders: `npm install --include=optional` sometimes still
+      # leaves the lightningcss platform sibling package empty in cached CI
+      # envs (npm/cli#4828). Without the .node binary metro's web bundler
+      # fails hard with `Cannot find module '../lightningcss.linux-x64-gnu.node'`.
+      # Rebuild forces the postinstall fetch; if the package dir is still
+      # missing, install the sibling explicitly.
+      - name: Ensure lightningcss native binary is present
+        run: |
+          npm rebuild lightningcss || true
+          if [ ! -d node_modules/lightningcss-linux-x64-gnu ]; then
+            echo "::warning::lightningcss-linux-x64-gnu missing after rebuild; installing explicitly"
+            npm install --no-save lightningcss-linux-x64-gnu@1.30.1
+          fi
+          ls node_modules/lightningcss-linux-x64-gnu/ 2>&1 | head -5
+
       - name: Install Playwright browsers
         run: npx playwright install --with-deps chromium
 
@@ -242,6 +257,12 @@ jobs:
       - name: Run Playwright E2E tests
         run: npm run test:e2e --workspace=@bas-more/app
         env:
+          # server-tests passes both auth secrets; playwright was only passing
+          # OPENAI_API_KEY, which left the Claude SDK unauthenticated in agent
+          # fallback chains. The unauth response is an error payload that fails
+          # the structured-agent JSON schema check, cascading to
+          # `Agent response did not match the required JSON schema`.
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
 
       - name: Upload test artifacts
