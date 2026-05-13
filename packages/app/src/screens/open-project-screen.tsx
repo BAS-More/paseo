@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
-import { View, Text } from "react-native";
+import { Pressable, View, Text } from "react-native";
 import { StyleSheet } from "react-native-unistyles";
-import { FolderOpen, Smartphone } from "lucide-react-native";
+import { FolderOpen, Smartphone, Sparkles } from "lucide-react-native";
 import { PaseoLogo } from "@/components/icons/paseo-logo";
 import { Button } from "@/components/ui/button";
 import { MenuHeader } from "@/components/headers/menu-header";
@@ -18,6 +18,33 @@ import {
 import { TitlebarDragRegion } from "@/components/desktop/titlebar-drag-region";
 import { useIsLocalDaemon } from "@/hooks/use-is-local-daemon";
 import { PairDeviceModal } from "@/desktop/components/pair-device-modal";
+import { useAppSettings } from "@/hooks/use-settings";
+
+const CLAUDE_SUGGESTED_PROMPTS = [
+  "Summarize this project",
+  "Find and fix bugs",
+  "Write tests for recent changes",
+];
+
+function ClaudePromptChip({
+  prompt,
+  onPress,
+}: {
+  prompt: string;
+  onPress: (prompt: string) => void;
+}) {
+  const handlePress = useCallback(() => onPress(prompt), [onPress, prompt]);
+  return (
+    <Pressable
+      style={claudeStyles.chip}
+      onPress={handlePress}
+      accessibilityRole="button"
+      accessibilityLabel={prompt}
+    >
+      <Text style={claudeStyles.chipText}>{prompt}</Text>
+    </Pressable>
+  );
+}
 
 export function OpenProjectScreen({ serverId }: { serverId: string }) {
   const openDesktopAgentList = usePanelStore((s) => s.openDesktopAgentList);
@@ -26,6 +53,8 @@ export function OpenProjectScreen({ serverId }: { serverId: string }) {
   const hasProjects = useHasWorkspaces(serverId);
   const isLocalDaemon = useIsLocalDaemon(serverId);
   const [isPairDeviceOpen, setIsPairDeviceOpen] = useState(false);
+  const { settings: appSettings } = useAppSettings();
+  const isClaudeDesktop = appSettings.layoutMode === "claude-desktop";
 
   const isCompactLayout = useIsCompactFormFactor();
 
@@ -41,6 +70,29 @@ export function OpenProjectScreen({ serverId }: { serverId: string }) {
 
   const handleOpenPairDevice = useCallback(() => setIsPairDeviceOpen(true), []);
   const handleClosePairDevice = useCallback(() => setIsPairDeviceOpen(false), []);
+
+  // no-op for now — chips are visual affordance, not wired to send
+  const handleSuggestedPrompt = useCallback((_prompt: string) => {}, []);
+
+  if (isClaudeDesktop) {
+    return (
+      <View style={styles.container}>
+        <MenuHeader borderless />
+        <View style={styles.content}>
+          <TitlebarDragRegion />
+          <View style={claudeStyles.welcomeAvatar}>
+            <Sparkles size={28} color="#fff" />
+          </View>
+          <Text style={claudeStyles.welcomeTitle}>How can I help you today?</Text>
+          <View style={claudeStyles.promptChips}>
+            {CLAUDE_SUGGESTED_PROMPTS.map((prompt) => (
+              <ClaudePromptChip key={prompt} prompt={prompt} onPress={handleSuggestedPrompt} />
+            ))}
+          </View>
+        </View>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>
@@ -129,5 +181,42 @@ const styles = StyleSheet.create((theme) => ({
     color: theme.colors.foregroundMuted,
     fontSize: theme.fontSize.base,
     textAlign: "center",
+  },
+}));
+
+const claudeStyles = StyleSheet.create((theme) => ({
+  welcomeAvatar: {
+    width: 48,
+    height: 48,
+    borderRadius: theme.borderRadius.full,
+    backgroundColor: theme.colors.accent,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: theme.spacing[4],
+  },
+  welcomeTitle: {
+    color: theme.colors.foreground,
+    fontSize: theme.fontSize["2xl"],
+    fontWeight: "500",
+    textAlign: "center",
+  },
+  promptChips: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    justifyContent: "center",
+    gap: theme.spacing[2],
+    marginTop: theme.spacing[4],
+  },
+  chip: {
+    paddingHorizontal: theme.spacing[4],
+    paddingVertical: theme.spacing[2],
+    borderRadius: theme.borderRadius.full,
+    borderWidth: theme.borderWidth[1],
+    borderColor: theme.colors.border,
+    backgroundColor: theme.colors.surface1,
+  },
+  chipText: {
+    color: theme.colors.foreground,
+    fontSize: theme.fontSize.sm,
   },
 }));

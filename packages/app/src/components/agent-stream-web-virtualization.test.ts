@@ -61,6 +61,7 @@ function thought(id: string, seed: number): StreamItem {
     text: id,
     status: "ready",
     timestamp: createTimestamp(seed),
+    startedAt: createTimestamp(seed),
   };
 }
 

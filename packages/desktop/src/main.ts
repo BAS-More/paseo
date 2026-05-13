@@ -51,6 +51,11 @@ import {
   stopDesktopManagedDaemonOnQuitIfNeeded,
 } from "./daemon/quit-lifecycle.js";
 import { autoUpdateSkillsIfInstalled } from "./integrations/integrations-manager.js";
+import {
+  registerStackServiceManager,
+  startStackServices,
+  stopStackServices,
+} from "./daemon/stack-service-manager.js";
 
 const DEV_SERVER_URL = process.env.EXPO_DEV_URL ?? "http://localhost:8081";
 const APP_SCHEME = "paseo";
@@ -658,6 +663,7 @@ async function bootstrap(): Promise<void> {
     return;
   }
   registerDaemonManager();
+  registerStackServiceManager();
   registerWindowManager();
   registerDialogHandlers();
   registerNotificationHandlers();
@@ -665,6 +671,10 @@ async function bootstrap(): Promise<void> {
 
   void autoUpdateSkillsIfInstalled().catch((error) => {
     log.warn("[integrations] auto-update skills failed", error);
+  });
+
+  void startStackServices().catch((error) => {
+    log.error("[stack] failed to start stack services", error);
   });
 
   await createMainWindow();
@@ -693,13 +703,15 @@ app.on(
   createBeforeQuitHandler({
     app,
     closeTransportSessions: closeAllTransportSessions,
-    stopDesktopManagedDaemonIfNeeded: () =>
-      stopDesktopManagedDaemonOnQuitIfNeeded({
+    stopDesktopManagedDaemonIfNeeded: async () => {
+      stopStackServices();
+      return stopDesktopManagedDaemonOnQuitIfNeeded({
         settingsStore: getDesktopSettingsStore(),
         isDesktopManagedDaemonRunning: isDesktopManagedDaemonRunningSync,
         stopDaemon: stopDesktopDaemonViaCli,
         showShutdownFeedback: showDaemonShutdownDialog,
-      }),
+      });
+    },
     onStopError: (error) => {
       log.error("[desktop daemon] failed to stop managed daemon on quit", error);
     },

@@ -83,7 +83,8 @@ describe("use-settings layoutMode", () => {
     const mod = await import("./use-settings");
     const result = await mod.loadSettingsFromStorage();
 
-    expect(result.theme).toBe("dark");
+    // claude-desktop layout auto-migrates theme to claudeLight on load
+    expect(result.theme).toBe("claudeLight");
     expect(result.layoutMode).toBe("claude-desktop");
     expect(result.sendBehavior).toBe("queue");
   });

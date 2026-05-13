@@ -882,6 +882,32 @@ const SHORTCUT_BINDINGS: readonly ShortcutBinding[] = [
       keys: ["Esc"],
     },
   },
+
+  // --- Copy last response ---
+  {
+    id: "copy-last-response-cmd-shift-c-mac",
+    action: "agent.copy-last-response",
+    combo: "Cmd+Shift+C",
+    when: { mac: true, commandCenter: false, terminal: false },
+    help: {
+      id: "copy-last-response",
+      section: "agent-input",
+      label: "Copy last response",
+      keys: ["mod", "shift", "C"],
+    },
+  },
+  {
+    id: "copy-last-response-ctrl-shift-c-non-mac",
+    action: "agent.copy-last-response",
+    combo: "Ctrl+Shift+C",
+    when: { mac: false, commandCenter: false, terminal: false },
+    help: {
+      id: "copy-last-response",
+      section: "agent-input",
+      label: "Copy last response",
+      keys: ["mod", "shift", "C"],
+    },
+  },
   {
     id: "message-input-send-enter",
     action: "message-input.action",

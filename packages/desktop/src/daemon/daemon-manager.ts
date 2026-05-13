@@ -200,7 +200,13 @@ export async function resolveDesktopDaemonStatus(): Promise<DesktopDaemonStatus>
       unknown
     >;
     const localDaemon = typeof payload.localDaemon === "string" ? payload.localDaemon : "stopped";
-    const running = localDaemon === "running";
+    // The CLI probe may report "unresponsive" when the daemon PID is alive
+    // but fetch_agents times out. Treat it as running if the daemon is
+    // reachable over WebSocket or the PID is verified alive.
+    const running =
+      localDaemon === "running" ||
+      (localDaemon === "unresponsive" &&
+        (payload.connectedDaemon === "reachable" || typeof payload.pid === "number"));
 
     return {
       serverId: typeof payload.serverId === "string" ? payload.serverId : "",

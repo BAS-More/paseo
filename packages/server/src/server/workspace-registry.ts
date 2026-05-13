@@ -139,7 +139,13 @@ class FileBackedRegistry<TRecord extends RegistryRecord> {
     this.cache.clear();
     try {
       const raw = await fs.readFile(this.filePath, "utf8");
-      const parsed = z.array(this.schema).parse(JSON.parse(raw));
+      const rows = JSON.parse(raw) as unknown[];
+      for (const row of rows) {
+        if (row && typeof row === "object" && !("archivedAt" in row)) {
+          (row as Record<string, unknown>).archivedAt = null;
+        }
+      }
+      const parsed = z.array(this.schema).parse(rows);
       for (const record of parsed) {
         this.cache.set(this.getId(record), record);
       }

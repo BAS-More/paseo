@@ -1,11 +1,13 @@
 import { router, usePathname } from "expo-router";
 import {
   FolderPlus,
+  Globe,
   MessagesSquare,
   PanelLeftOpen,
   Plus,
   Search,
   Settings,
+  SquarePen,
 } from "lucide-react-native";
 import {
   type Dispatch,
@@ -469,6 +471,13 @@ function SidebarFooter({
   handleSettings: () => void;
 }) {
   const newAgentKeys = useShortcutKeys("new-agent");
+  const { settings: footerSettings } = useAppSettings();
+  const isClaudeDesktopFooter = footerSettings.layoutMode === "claude-desktop";
+
+  if (isClaudeDesktopFooter) {
+    return null;
+  }
+
   return (
     <View style={styles.sidebarFooter}>
       <View style={styles.footerHostSlot}>
@@ -1009,6 +1018,20 @@ function DesktopSidebar({
             isActive={isSessionsActive}
             testID="sidebar-sessions"
           />
+          {isClaudeDesktop ? (
+            <View style={styles.claudeDesktopHeaderActions}>
+              <Pressable
+                onPress={handleOpenProject}
+                style={styles.claudeDesktopHeaderIcon}
+                accessibilityLabel="New session"
+              >
+                <SquarePen size={14} color={theme.colors.foregroundMuted} />
+              </Pressable>
+              <Pressable style={styles.claudeDesktopHeaderIcon} accessibilityLabel="Web">
+                <Globe size={14} color={theme.colors.foregroundMuted} />
+              </Pressable>
+            </View>
+          ) : null}
         </View>
 
         {isClaudeDesktop ? (
@@ -1050,7 +1073,7 @@ function DesktopSidebar({
           />
         )}
 
-        <SidebarCalloutSlot />
+        {isClaudeDesktop ? null : <SidebarCalloutSlot />}
 
         <SidebarFooter
           theme={theme}
@@ -1148,6 +1171,22 @@ const styles = StyleSheet.create((theme) => ({
   },
   sidebarDragArea: {
     position: "relative",
+  },
+  claudeDesktopHeaderActions: {
+    position: "absolute",
+    right: theme.spacing[3],
+    top: 0,
+    bottom: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: theme.spacing[1],
+  },
+  claudeDesktopHeaderIcon: {
+    width: 24,
+    height: 24,
+    borderRadius: theme.borderRadius.md,
+    alignItems: "center",
+    justifyContent: "center",
   },
   searchContainer: {
     flexDirection: "row",
