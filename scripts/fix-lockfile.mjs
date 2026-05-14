@@ -10,7 +10,8 @@
 // like Nix that need every entry to have a resolved URL + integrity hash
 // so they can pre-fetch all tarballs in a sandbox with no network access.
 //
-// This script finds incomplete entries and fills them in using `npm view`.
+// This script finds incomplete entries and fills them in by querying the
+// npm registry directly (concurrent HTTP, much faster than `npm view`).
 // It's idempotent — running it on an already-complete lockfile is a no-op.
 //
 // See also: https://github.com/npm/cli/issues/4263
@@ -21,12 +22,13 @@
 //   node scripts/fix-lockfile.mjs path/to/package-lock.json
 
 import fs from "fs";
-import { execSync } from "child_process";
+
+const CONCURRENCY = 30;
+const REGISTRY = "https://registry.npmjs.org";
 
 const lockPath = process.argv[2] || "package-lock.json";
 const lock = JSON.parse(fs.readFileSync(lockPath, "utf8"));
 
-// Collect workspace package roots (local packages, not from npm)
 const workspaceRoots = new Set();
 for (const [key, val] of Object.entries(lock.packages || {})) {
   if (val.link) {
@@ -34,43 +36,76 @@ for (const [key, val] of Object.entries(lock.packages || {})) {
   }
 }
 
-let fixed = 0;
-
+const toFix = [];
 for (const [key, val] of Object.entries(lock.packages || {})) {
   if (
-    !key || // root package
-    key.startsWith("node_modules/") || // top-level (already has resolved)
-    val.link || // workspace link entry
-    (val.resolved && val.integrity) || // already complete
-    !val.version || // no version to look up
-    workspaceRoots.has(key) // workspace package root (local, not on npm)
+    !key ||
+    val.link ||
+    (val.resolved && val.integrity) ||
+    !val.version ||
+    workspaceRoots.has(key)
   )
     continue;
+  const pkgName = val.name || key.replace(/.*node_modules\//, "");
+  toFix.push({ key, val, pkgName, version: val.version });
+}
 
-  const pkgName = key.replace(/.*node_modules\//, "");
-  const version = val.version;
+if (toFix.length === 0) {
+  console.log("Lockfile is already complete");
+  process.exit(0);
+}
 
+console.log(`Fixing ${toFix.length} lockfile entries...`);
+
+const versionCache = new Map();
+let fixed = 0;
+let errors = 0;
+
+async function fetchDist(pkgName, version) {
+  const cacheKey = `${pkgName}@${version}`;
+  if (versionCache.has(cacheKey)) return versionCache.get(cacheKey);
+
+  const url = `${REGISTRY}/${pkgName}/${version}`;
   try {
-    const info = JSON.parse(
-      execSync(`npm view ${pkgName}@${version} --json dist`, {
-        encoding: "utf8",
-        stdio: ["pipe", "pipe", "pipe"],
-      }),
-    );
-    if (info.tarball && info.integrity) {
-      val.resolved = info.tarball;
-      val.integrity = info.integrity;
-      fixed++;
+    const res = await fetch(url);
+    if (!res.ok) {
+      versionCache.set(cacheKey, null);
+      return null;
     }
+    const data = await res.json();
+    const dist = data.dist || null;
+    versionCache.set(cacheKey, dist);
+    return dist;
   } catch {
-    console.error(`Warning: could not fetch info for ${pkgName}@${version}`);
+    versionCache.set(cacheKey, null);
+    return null;
+  }
+}
+
+async function processBatch(batch) {
+  await Promise.all(
+    batch.map(async ({ val, pkgName, version }) => {
+      const dist = await fetchDist(pkgName, version);
+      if (dist && dist.tarball && dist.integrity) {
+        val.resolved = dist.tarball;
+        val.integrity = dist.integrity;
+        fixed++;
+      } else {
+        errors++;
+        console.error(`Warning: could not fetch info for ${pkgName}@${version}`);
+      }
+    }),
+  );
+}
+
+for (let i = 0; i < toFix.length; i += CONCURRENCY) {
+  const batch = toFix.slice(i, i + CONCURRENCY);
+  await processBatch(batch);
+  if ((i + CONCURRENCY) % 300 === 0 || i + CONCURRENCY >= toFix.length) {
+    console.log(`  ${Math.min(i + CONCURRENCY, toFix.length)}/${toFix.length} done`);
   }
 }
 
 fs.writeFileSync(lockPath, JSON.stringify(lock, null, 2) + "\n");
 
-if (fixed > 0) {
-  console.log(`Fixed ${fixed} lockfile entries with missing resolved/integrity`);
-} else {
-  console.log("Lockfile is already complete");
-}
+console.log(`Fixed ${fixed} lockfile entries${errors > 0 ? ` (${errors} errors)` : ""}`);
