@@ -25,6 +25,12 @@ node "$SCRIPT_DIR/fix-lockfile.mjs" "$LOCK_FILE"
 # 2. Prefetch deps and compute hash
 echo "Prefetching npm dependencies..."
 
+# Read npmDepsFetcherVersion from package.nix (default 1 if absent)
+FETCHER_VERSION="$(sed -n 's/.*npmDepsFetcherVersion *= *\([0-9]*\).*/\1/p' "$PACKAGE_NIX")"
+FETCHER_VERSION="${FETCHER_VERSION:-1}"
+export NIX_NPM_FETCHER_VERSION="$FETCHER_VERSION"
+echo "Using fetcher version: $FETCHER_VERSION"
+
 # Resolve prefetch-npm-deps from the same nixpkgs pinned in flake.lock
 NIXPKGS_URL="$(node -p "
   const l = JSON.parse(require('fs').readFileSync('$ROOT_DIR/flake.lock', 'utf8'));
