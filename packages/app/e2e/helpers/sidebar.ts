@@ -30,8 +30,14 @@ export async function closeMobileAgentSidebar(page: Page): Promise<void> {
 }
 
 // The mobile sidebar panel animates via translateX; toBeInViewport reflects the rendered position.
+// Use ratio: 0.95 so subsequent actions (like toggling closed) fire only after the
+// animation has settled and React state has committed — otherwise the toggle can
+// race with the open animation and re-open the sidebar instead of closing it.
 export async function expectMobileAgentSidebarVisible(page: Page): Promise<void> {
-  await expect(page.getByTestId("sidebar-sessions")).toBeInViewport({ timeout: 5_000 });
+  await expect(page.getByTestId("sidebar-sessions")).toBeInViewport({
+    ratio: 0.95,
+    timeout: 5_000,
+  });
 }
 
 export async function expectMobileAgentSidebarHidden(page: Page): Promise<void> {
