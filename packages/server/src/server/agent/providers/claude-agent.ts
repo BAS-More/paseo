@@ -36,6 +36,7 @@ import {
 import { getClaudeModels, normalizeClaudeRuntimeModelId } from "./claude/claude-models.js";
 import { parsePartialJsonObject } from "./claude/partial-json.js";
 import { ClaudeSidechainTracker } from "./claude/sidechain-tracker.js";
+import { resolveBundledClaudeBinary } from "./claude/resolve-bundled-binary.js";
 import {
   formatDiagnosticStatus,
   formatProviderDiagnostic,
@@ -1370,6 +1371,23 @@ export class ClaudeAgentClient implements AgentClient {
   }
 }
 
+type ClaudeBinarySource = "PATH" | "bundled-sdk" | "none";
+
+async function resolveClaudeBinaryWithSource(): Promise<{
+  binary: string | null;
+  source: ClaudeBinarySource;
+}> {
+  const pathBinary = await findExecutable("claude");
+  if (pathBinary) {
+    return { binary: pathBinary, source: "PATH" };
+  }
+  const bundled = resolveBundledClaudeBinary();
+  if (bundled) {
+    return { binary: bundled, source: "bundled-sdk" };
+  }
+  return { binary: null, source: "none" };
+}
+
 async function resolveClaudeVersion(
   runtimeSettings?: ProviderRuntimeSettings,
 ): Promise<string | null> {
@@ -2275,10 +2293,17 @@ class ClaudeAgentSession implements AgentSession {
       ],
     });
 
-    const claudeBinary = await findExecutable("claude");
+    // Prefer a `claude` binary on PATH (developer machine, CI with pre-installed
+    // Claude Code). Fall back to the SDK's bundled platform binary, picking the
+    // correct libc variant — the SDK ships musl and gnu Linux variants but its
+    // own resolver picks musl on glibc systems, which fails to launch. See
+    // resolve-bundled-binary.ts for the libc detection.
+    const { binary: claudeBinary, source: claudeBinarySource } =
+      await resolveClaudeBinaryWithSource();
     this.logger.debug(
       {
         claudeBinary,
+        claudeBinarySource,
         pathEnvKey: resolvePathEnvKey(),
         pathIncludesClaudeLocalBin: (process.env["Path"] ?? process.env["PATH"] ?? "")
           .toLowerCase()

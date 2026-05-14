@@ -339,6 +339,22 @@ export async function createAgentMcpServer(options: AgentMcpServerOptions): Prom
     version: "2.0.0",
   });
 
+  // Workaround: tsgo resolves `import { z } from "zod"` (Zod v4) and the MCP SDK's
+  // internal `import * as z4 from "zod/v4/core"` to different declaration roots, making
+  // Zod v4 schema types (ZodNullable, ZodEffects, ZodNumber, etc.) fail the SDK's
+  // `AnySchema = z3.ZodTypeAny | z4.$ZodType` assignability check and triggering TS2589
+  // (excessively deep type instantiation) on every registerTool() call.
+  // This wrapper bypasses the generic constraint while preserving contextual callback
+  // typing (args destructured from `any` become explicit `any`, not implicit).
+  const registerTool = (
+    name: string,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    config: Record<string, any>,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    cb: (args: any, extra?: any) => any,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  ) => (server.registerTool as any)(name, config, cb);
+
   const resolveCallerAgent = () => {
     if (!callerAgentId) {
       return null;
@@ -579,7 +595,7 @@ export async function createAgentMcpServer(options: AgentMcpServerOptions): Prom
   const topLevelCreateAgentArgsSchema = z.object(topLevelInputSchema).strict();
 
   if (options.voiceOnly || options.enableVoiceTools || callerContext?.enableVoiceTools) {
-    server.registerTool(
+    registerTool(
       "speak",
       {
         title: "Speak",
@@ -757,7 +773,7 @@ export async function createAgentMcpServer(options: AgentMcpServerOptions): Prom
     };
   };
 
-  server.registerTool(
+  registerTool(
     "create_agent",
     {
       title: "Create agent",
@@ -899,7 +915,7 @@ export async function createAgentMcpServer(options: AgentMcpServerOptions): Prom
     },
   );
 
-  server.registerTool(
+  registerTool(
     "wait_for_agent",
     {
       title: "Wait for agent",
@@ -976,7 +992,7 @@ export async function createAgentMcpServer(options: AgentMcpServerOptions): Prom
     },
   );
 
-  server.registerTool(
+  registerTool(
     "send_agent_prompt",
     {
       title: "Send agent prompt",
@@ -1077,7 +1093,7 @@ export async function createAgentMcpServer(options: AgentMcpServerOptions): Prom
     },
   );
 
-  server.registerTool(
+  registerTool(
     "get_agent_status",
     {
       title: "Get agent status",
@@ -1127,7 +1143,7 @@ export async function createAgentMcpServer(options: AgentMcpServerOptions): Prom
     },
   );
 
-  server.registerTool(
+  registerTool(
     "list_agents",
     {
       title: "List agents",
@@ -1186,7 +1202,7 @@ export async function createAgentMcpServer(options: AgentMcpServerOptions): Prom
     },
   );
 
-  server.registerTool(
+  registerTool(
     "cancel_agent",
     {
       title: "Cancel agent run",
@@ -1210,7 +1226,7 @@ export async function createAgentMcpServer(options: AgentMcpServerOptions): Prom
     },
   );
 
-  server.registerTool(
+  registerTool(
     "archive_agent",
     {
       title: "Archive agent",
@@ -1233,7 +1249,7 @@ export async function createAgentMcpServer(options: AgentMcpServerOptions): Prom
     },
   );
 
-  server.registerTool(
+  registerTool(
     "kill_agent",
     {
       title: "Kill agent",
@@ -1255,7 +1271,7 @@ export async function createAgentMcpServer(options: AgentMcpServerOptions): Prom
     },
   );
 
-  server.registerTool(
+  registerTool(
     "update_agent",
     {
       title: "Update agent",
@@ -1295,7 +1311,7 @@ export async function createAgentMcpServer(options: AgentMcpServerOptions): Prom
     },
   );
 
-  server.registerTool(
+  registerTool(
     "list_terminals",
     {
       title: "List terminals",
@@ -1343,7 +1359,7 @@ export async function createAgentMcpServer(options: AgentMcpServerOptions): Prom
     },
   );
 
-  server.registerTool(
+  registerTool(
     "create_terminal",
     {
       title: "Create terminal",
@@ -1378,7 +1394,7 @@ export async function createAgentMcpServer(options: AgentMcpServerOptions): Prom
     },
   );
 
-  server.registerTool(
+  registerTool(
     "kill_terminal",
     {
       title: "Kill terminal",
@@ -1409,7 +1425,7 @@ export async function createAgentMcpServer(options: AgentMcpServerOptions): Prom
     },
   );
 
-  server.registerTool(
+  registerTool(
     "capture_terminal",
     {
       title: "Capture terminal",
@@ -1453,7 +1469,7 @@ export async function createAgentMcpServer(options: AgentMcpServerOptions): Prom
     },
   );
 
-  server.registerTool(
+  registerTool(
     "send_terminal_keys",
     {
       title: "Send terminal keys",
@@ -1489,7 +1505,7 @@ export async function createAgentMcpServer(options: AgentMcpServerOptions): Prom
     },
   );
 
-  server.registerTool(
+  registerTool(
     "create_schedule",
     {
       title: "Create schedule",
@@ -1570,7 +1586,7 @@ export async function createAgentMcpServer(options: AgentMcpServerOptions): Prom
     },
   );
 
-  server.registerTool(
+  registerTool(
     "list_schedules",
     {
       title: "List schedules",
@@ -1595,7 +1611,7 @@ export async function createAgentMcpServer(options: AgentMcpServerOptions): Prom
     },
   );
 
-  server.registerTool(
+  registerTool(
     "inspect_schedule",
     {
       title: "Inspect schedule",
@@ -1618,7 +1634,7 @@ export async function createAgentMcpServer(options: AgentMcpServerOptions): Prom
     },
   );
 
-  server.registerTool(
+  registerTool(
     "pause_schedule",
     {
       title: "Pause schedule",
@@ -1643,7 +1659,7 @@ export async function createAgentMcpServer(options: AgentMcpServerOptions): Prom
     },
   );
 
-  server.registerTool(
+  registerTool(
     "resume_schedule",
     {
       title: "Resume schedule",
@@ -1668,7 +1684,7 @@ export async function createAgentMcpServer(options: AgentMcpServerOptions): Prom
     },
   );
 
-  server.registerTool(
+  registerTool(
     "delete_schedule",
     {
       title: "Delete schedule",
@@ -1693,7 +1709,7 @@ export async function createAgentMcpServer(options: AgentMcpServerOptions): Prom
     },
   );
 
-  server.registerTool(
+  registerTool(
     "list_providers",
     {
       title: "List providers",
@@ -1716,7 +1732,7 @@ export async function createAgentMcpServer(options: AgentMcpServerOptions): Prom
     },
   );
 
-  server.registerTool(
+  registerTool(
     "list_models",
     {
       title: "List models",
@@ -1753,7 +1769,7 @@ export async function createAgentMcpServer(options: AgentMcpServerOptions): Prom
     },
   );
 
-  server.registerTool(
+  registerTool(
     "list_worktrees",
     {
       title: "List worktrees",
@@ -1784,7 +1800,7 @@ export async function createAgentMcpServer(options: AgentMcpServerOptions): Prom
     },
   );
 
-  server.registerTool(
+  registerTool(
     "create_worktree",
     {
       title: "Create worktree",
@@ -1845,7 +1861,7 @@ export async function createAgentMcpServer(options: AgentMcpServerOptions): Prom
     },
   );
 
-  server.registerTool(
+  registerTool(
     "archive_worktree",
     {
       title: "Archive worktree",
@@ -1932,7 +1948,7 @@ export async function createAgentMcpServer(options: AgentMcpServerOptions): Prom
     },
   );
 
-  server.registerTool(
+  registerTool(
     "get_agent_activity",
     {
       title: "Get agent activity",
@@ -1988,7 +2004,7 @@ export async function createAgentMcpServer(options: AgentMcpServerOptions): Prom
     },
   );
 
-  server.registerTool(
+  registerTool(
     "set_agent_mode",
     {
       title: "Set agent session mode",
@@ -2012,7 +2028,7 @@ export async function createAgentMcpServer(options: AgentMcpServerOptions): Prom
     },
   );
 
-  server.registerTool(
+  registerTool(
     "list_pending_permissions",
     {
       title: "List pending permissions",
@@ -2046,7 +2062,7 @@ export async function createAgentMcpServer(options: AgentMcpServerOptions): Prom
     },
   );
 
-  server.registerTool(
+  registerTool(
     "respond_to_permission",
     {
       title: "Respond to permission",
