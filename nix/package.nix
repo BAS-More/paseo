@@ -40,6 +40,10 @@ buildNpmPackage rec {
 
   nodejs = nodejs_22;
 
+  # v2 fetcher caches packuments alongside tarballs, fixing ENOTCACHED
+  # failures with lockfileVersion 3 workspace monorepos.
+  npmDepsFetcherVersion = 2;
+
   # To update: run `nix build` with lib.fakeHash, copy the `got:` hash.
   # CI auto-updates this when package-lock.json changes (see .github/workflows/).
   npmDepsHash = "sha256-andHNtuJGbirylMdR+B+0VpkrtH5uJ02BmNWycDun78=";

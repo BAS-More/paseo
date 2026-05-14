@@ -6,10 +6,15 @@ on:
     paths:
       - "package.json"
       - "package-lock.json"
+      - "nix/package.nix"
+      - "scripts/update-nix.sh"
   pull_request:
     paths:
       - "package.json"
       - "package-lock.json"
+      - "nix/package.nix"
+      - "scripts/update-nix.sh"
+  workflow_dispatch:
 
 permissions:
   contents: write
