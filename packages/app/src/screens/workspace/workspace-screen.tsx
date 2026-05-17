@@ -42,7 +42,6 @@ import { HeaderToggleButton } from "@/components/headers/header-toggle-button";
 import { ScreenHeader } from "@/components/headers/screen-header";
 import { BranchSwitcher } from "@/components/branch-switcher";
 import { Combobox, type ComboboxOption } from "@/components/ui/combobox";
-import { Shortcut } from "@/components/ui/shortcut";
 import type { ShortcutKey } from "@/utils/format-shortcut";
 import {
   DropdownMenu,
@@ -51,7 +50,6 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { ExplorerSidebar } from "@/components/explorer-sidebar";
 import { SplitContainer } from "@/components/split-container";
 import { SourceControlPanelIcon } from "@/components/icons/source-control-panel-icon";
@@ -62,7 +60,8 @@ import { WorkspaceImportSheet } from "@/screens/workspace/workspace-import-sheet
 import { ExplorerSidebarAnimationProvider } from "@/contexts/explorer-sidebar-animation-context";
 import { useToast } from "@/contexts/toast-context";
 import { useExplorerOpenGesture } from "@/hooks/use-explorer-open-gesture";
-import { selectIsFileExplorerOpen, usePanelStore } from "@/stores/panel-store";
+import { selectIsFileExplorerOpen, usePanelStore, type RightPanelId } from "@/stores/panel-store";
+import { WorkspacePanelMenu } from "@/screens/workspace/workspace-panel-menu";
 import { type ExplorerCheckoutContext } from "@/stores/explorer-checkout-context";
 import { useSessionStore, type WorkspaceDescriptor } from "@/stores/session-store";
 import {
@@ -1599,6 +1598,9 @@ function WorkspaceScreenContent({
   const isExplorerOpen = usePanelStore((state) =>
     selectIsFileExplorerOpen(state, { isCompact: isMobile }),
   );
+  const activeRightPanel = usePanelStore((state) => state.desktop.rightPanel);
+  const toggleRightPanel = usePanelStore((state) => state.toggleRightPanel);
+  const setExplorerTab = usePanelStore((state) => state.setExplorerTab);
   const canOpenExplorerFromAgentView = usePanelStore(
     (state) =>
       state.mobileView === "agent" && !selectIsFileExplorerOpen(state, { isCompact: true }),
@@ -1640,15 +1642,23 @@ function WorkspaceScreenContent({
     });
   }, [activeExplorerCheckout, isMobile, toggleFileExplorerForCheckout]);
 
-  const hasDiffStat = useMemo(() => Boolean(workspaceDescriptor?.diffStat), [workspaceDescriptor]);
-  const explorerToggleStyle = useCallback(
-    ({ hovered, pressed }: { hovered?: boolean; pressed?: boolean }) => [
-      styles.sourceControlButton,
-      hasDiffStat && styles.sourceControlButtonWithStats,
-      (Boolean(hovered) || Boolean(pressed) || isExplorerOpen) && styles.sourceControlButtonHovered,
-    ],
-    [hasDiffStat, isExplorerOpen],
+  const handleSelectRightPanel = useCallback(
+    (panel: RightPanelId) => {
+      toggleRightPanel(panel);
+      // Bridge explorer panels to the correct explorer tab so the
+      // sidebar shows the content the user actually selected.
+      const isOpening = activeRightPanel !== panel;
+      if (isOpening) {
+        if (panel === "diff") {
+          setExplorerTab("changes");
+        } else if (panel === "files") {
+          setExplorerTab("files");
+        }
+      }
+    },
+    [toggleRightPanel, activeRightPanel, setExplorerTab],
   );
+
   const explorerToggleAccessibilityState = useMemo(
     () => ({ expanded: isExplorerOpen }),
     [isExplorerOpen],
@@ -3003,66 +3013,19 @@ function WorkspaceScreenContent({
               cwd={normalizedWorkspaceId}
               hideLabels={showCompactButtonLabels}
             />
-            <Tooltip delayDuration={0} enabledOnDesktop enabledOnMobile={false}>
-              <TooltipTrigger asChild>
-                <Pressable
-                  testID="workspace-explorer-toggle"
-                  onPress={handleToggleExplorer}
-                  accessibilityRole="button"
-                  accessibilityLabel={isExplorerOpen ? "Close explorer" : "Open explorer"}
-                  accessibilityState={explorerToggleAccessibilityState}
-                  style={explorerToggleStyle}
-                >
-                  {({ hovered, pressed }) => {
-                    const active = isExplorerOpen || hovered || pressed;
-                    const colorMapping = active ? foregroundColorMapping : mutedColorMapping;
-                    return (
-                      <>
-                        <ThemedSourceControlPanelIcon size={16} uniProps={colorMapping} />
-                        {workspaceDescriptor?.diffStat ? (
-                          <DiffStat
-                            additions={workspaceDescriptor.diffStat.additions}
-                            deletions={workspaceDescriptor.diffStat.deletions}
-                          />
-                        ) : null}
-                      </>
-                    );
-                  }}
-                </Pressable>
-              </TooltipTrigger>
-              <TooltipContent
-                testID="workspace-explorer-toggle-tooltip"
-                side="left"
-                align="center"
-                offset={8}
-              >
-                <View style={styles.explorerTooltipRow}>
-                  <Text style={styles.explorerTooltipText}>Toggle explorer</Text>
-                  <Shortcut keys={EXPLORER_TOGGLE_KEYS} style={styles.explorerTooltipShortcut} />
-                </View>
-              </TooltipContent>
-            </Tooltip>
+            {workspaceDescriptor?.diffStat ? (
+              <DiffStat
+                additions={workspaceDescriptor.diffStat.additions}
+                deletions={workspaceDescriptor.diffStat.deletions}
+              />
+            ) : null}
           </>
         ) : null}
-        {!isMobile && !isGitCheckout ? (
-          <HeaderToggleButton
-            testID="workspace-explorer-toggle"
-            onPress={handleToggleExplorer}
-            tooltipLabel="Toggle explorer"
-            tooltipKeys={EXPLORER_TOGGLE_KEYS}
-            tooltipSide="left"
-            style={styles.headerActionButton}
-            accessible
-            accessibilityRole="button"
-            accessibilityLabel={isExplorerOpen ? "Close explorer" : "Open explorer"}
-            accessibilityState={explorerToggleAccessibilityState}
-          >
-            {({ hovered }) => {
-              const colorMapping =
-                isExplorerOpen || hovered ? foregroundColorMapping : mutedColorMapping;
-              return <ThemedPanelRight size={16} uniProps={colorMapping} />;
-            }}
-          </HeaderToggleButton>
+        {!isMobile ? (
+          <WorkspacePanelMenu
+            activePanel={activeRightPanel}
+            onSelectPanel={handleSelectRightPanel}
+          />
         ) : null}
         {isMobile ? (
           <HeaderToggleButton
@@ -3108,7 +3071,8 @@ function WorkspaceScreenContent({
       handleToggleExplorer,
       isExplorerOpen,
       explorerToggleAccessibilityState,
-      explorerToggleStyle,
+      activeRightPanel,
+      handleSelectRightPanel,
     ],
   );
 

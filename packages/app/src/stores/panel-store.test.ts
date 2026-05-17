@@ -35,6 +35,7 @@ function resetPanelStore() {
       agentListOpen: false,
       fileExplorerOpen: false,
       focusModeEnabled: false,
+      rightPanel: null,
     },
     explorerTab: "changes",
     explorerTabByCheckout: {},
@@ -205,6 +206,7 @@ describe("panel-store checkout-intent file explorer actions", () => {
         agentListOpen: false,
         fileExplorerOpen: true,
         focusModeEnabled: false,
+        rightPanel: null,
       },
       explorerTab: "files",
     });
@@ -244,5 +246,167 @@ describe("panel-store checkout-intent file explorer actions", () => {
 
     expect(usePanelStore.getState().desktop.fileExplorerOpen).toBe(true);
     expect(usePanelStore.getState().explorerTab).toBe("files");
+  });
+});
+
+describe("panel-store right panel actions", () => {
+  it("setRightPanel sets the active panel", () => {
+    usePanelStore.getState().setRightPanel("preview");
+    expect(usePanelStore.getState().desktop.rightPanel).toBe("preview");
+  });
+
+  it("setRightPanel(null) clears the active panel", () => {
+    usePanelStore.getState().setRightPanel("preview");
+    usePanelStore.getState().setRightPanel(null);
+    expect(usePanelStore.getState().desktop.rightPanel).toBeNull();
+  });
+
+  it("toggleRightPanel activates a panel when none is active", () => {
+    usePanelStore.getState().toggleRightPanel("terminal");
+    expect(usePanelStore.getState().desktop.rightPanel).toBe("terminal");
+  });
+
+  it("toggleRightPanel deactivates the currently active panel", () => {
+    usePanelStore.getState().setRightPanel("terminal");
+    usePanelStore.getState().toggleRightPanel("terminal");
+    expect(usePanelStore.getState().desktop.rightPanel).toBeNull();
+  });
+
+  it("toggleRightPanel switches to a different panel", () => {
+    usePanelStore.getState().setRightPanel("terminal");
+    usePanelStore.getState().toggleRightPanel("preview");
+    expect(usePanelStore.getState().desktop.rightPanel).toBe("preview");
+  });
+
+  it("toggleRightPanel does not affect other desktop state", () => {
+    usePanelStore.getState().openDesktopAgentList();
+    usePanelStore.getState().toggleRightPanel("todos");
+    expect(usePanelStore.getState().desktop.agentListOpen).toBe(true);
+    expect(usePanelStore.getState().desktop.focusModeEnabled).toBe(false);
+  });
+});
+
+describe("panel-store right panel ↔ explorer visibility", () => {
+  it("rightPanel=files implies file explorer is open on desktop", () => {
+    usePanelStore.getState().setRightPanel("files");
+    const state = usePanelStore.getState();
+    expect(selectIsFileExplorerOpen(state, { isCompact: false })).toBe(true);
+    // Direct flag is false — the explorer is derived from rightPanel
+    expect(state.desktop.fileExplorerOpen).toBe(false);
+  });
+
+  it("rightPanel=diff implies file explorer is open on desktop", () => {
+    usePanelStore.getState().setRightPanel("diff");
+    const state = usePanelStore.getState();
+    expect(selectIsFileExplorerOpen(state, { isCompact: false })).toBe(true);
+  });
+
+  it("rightPanel=preview does NOT imply file explorer is open", () => {
+    usePanelStore.getState().setRightPanel("preview");
+    const state = usePanelStore.getState();
+    expect(selectIsFileExplorerOpen(state, { isCompact: false })).toBe(false);
+  });
+
+  it("rightPanel=todos does NOT imply file explorer is open", () => {
+    usePanelStore.getState().setRightPanel("todos");
+    const state = usePanelStore.getState();
+    expect(selectIsFileExplorerOpen(state, { isCompact: false })).toBe(false);
+  });
+
+  it("rightPanel does not affect mobile visibility", () => {
+    usePanelStore.getState().setRightPanel("files");
+    const state = usePanelStore.getState();
+    expect(selectIsFileExplorerOpen(state, { isCompact: true })).toBe(false);
+  });
+
+  it("explorer is open when either fileExplorerOpen or rightPanel is explorer", () => {
+    usePanelStore.setState({
+      desktop: {
+        agentListOpen: false,
+        fileExplorerOpen: true,
+        focusModeEnabled: false,
+        rightPanel: "preview",
+      },
+    });
+    const state = usePanelStore.getState();
+    expect(selectIsFileExplorerOpen(state, { isCompact: false })).toBe(true);
+  });
+});
+
+describe("panel-store closeDesktopFileExplorer clears explorer rightPanels", () => {
+  it("clears rightPanel when it is files", () => {
+    usePanelStore.getState().setRightPanel("files");
+    usePanelStore.getState().closeDesktopFileExplorer();
+    expect(usePanelStore.getState().desktop.rightPanel).toBeNull();
+    expect(selectIsFileExplorerOpen(usePanelStore.getState(), { isCompact: false })).toBe(false);
+  });
+
+  it("clears rightPanel when it is diff", () => {
+    usePanelStore.getState().setRightPanel("diff");
+    usePanelStore.getState().closeDesktopFileExplorer();
+    expect(usePanelStore.getState().desktop.rightPanel).toBeNull();
+  });
+
+  it("preserves rightPanel when it is non-explorer (e.g. preview)", () => {
+    usePanelStore.getState().setRightPanel("preview");
+    // Also set fileExplorerOpen so closeDesktopFileExplorer doesn't early-return
+    usePanelStore.setState({
+      desktop: {
+        ...usePanelStore.getState().desktop,
+        fileExplorerOpen: true,
+      },
+    });
+    usePanelStore.getState().closeDesktopFileExplorer();
+    expect(usePanelStore.getState().desktop.rightPanel).toBe("preview");
+    expect(usePanelStore.getState().desktop.fileExplorerOpen).toBe(false);
+  });
+
+  it("is a no-op when explorer is already closed and rightPanel is non-explorer", () => {
+    usePanelStore.getState().setRightPanel("todos");
+    const before = usePanelStore.getState().desktop;
+    usePanelStore.getState().closeDesktopFileExplorer();
+    const after = usePanelStore.getState().desktop;
+    expect(after).toBe(before); // reference equality — no new object created
+  });
+});
+
+describe("panel-store toggleFileExplorerForCheckout clears explorer rightPanels", () => {
+  const checkout = { serverId: "server-1", cwd: "/tmp/repo", isGit: true };
+
+  it("clears rightPanel=files when toggling explorer closed", () => {
+    usePanelStore.getState().setRightPanel("files");
+    // explorer is open via derived state, so toggling should close
+    usePanelStore.getState().toggleFileExplorerForCheckout({ isCompact: false, checkout });
+    expect(usePanelStore.getState().desktop.rightPanel).toBeNull();
+    expect(selectIsFileExplorerOpen(usePanelStore.getState(), { isCompact: false })).toBe(false);
+  });
+
+  it("clears rightPanel=diff when toggling explorer closed", () => {
+    usePanelStore.getState().setRightPanel("diff");
+    usePanelStore.getState().toggleFileExplorerForCheckout({ isCompact: false, checkout });
+    expect(usePanelStore.getState().desktop.rightPanel).toBeNull();
+  });
+
+  it("preserves rightPanel=preview when toggling explorer closed", () => {
+    usePanelStore.setState({
+      desktop: {
+        ...usePanelStore.getState().desktop,
+        fileExplorerOpen: true,
+        rightPanel: "preview",
+      },
+    });
+    usePanelStore.getState().toggleFileExplorerForCheckout({ isCompact: false, checkout });
+    expect(usePanelStore.getState().desktop.rightPanel).toBe("preview");
+    expect(usePanelStore.getState().desktop.fileExplorerOpen).toBe(false);
+  });
+
+  it("opens explorer when it was closed and rightPanel is non-explorer", () => {
+    usePanelStore.getState().setRightPanel("todos");
+    // fileExplorerOpen is false, rightPanel=todos doesn't imply explorer
+    expect(selectIsFileExplorerOpen(usePanelStore.getState(), { isCompact: false })).toBe(false);
+    usePanelStore.getState().toggleFileExplorerForCheckout({ isCompact: false, checkout });
+    expect(usePanelStore.getState().desktop.fileExplorerOpen).toBe(true);
+    // rightPanel is untouched
+    expect(usePanelStore.getState().desktop.rightPanel).toBe("todos");
   });
 });
