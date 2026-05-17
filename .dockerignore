@@ -17,8 +17,10 @@ packages/*/tests/
 packages/*/src/**/*.test.ts
 packages/*/src/**/*.test.tsx
 packages/app/e2e/
-packages/website/
-packages/desktop/
+packages/website/*
+!packages/website/package.json
+packages/desktop/*
+!packages/desktop/package.json
 *.tsbuildinfo
 dist/
 coverage/
