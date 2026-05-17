@@ -27,6 +27,30 @@ export type { ExplorerCheckoutContext } from "./explorer-checkout-context";
 export type MobilePanelView = "agent" | "agent-list" | "file-explorer";
 
 /**
+ * Right sidebar panel identifiers.
+ *
+ * Each value corresponds to a panel the user can activate from the
+ * WorkspacePanelMenu dropdown (or a keyboard shortcut).  Only one
+ * right panel is visible at a time; selecting the already-active id
+ * toggles it off (null).
+ */
+export type RightPanelId = "preview" | "diff" | "terminal" | "files" | "tasks" | "plan" | "todos";
+
+const VALID_RIGHT_PANEL_IDS: ReadonlySet<string> = new Set<RightPanelId>([
+  "preview",
+  "diff",
+  "terminal",
+  "files",
+  "tasks",
+  "plan",
+  "todos",
+]);
+
+function isValidRightPanelId(value: unknown): value is RightPanelId {
+  return typeof value === "string" && VALID_RIGHT_PANEL_IDS.has(value);
+}
+
+/**
  * Desktop sidebar state.
  *
  * On desktop, sidebars are independent toggleable panels that don't overlay
@@ -36,7 +60,12 @@ interface DesktopSidebarState {
   agentListOpen: boolean;
   fileExplorerOpen: boolean;
   focusModeEnabled: boolean;
+  /** Which right-side panel is active, or null when the sidebar is closed. */
+  rightPanel: RightPanelId | null;
 }
+
+/** Right panel ids that imply the file explorer sidebar should be visible. */
+const EXPLORER_RIGHT_PANELS: ReadonlySet<RightPanelId> = new Set(["files", "diff"]);
 
 export type SortOption = "name" | "modified" | "size";
 export const DEFAULT_SIDEBAR_WIDTH = 320;
@@ -107,6 +136,10 @@ export interface PanelState {
   setExplorerWidth: (width: number) => void;
   setExplorerSortOption: (option: SortOption) => void;
   setExplorerFilesSplitRatio: (ratio: number) => void;
+
+  // Right panel actions
+  setRightPanel: (panel: RightPanelId | null) => void;
+  toggleRightPanel: (panel: RightPanelId) => void;
 }
 
 function clampNumber(value: number, min: number, max: number): number {
@@ -164,9 +197,11 @@ export function selectPanelVisibility(
       isFileExplorerOpen: state.mobileView === "file-explorer",
     };
   }
+  const rightPanelImpliesExplorer =
+    state.desktop.rightPanel !== null && EXPLORER_RIGHT_PANELS.has(state.desktop.rightPanel);
   return {
     isAgentListOpen: state.desktop.agentListOpen,
-    isFileExplorerOpen: state.desktop.fileExplorerOpen,
+    isFileExplorerOpen: state.desktop.fileExplorerOpen || rightPanelImpliesExplorer,
   };
 }
 
@@ -273,6 +308,14 @@ function migratePanelState(persistedState: unknown, version: number): PanelState
     state.diffExpandedPathsByWorkspace = {};
   }
 
+  // v11: added rightPanel to desktop state, with validation
+  const desktop = state.desktop as Record<string, unknown> | undefined;
+  if (desktop) {
+    if (!("rightPanel" in desktop) || !isValidRightPanelId(desktop.rightPanel)) {
+      desktop.rightPanel = null;
+    }
+  }
+
   return state as PanelState;
 }
 
@@ -289,6 +332,7 @@ export const usePanelStore = create<PanelState>()(
         agentListOpen: DEFAULT_DESKTOP_OPEN,
         fileExplorerOpen: false,
         focusModeEnabled: false,
+        rightPanel: null,
       },
 
       // File explorer defaults
@@ -350,10 +394,19 @@ export const usePanelStore = create<PanelState>()(
 
       closeDesktopFileExplorer: () =>
         set((state) => {
-          if (!state.desktop.fileExplorerOpen) {
+          const rightPanelIsExplorer =
+            state.desktop.rightPanel !== null &&
+            EXPLORER_RIGHT_PANELS.has(state.desktop.rightPanel);
+          if (!state.desktop.fileExplorerOpen && !rightPanelIsExplorer) {
             return state;
           }
-          return { desktop: { ...state.desktop, fileExplorerOpen: false } };
+          return {
+            desktop: {
+              ...state.desktop,
+              fileExplorerOpen: false,
+              rightPanel: rightPanelIsExplorer ? null : state.desktop.rightPanel,
+            },
+          };
         }),
 
       openAgentListForLayout: ({ isCompact }) =>
@@ -400,8 +453,30 @@ export const usePanelStore = create<PanelState>()(
           if (input.isCompact) {
             return { mobileView: "agent" as const };
           }
-          return { desktop: { ...state.desktop, fileExplorerOpen: false } };
+          const rightPanelIsExplorer =
+            state.desktop.rightPanel !== null &&
+            EXPLORER_RIGHT_PANELS.has(state.desktop.rightPanel);
+          return {
+            desktop: {
+              ...state.desktop,
+              fileExplorerOpen: false,
+              rightPanel: rightPanelIsExplorer ? null : state.desktop.rightPanel,
+            },
+          };
         }),
+
+      setRightPanel: (panel) =>
+        set((state) => ({
+          desktop: { ...state.desktop, rightPanel: panel },
+        })),
+
+      toggleRightPanel: (panel) =>
+        set((state) => ({
+          desktop: {
+            ...state.desktop,
+            rightPanel: state.desktop.rightPanel === panel ? null : panel,
+          },
+        })),
 
       setExplorerTab: (tab) => set({ explorerTab: tab }),
       setExplorerTabForCheckout: ({ serverId, cwd, isGit, tab }) =>
@@ -452,7 +527,7 @@ export const usePanelStore = create<PanelState>()(
     }),
     {
       name: "panel-state",
-      version: 10,
+      version: 11,
       storage: createJSONStorage(() => AsyncStorage),
       migrate: (persistedState, version) => migratePanelState(persistedState, version),
       partialize: (state) => ({
