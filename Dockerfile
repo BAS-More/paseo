@@ -36,7 +36,7 @@ COPY packages/relay/ packages/relay/
 COPY packages/cli/ packages/cli/
 COPY tsconfig.base.json ./
 
-RUN npm run build --workspace=@bas-more/server
+RUN npm run build --workspace=@getpaseo/server
 
 # ── Stage 2: Production ────────────────────────────────────
 # Pin to digest for reproducible builds. Update via:
