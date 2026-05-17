@@ -5030,7 +5030,7 @@ export class Session {
   }
 
   private async handleDirectorySuggestionsRequest(msg: DirectorySuggestionsRequest): Promise<void> {
-    const { query, limit, requestId, cwd, includeFiles, includeDirectories } = msg;
+    const { query, limit, requestId, cwd, includeFiles, includeDirectories, matchMode } = msg;
 
     try {
       const workspaceCwd = cwd?.trim();
@@ -5041,6 +5041,7 @@ export class Session {
             limit,
             includeFiles,
             includeDirectories,
+            matchMode,
           })
         : (
             await searchHomeDirectories({
