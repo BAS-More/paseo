@@ -1,13 +1,11 @@
 import { router, usePathname } from "expo-router";
 import {
   FolderPlus,
-  Globe,
   MessagesSquare,
   PanelLeftOpen,
   Plus,
   Search,
   Settings,
-  SquarePen,
 } from "lucide-react-native";
 import {
   type Dispatch,
@@ -56,7 +54,6 @@ import { useShortcutKeys } from "@/hooks/use-shortcut-keys";
 import { useSidebarShortcutModel } from "@/hooks/use-sidebar-shortcut-model";
 import {
   type SidebarProjectEntry,
-  type SidebarWorkspaceEntry,
   useSidebarWorkspacesList,
 } from "@/hooks/use-sidebar-workspaces-list";
 import { useHostRuntimeSnapshot, useHosts } from "@/runtime/host-runtime";
@@ -70,44 +67,24 @@ import { resolveActiveHost } from "@/utils/active-host";
 import { formatConnectionStatus } from "@/utils/daemons";
 import { useWindowControlsPadding } from "@/utils/desktop-window";
 import {
+  buildHostAgentDetailRoute,
   buildHostSessionsRoute,
   buildSettingsRoute,
   mapPathnameToServer,
 } from "@/utils/host-routes";
-import { usePinnedWorkspacesStore } from "@/stores/pinned-workspaces-store";
+import { useAgentHistory } from "@/hooks/use-agent-history";
+import type { AggregatedAgent } from "@/hooks/use-aggregated-agents";
+import { useSessionStore } from "@/stores/session-store";
+import { resolveWorkspaceIdByExecutionDirectory } from "@/utils/workspace-execution";
+import { navigateToPreparedWorkspaceTab } from "@/utils/workspace-navigation";
 import { SidebarAgentListSkeleton } from "./sidebar-agent-list-skeleton";
-import { SidebarCalloutSlot } from "./sidebar-callout-slot";
 import { SidebarWorkspaceList } from "./sidebar-workspace-list";
+import { SidebarTabBar, type SidebarTab } from "./sidebar/sidebar-tab-bar";
+import { SidebarQuickActions } from "./sidebar/sidebar-quick-actions";
+import { SidebarSessionList } from "./sidebar/sidebar-session-list";
+import { SidebarUserFooter } from "./sidebar/sidebar-user-footer";
 
 const MIN_CHAT_WIDTH = 400;
-
-type DateBucket = "today" | "yesterday" | "this-week" | "this-month" | "older";
-
-function getDateBucket(activityAt: string | null): DateBucket {
-  if (!activityAt) return "older";
-  const date = new Date(activityAt);
-  if (isNaN(date.getTime())) return "older";
-  const now = new Date();
-  const diffMs = now.getTime() - date.getTime();
-  const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
-  if (diffDays === 0 && date.toDateString() === now.toDateString()) return "today";
-  const yesterday = new Date(now);
-  yesterday.setDate(yesterday.getDate() - 1);
-  if (date.toDateString() === yesterday.toDateString()) return "yesterday";
-  if (diffDays < 7) return "this-week";
-  if (diffDays < 30) return "this-month";
-  return "older";
-}
-
-const DATE_BUCKET_LABELS: Record<DateBucket, string> = {
-  today: "Today",
-  yesterday: "Yesterday",
-  "this-week": "This Week",
-  "this-month": "This Month",
-  older: "Older",
-};
-
-const DATE_BUCKET_ORDER: DateBucket[] = ["today", "yesterday", "this-week", "this-month", "older"];
 
 type SidebarShortcutModel = ReturnType<typeof useSidebarShortcutModel>;
 type SidebarTheme = ReturnType<typeof useUnistyles>["theme"];
@@ -142,6 +119,10 @@ interface SidebarSharedProps {
     active: boolean;
     onPress: () => void;
   }) => ReactElement;
+  agentHistoryAgents: AggregatedAgent[];
+  agentHistoryIsLoading: boolean;
+  agentHistoryLoadMore: () => void;
+  handleSessionPress: (agent: AggregatedAgent) => void;
 }
 
 interface MobileSidebarProps extends SidebarSharedProps {
@@ -231,12 +212,18 @@ export const LeftSidebar = memo(function LeftSidebar({
   const { collapsedProjectKeys, shortcutIndexByWorkspaceKey, toggleProjectCollapsed } =
     useSidebarShortcutModel({ projects, isInitialLoad });
 
+  const agentHistory = useAgentHistory({
+    serverId: activeServerId,
+    enabled: isCompactLayout || isOpen,
+  });
+
   const [isManualRefresh, setIsManualRefresh] = useState(false);
 
   const handleRefresh = useCallback(() => {
     setIsManualRefresh(true);
     refreshAll();
-  }, [refreshAll]);
+    agentHistory.refreshAll();
+  }, [refreshAll, agentHistory]);
 
   useEffect(() => {
     if (!isRevalidating && isManualRefresh) {
@@ -283,6 +270,27 @@ export const LeftSidebar = memo(function LeftSidebar({
     [pathname],
   );
 
+  const handleSessionPress = useCallback((agent: AggregatedAgent) => {
+    const serverId = agent.serverId;
+    const agentId = agent.id;
+    const workspaceId = resolveWorkspaceIdByExecutionDirectory({
+      workspaces: useSessionStore.getState().sessions[serverId]?.workspaces?.values(),
+      workspaceDirectory: agent.cwd,
+    });
+
+    if (!workspaceId) {
+      router.navigate(buildHostAgentDetailRoute(serverId, agentId) as import("expo-router").Href);
+      return;
+    }
+
+    navigateToPreparedWorkspaceTab({
+      serverId,
+      workspaceId,
+      target: { kind: "agent", agentId },
+      pin: Boolean(agent.archivedAt),
+    });
+  }, []);
+
   const sharedProps = {
     theme,
     activeServerId,
@@ -302,6 +310,10 @@ export const LeftSidebar = memo(function LeftSidebar({
     handleRefresh,
     handleHostSelect,
     renderHostOption,
+    agentHistoryAgents: agentHistory.agents,
+    agentHistoryIsLoading: agentHistory.isLoading,
+    agentHistoryLoadMore: agentHistory.loadMore,
+    handleSessionPress,
   };
 
   if (isCompactLayout) {
@@ -769,130 +781,39 @@ function MobileSidebar({
 function DesktopSidebar({
   theme,
   activeServerId,
-  activeHostLabel,
-  activeHostStatusColor,
-  hostOptions,
-  hostTriggerRef,
-  isHostPickerOpen,
-  setIsHostPickerOpen,
-  projects,
-  isInitialLoad,
+  activeHostStatusColor: _activeHostStatusColor,
   isRevalidating,
   isManualRefresh,
-  collapsedProjectKeys,
-  shortcutIndexByWorkspaceKey,
-  toggleProjectCollapsed,
   handleRefresh,
-  handleHostSelect,
-  renderHostOption,
   handleOpenProject,
   handleSettings,
   insetsTop,
   isOpen,
   handleViewMore,
+  agentHistoryAgents,
+  agentHistoryIsLoading,
+  agentHistoryLoadMore,
+  handleSessionPress,
 }: DesktopSidebarProps) {
   const pathname = usePathname();
-  const isSessionsActive = pathname.includes("/sessions");
   const padding = useWindowControlsPadding("sidebar");
   const sidebarWidth = usePanelStore((state) => state.sidebarWidth);
   const setSidebarWidth = usePanelStore((state) => state.setSidebarWidth);
-  const { settings: appSettings } = useAppSettings();
-  const isClaudeDesktop = appSettings.layoutMode === "claude-desktop";
   const [searchQuery, setSearchQuery] = useState("");
+  const [activeTab, setActiveTab] = useState<SidebarTab>("code");
 
   const searchInputStyle = useMemo(
     () => [styles.searchInput, isWeb && ({ outlineStyle: "none" } as Record<string, unknown>)],
     [],
   );
 
-  const filteredProjects = useMemo(() => {
-    if (!searchQuery.trim()) return projects;
-    const query = searchQuery.toLowerCase();
-    return projects
-      .map((project) => ({
-        ...project,
-        workspaces: project.workspaces.filter(
-          (ws) =>
-            ws.name.toLowerCase().includes(query) ||
-            project.projectName.toLowerCase().includes(query),
-        ),
-      }))
-      .filter((project) => project.workspaces.length > 0);
-  }, [projects, searchQuery]);
+  const selectedAgentKey = useMemo(() => {
+    const match = pathname.match(/\/agent\/([^/]+)/);
+    if (!match) return null;
+    return activeServerId ? `${activeServerId}:${match[1]}` : null;
+  }, [pathname, activeServerId]);
 
-  const pinnedKeys = usePinnedWorkspacesStore((s) => s.pinnedKeys);
-  const dateGroupedProjects = useMemo((): SidebarProjectEntry[] => {
-    if (!isClaudeDesktop) return filteredProjects;
-
-    const allWorkspaces: SidebarWorkspaceEntry[] = [];
-    for (const project of filteredProjects) {
-      for (const ws of project.workspaces) {
-        allWorkspaces.push(ws);
-      }
-    }
-
-    const pinned: SidebarWorkspaceEntry[] = [];
-    const unpinned: SidebarWorkspaceEntry[] = [];
-    for (const ws of allWorkspaces) {
-      if (pinnedKeys.has(ws.workspaceKey)) {
-        pinned.push(ws);
-      } else {
-        unpinned.push(ws);
-      }
-    }
-
-    const sortByActivity = (a: SidebarWorkspaceEntry, b: SidebarWorkspaceEntry) => {
-      const aTime = a.activityAt ? new Date(a.activityAt).getTime() : 0;
-      const bTime = b.activityAt ? new Date(b.activityAt).getTime() : 0;
-      return bTime - aTime;
-    };
-
-    const result: SidebarProjectEntry[] = [];
-
-    if (pinned.length > 0) {
-      pinned.sort(sortByActivity);
-      result.push({
-        projectKey: "__pinned__",
-        projectName: "Pinned",
-        projectKind: "directory",
-        iconWorkingDir: "",
-        workspaces: pinned,
-      });
-    }
-
-    const bucketMap = new Map<DateBucket, SidebarWorkspaceEntry[]>();
-    for (const ws of unpinned) {
-      const bucket = getDateBucket(ws.activityAt);
-      let list = bucketMap.get(bucket);
-      if (!list) {
-        list = [];
-        bucketMap.set(bucket, list);
-      }
-      list.push(ws);
-    }
-
-    for (const list of bucketMap.values()) {
-      list.sort(sortByActivity);
-    }
-
-    for (const bucket of DATE_BUCKET_ORDER) {
-      const workspaces = bucketMap.get(bucket);
-      if (!workspaces || workspaces.length === 0) continue;
-      result.push({
-        projectKey: `__date_bucket__${bucket}`,
-        projectName: DATE_BUCKET_LABELS[bucket],
-        projectKind: "directory",
-        iconWorkingDir: "",
-        workspaces,
-      });
-    }
-    return result;
-  }, [isClaudeDesktop, filteredProjects, pinnedKeys]);
   const { width: viewportWidth } = useWindowDimensions();
-  const hostStatusDotStyle = useMemo(
-    () => [styles.hostStatusDot, { backgroundColor: activeHostStatusColor }],
-    [activeHostStatusColor],
-  );
 
   const startWidthRef = useRef(sidebarWidth);
   const resizeWidth = useSharedValue(sidebarWidth);
@@ -1011,86 +932,45 @@ function DesktopSidebar({
         <View style={styles.sidebarDragArea}>
           <TitlebarDragRegion />
           {padding.top > 0 ? <View style={paddingTopSpacerStyle} /> : null}
-          <SidebarHeaderRow
-            icon={MessagesSquare}
-            label="Sessions"
-            onPress={handleViewMore}
-            isActive={isSessionsActive}
-            testID="sidebar-sessions"
-          />
-          {isClaudeDesktop ? (
-            <View style={styles.claudeDesktopHeaderActions}>
-              <Pressable
-                onPress={handleOpenProject}
-                style={styles.claudeDesktopHeaderIcon}
-                accessibilityLabel="New session"
-              >
-                <SquarePen size={14} color={theme.colors.foregroundMuted} />
-              </Pressable>
-              <Pressable style={styles.claudeDesktopHeaderIcon} accessibilityLabel="Web">
-                <Globe size={14} color={theme.colors.foregroundMuted} />
-              </Pressable>
-            </View>
-          ) : null}
         </View>
 
-        {isClaudeDesktop ? (
-          <View style={styles.searchContainer}>
-            <Search size={14} color={theme.colors.foregroundMuted} />
-            <TextInput
-              style={searchInputStyle}
-              placeholder="Search sessions…"
-              placeholderTextColor={theme.colors.foregroundMuted}
-              value={searchQuery}
-              onChangeText={setSearchQuery}
-              autoCapitalize="none"
-              autoCorrect={false}
-            />
-          </View>
-        ) : (
-          <Pressable
-            onPress={handleOpenProject}
-            style={styles.newChatButton}
-            accessibilityLabel="New agent"
-          >
-            <Plus size={16} color={theme.colors.foregroundMuted} />
-            <Text style={styles.newChatText}>New Agent</Text>
-          </Pressable>
-        )}
+        <SidebarTabBar activeTab={activeTab} onTabChange={setActiveTab} />
 
-        {isInitialLoad ? (
+        <SidebarQuickActions
+          onNewSession={handleOpenProject}
+          onRoutines={handleViewMore}
+          onCustomize={handleSettings}
+        />
+
+        <View style={styles.searchContainer}>
+          <Search size={14} color={theme.colors.foregroundMuted} />
+          <TextInput
+            style={searchInputStyle}
+            placeholder="Search sessions…"
+            placeholderTextColor={theme.colors.foregroundMuted}
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+            autoCapitalize="none"
+            autoCorrect={false}
+          />
+        </View>
+
+        {agentHistoryIsLoading && agentHistoryAgents.length === 0 ? (
           <SidebarAgentListSkeleton />
         ) : (
-          <SidebarWorkspaceList
-            serverId={activeServerId}
-            collapsedProjectKeys={collapsedProjectKeys}
-            onToggleProjectCollapsed={toggleProjectCollapsed}
-            shortcutIndexByWorkspaceKey={shortcutIndexByWorkspaceKey}
-            projects={isClaudeDesktop ? dateGroupedProjects : projects}
+          <SidebarSessionList
+            agents={agentHistoryAgents}
+            selectedAgentKey={selectedAgentKey}
             isRefreshing={isManualRefresh && isRevalidating}
             onRefresh={handleRefresh}
-            onAddProject={handleOpenProject}
+            onSessionPress={handleSessionPress}
+            onEndReached={agentHistoryLoadMore}
+            searchQuery={searchQuery}
           />
         )}
 
-        {isClaudeDesktop ? null : <SidebarCalloutSlot />}
+        <SidebarUserFooter userName="Avi" modelLabel="Max" onPress={handleSettings} />
 
-        <SidebarFooter
-          theme={theme}
-          activeServerId={activeServerId}
-          activeHostLabel={activeHostLabel}
-          hostStatusDotStyle={hostStatusDotStyle}
-          hostOptions={hostOptions}
-          hostTriggerRef={hostTriggerRef}
-          isHostPickerOpen={isHostPickerOpen}
-          setIsHostPickerOpen={setIsHostPickerOpen}
-          handleHostSelect={handleHostSelect}
-          renderHostOption={renderHostOption}
-          handleOpenProject={handleOpenProject}
-          handleSettings={handleSettings}
-        />
-
-        {/* Resize handle - absolutely positioned over right border */}
         <GestureDetector gesture={resizeGesture}>
           <View style={resizeHandleStyle} />
         </GestureDetector>
