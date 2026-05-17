@@ -10,10 +10,10 @@ describe("desktop packaging", () => {
     const config = readFileSync(join(packageRoot, "electron-builder.yml"), "utf8");
 
     expect(config).toContain(
-      "node_modules/@bas-more/server/dist/server/terminal/shell-integration/**/*",
+      "node_modules/@getpaseo/server/dist/server/terminal/shell-integration/**/*",
     );
     expect(config).not.toContain(
-      "node_modules/@bas-more/server/dist/src/terminal/shell-integration/**/*",
+      "node_modules/@getpaseo/server/dist/src/terminal/shell-integration/**/*",
     );
   });
 
@@ -29,7 +29,7 @@ describe("desktop packaging", () => {
     };
     const deps = pkg.dependencies ?? {};
 
-    for (const required of ["@bas-more/cli", "@bas-more/server"]) {
+    for (const required of ["@getpaseo/cli", "@getpaseo/server"]) {
       expect(deps[required], `${required} must be declared in dependencies`).toBe("*");
     }
   });

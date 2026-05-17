@@ -1,5 +1,5 @@
 import type { Command } from "commander";
-import type { DaemonClient } from "@bas-more/server";
+import type { DaemonClient } from "@getpaseo/server";
 import { connectToDaemon, getDaemonHost } from "../../utils/client.js";
 import { isSameOrDescendantPath } from "../../utils/paths.js";
 

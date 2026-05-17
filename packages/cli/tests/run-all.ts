@@ -103,7 +103,7 @@ async function writeJsonSummary({
     JSON.stringify(
       {
         suite: "cli-local",
-        command: "npm run test:local --workspace=@bas-more/cli",
+        command: "npm run test:local --workspace=@getpaseo/cli",
         counts: {
           passed,
           failed,
@@ -176,9 +176,9 @@ let passed = 0;
 let failed = 0;
 const failures: Failure[] = [];
 
-await runCommand("Building relay", "npm run build --workspace=@bas-more/relay");
-await runCommand("Building server", "npm run build --workspace=@bas-more/server");
-await runCommand("Building CLI", "npm run build --workspace=@bas-more/cli");
+await runCommand("Building relay", "npm run build --workspace=@getpaseo/relay");
+await runCommand("Building server", "npm run build --workspace=@getpaseo/server");
+await runCommand("Building CLI", "npm run build --workspace=@getpaseo/cli");
 
 type TestOutcome =
   | { status: "passed"; durationMs: number }
