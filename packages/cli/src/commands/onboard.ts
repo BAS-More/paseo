@@ -8,7 +8,7 @@ import {
   loadPersistedConfig,
   type CliConfigOverrides,
   type PersistedConfig,
-} from "@bas-more/server";
+} from "@getpaseo/server";
 import {
   resolveLocalPaseoHome,
   resolveLocalDaemonState,

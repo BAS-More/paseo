@@ -31,7 +31,7 @@ vi.mock("electron-log/main", () => ({
   default: { info: vi.fn(), error: vi.fn() },
 }));
 
-vi.mock("@bas-more/server", () => ({
+vi.mock("@getpaseo/server", () => ({
   resolvePaseoHome: vi.fn(() => "/tmp/paseo-home"),
   spawnProcess: mocks.spawnProcess,
 }));

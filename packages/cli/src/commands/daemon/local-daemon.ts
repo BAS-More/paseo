@@ -2,7 +2,7 @@ import { spawnSync, type ChildProcess } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
-import { loadConfig, resolvePaseoHome, spawnProcess } from "@bas-more/server";
+import { loadConfig, resolvePaseoHome, spawnProcess } from "@getpaseo/server";
 import treeKill from "tree-kill";
 import { tryConnectToDaemon } from "../../utils/client.js";
 
@@ -166,7 +166,7 @@ function resolveServerRunnerFromDir(currentDir: string): string | null {
   if (!existsSync(packageJsonPath)) return null;
   try {
     const packageJson = JSON.parse(readFileSync(packageJsonPath, "utf-8")) as { name?: string };
-    if (packageJson.name !== "@bas-more/server") return null;
+    if (packageJson.name !== "@getpaseo/server") return null;
     const distRunner = path.join(currentDir, "dist", "scripts", "supervisor-entrypoint.js");
     if (existsSync(distRunner)) {
       return distRunner;
@@ -178,7 +178,7 @@ function resolveServerRunnerFromDir(currentDir: string): string | null {
 }
 
 function resolveDaemonRunnerEntry(): string {
-  const serverExportPath = require.resolve("@bas-more/server");
+  const serverExportPath = require.resolve("@getpaseo/server");
   let currentDir = path.dirname(serverExportPath);
 
   while (true) {
@@ -194,7 +194,7 @@ function resolveDaemonRunnerEntry(): string {
     currentDir = parentDir;
   }
 
-  throw new Error("Unable to resolve @bas-more/server package root for daemon runner");
+  throw new Error("Unable to resolve @getpaseo/server package root for daemon runner");
 }
 
 function pidFilePath(paseoHome: string): string {

@@ -1,6 +1,6 @@
 import { Command } from "commander";
 import chalk from "chalk";
-import { generateLocalPairingOffer, loadConfig, resolvePaseoHome } from "@bas-more/server";
+import { generateLocalPairingOffer, loadConfig, resolvePaseoHome } from "@getpaseo/server";
 import { addJsonOption } from "../../utils/command-options.js";
 
 interface PairOptions {

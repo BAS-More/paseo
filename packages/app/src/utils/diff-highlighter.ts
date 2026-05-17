@@ -1,4 +1,4 @@
-import { highlightCode, isLanguageSupported, type HighlightToken } from "@bas-more/highlight";
+import { highlightCode, isLanguageSupported, type HighlightToken } from "@getpaseo/highlight";
 
 export interface DiffLine {
   type: "add" | "remove" | "context" | "header";

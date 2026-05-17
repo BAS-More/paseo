@@ -177,7 +177,7 @@ function Download() {
               <TerminalIcon className="h-5 w-5 text-foreground" />
               <span className="font-medium">npm</span>
             </div>
-            <CodeBlock size="sm">npm install -g @bas-more/cli && paseo</CodeBlock>
+            <CodeBlock size="sm">npm install -g @getpaseo/cli && paseo</CodeBlock>
           </div>
 
           <div className="flex flex-col gap-3 py-5 first:pt-0 last:pb-0 sm:flex-row sm:items-center sm:justify-between">
