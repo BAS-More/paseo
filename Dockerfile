@@ -36,7 +36,11 @@ COPY packages/relay/ packages/relay/
 COPY packages/cli/ packages/cli/
 COPY tsconfig.base.json ./
 
-RUN npm run build --workspace=@bas-more/server
+# The server imports from @bas-more/relay and @bas-more/highlight at runtime.
+# Building only @bas-more/server leaves their dist/ empty, so the daemon
+# crashes with ERR_MODULE_NOT_FOUND. The root build:daemon script builds the
+# dependency chain in order (highlight → relay → server → cli).
+RUN npm run build:daemon
 
 # ── Stage 2: Production ────────────────────────────────────
 # Pin to digest for reproducible builds. Update via:
@@ -71,8 +75,10 @@ RUN apt-get update && \
     apt-get autoremove -y && \
     rm -rf /var/lib/apt/lists/*
 
-# Copy built server from build stage
+# Copy built server + workspace deps it imports at runtime
 COPY --from=build /app/packages/server/dist packages/server/dist
+COPY --from=build /app/packages/relay/dist packages/relay/dist
+COPY --from=build /app/packages/highlight/dist packages/highlight/dist
 
 # Create paseo home directory
 RUN mkdir -p /data/paseo && chown node:node /data/paseo

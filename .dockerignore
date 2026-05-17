@@ -19,6 +19,10 @@ packages/*/src/**/*.test.tsx
 packages/app/e2e/
 packages/website/
 packages/desktop/
+# Re-allow workspace package.json files — npm ci needs them to resolve the
+# workspace tree even though Dockerfile only builds @bas-more/server.
+!packages/website/package.json
+!packages/desktop/package.json
 *.tsbuildinfo
 dist/
 coverage/
