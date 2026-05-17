@@ -781,12 +781,24 @@ function MobileSidebar({
 function DesktopSidebar({
   theme,
   activeServerId,
+  activeHostLabel,
   activeHostStatusColor: _activeHostStatusColor,
+  hostOptions,
+  hostTriggerRef,
+  isHostPickerOpen,
+  setIsHostPickerOpen,
+  projects,
+  isInitialLoad,
   isRevalidating,
   isManualRefresh,
+  collapsedProjectKeys,
+  shortcutIndexByWorkspaceKey,
+  toggleProjectCollapsed,
   handleRefresh,
+  handleHostSelect,
   handleOpenProject,
   handleSettings,
+  renderHostOption,
   insetsTop,
   isOpen,
   handleViewMore,
@@ -796,6 +808,8 @@ function DesktopSidebar({
   handleSessionPress,
 }: DesktopSidebarProps) {
   const pathname = usePathname();
+  const { settings } = useAppSettings();
+  const isClaudeDesktop = settings.layoutMode === "claude-desktop";
   const padding = useWindowControlsPadding("sidebar");
   const sidebarWidth = usePanelStore((state) => state.sidebarWidth);
   const setSidebarWidth = usePanelStore((state) => state.setSidebarWidth);
@@ -862,6 +876,11 @@ function DesktopSidebar({
   );
 
   const iconRailStyle = useMemo(() => [styles.iconRail, { paddingTop: insetsTop }], [insetsTop]);
+  const hostStatusDotStyle = useMemo(
+    () => [styles.hostStatusDot, { backgroundColor: _activeHostStatusColor }],
+    [_activeHostStatusColor],
+  );
+  const isSessionsActive = pathname.includes("/sessions");
   const handleExpandSidebar = useCallback(
     () => usePanelStore.getState().openDesktopAgentList(),
     [],
@@ -934,42 +953,84 @@ function DesktopSidebar({
           {padding.top > 0 ? <View style={paddingTopSpacerStyle} /> : null}
         </View>
 
-        <SidebarTabBar activeTab={activeTab} onTabChange={setActiveTab} />
+        {isClaudeDesktop ? (
+          <>
+            <SidebarTabBar activeTab={activeTab} onTabChange={setActiveTab} />
 
-        <SidebarQuickActions
-          onNewSession={handleOpenProject}
-          onRoutines={handleViewMore}
-          onCustomize={handleSettings}
-        />
+            <SidebarQuickActions
+              onNewSession={handleOpenProject}
+              onRoutines={handleViewMore}
+              onCustomize={handleSettings}
+            />
 
-        <View style={styles.searchContainer}>
-          <Search size={14} color={theme.colors.foregroundMuted} />
-          <TextInput
-            style={searchInputStyle}
-            placeholder="Search sessions…"
-            placeholderTextColor={theme.colors.foregroundMuted}
-            value={searchQuery}
-            onChangeText={setSearchQuery}
-            autoCapitalize="none"
-            autoCorrect={false}
-          />
-        </View>
+            <View style={styles.searchContainer}>
+              <Search size={14} color={theme.colors.foregroundMuted} />
+              <TextInput
+                style={searchInputStyle}
+                placeholder="Search sessions…"
+                placeholderTextColor={theme.colors.foregroundMuted}
+                value={searchQuery}
+                onChangeText={setSearchQuery}
+                autoCapitalize="none"
+                autoCorrect={false}
+              />
+            </View>
 
-        {agentHistoryIsLoading && agentHistoryAgents.length === 0 ? (
-          <SidebarAgentListSkeleton />
+            {agentHistoryIsLoading && agentHistoryAgents.length === 0 ? (
+              <SidebarAgentListSkeleton />
+            ) : (
+              <SidebarSessionList
+                agents={agentHistoryAgents}
+                selectedAgentKey={selectedAgentKey}
+                isRefreshing={isManualRefresh && isRevalidating}
+                onRefresh={handleRefresh}
+                onSessionPress={handleSessionPress}
+                onEndReached={agentHistoryLoadMore}
+                searchQuery={searchQuery}
+              />
+            )}
+
+            <SidebarUserFooter userName="Avi" modelLabel="Max" onPress={handleSettings} />
+          </>
         ) : (
-          <SidebarSessionList
-            agents={agentHistoryAgents}
-            selectedAgentKey={selectedAgentKey}
-            isRefreshing={isManualRefresh && isRevalidating}
-            onRefresh={handleRefresh}
-            onSessionPress={handleSessionPress}
-            onEndReached={agentHistoryLoadMore}
-            searchQuery={searchQuery}
-          />
+          <>
+            <SidebarHeaderRow
+              icon={MessagesSquare}
+              label="Sessions"
+              onPress={handleViewMore}
+              isActive={isSessionsActive}
+              testID="sidebar-sessions"
+            />
+            {isInitialLoad ? (
+              <SidebarAgentListSkeleton />
+            ) : (
+              <SidebarWorkspaceList
+                serverId={activeServerId}
+                collapsedProjectKeys={collapsedProjectKeys}
+                onToggleProjectCollapsed={toggleProjectCollapsed}
+                shortcutIndexByWorkspaceKey={shortcutIndexByWorkspaceKey}
+                projects={projects}
+                isRefreshing={isManualRefresh && isRevalidating}
+                onRefresh={handleRefresh}
+                onAddProject={handleOpenProject}
+              />
+            )}
+            <SidebarFooter
+              theme={theme}
+              activeServerId={activeServerId}
+              activeHostLabel={activeHostLabel}
+              hostStatusDotStyle={hostStatusDotStyle}
+              hostOptions={hostOptions}
+              hostTriggerRef={hostTriggerRef}
+              isHostPickerOpen={isHostPickerOpen}
+              setIsHostPickerOpen={setIsHostPickerOpen}
+              handleHostSelect={handleHostSelect}
+              renderHostOption={renderHostOption}
+              handleOpenProject={handleOpenProject}
+              handleSettings={handleSettings}
+            />
+          </>
         )}
-
-        <SidebarUserFooter userName="Avi" modelLabel="Max" onPress={handleSettings} />
 
         <GestureDetector gesture={resizeGesture}>
           <View style={resizeHandleStyle} />
