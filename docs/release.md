@@ -14,14 +14,14 @@ There are two supported ways to ship from `main`:
 Before running any stable patch release command:
 
 - Make sure the intended release commit is already committed to `main` and the working tree is clean.
-- Make sure local `npm run typecheck` passes on that commit.
+- **Run `npm run format`, `npm run lint`, and `npm run typecheck` and commit any resulting changes BEFORE you start any `release:*` command.** `release:check` runs `npm install --workspaces --include-workspace-root` as part of `release:prepare`, which can mutate `package-lock.json` (e.g. churning `"dev": true` markers on optional deps). The next step, `version:all:*`, runs `npm version` which aborts when the working tree is dirty. If this happens mid-flight you have to commit the lockfile churn before retrying — and the pre-commit format hook will reject a lockfile-only commit because oxfmt internally skips `package-lock.json` while lefthook's glob still matches it. Avoid the whole mess by running format/lint/typecheck first, then `release:prepare` once on its own to absorb any lockfile churn into a normal commit, then start the release.
 - Do not use `npm run release:patch` as a substitute for checking whether the current commit is actually ready.
 
 ```bash
 npm run release:patch
 ```
 
-This bumps the version across all workspaces, runs checks, publishes to npm, and pushes the branch + tag (triggering desktop, APK, and EAS mobile workflows).
+This bumps the version across all workspaces, runs checks, publishes to npm, and pushes the branch + tag (triggering `Desktop Release`, `Android APK Release`, EAS `release-mobile.yml`, and `Release Notes Sync` workflows).
 
 If asked to "release paseo" without specifying major/minor, treat it as a patch release.
 
@@ -61,7 +61,7 @@ Use the beta path when you need to:
 
 ## Staged rollout (stable channel)
 
-Stable desktop releases go out via a linear time-based rollout: 0% admitted when the updater manifests appear, 100% admitted 24 hours later, linear ramp in between. Beta releases bypass the rollout entirely — beta users always receive updates immediately.
+Stable desktop releases go out via a linear time-based rollout: 0% admitted when the updater manifests appear, 100% admitted 36 hours later, linear ramp in between. Beta releases bypass the rollout entirely — beta users always receive updates immediately.
 
 The rollout is driven by a `rolloutHours` field stamped into the GitHub Release manifests (`latest-mac.yml`, `latest-linux.yml`, `latest.yml`) by the `finalize-rollout` job in `desktop-release.yml`.
 
@@ -74,16 +74,16 @@ Updater clients only discover a release through those `.yml` manifests, so there
 
 ### Default behavior
 
-`npm run release:patch` → tag push → 24h ramp. No extra action needed.
+`npm run release:patch` → tag push → 36h ramp. No extra action needed.
 
-The `rollout_hours` input on `desktop-release.yml` is **only read on `workflow_dispatch`** — tag-push runs always default to 24. To get any other rollout duration on a fresh release, use the post-publish flip below.
+The `rollout_hours` input on `desktop-release.yml` is **only read on `workflow_dispatch`** — tag-push runs always default to 36. To get any other rollout duration on a fresh release, use the post-publish flip below.
 
 ### Instant-admit release (rollout_hours=0 from publish)
 
 For a fresh release that should admit everyone immediately (low-risk change, doc-only, hotfix, or just a release you want out fast), cut the release normally and queue the rollout flip immediately after:
 
 ```bash
-# 1. Cut and publish (default 24h ramp from tag push).
+# 1. Cut and publish (default 36h ramp from tag push).
 npm run release:patch
 
 # 2. Immediately queue the flip — runs as soon as finalize-rollout completes.
@@ -92,7 +92,7 @@ gh workflow run desktop-rollout.yml \
   -f rollout_hours=0
 ```
 
-**Why this is gap-free:** `desktop-release.yml`'s `finalize-rollout` job and `desktop-rollout.yml` share the concurrency group `desktop-rollout-<tag>`. Dispatching `desktop-rollout.yml` while the tag-push pipeline is still running queues it safely behind `finalize-rollout`. The first public manifests already carry `rolloutHours=24`, then `desktop-rollout.yml` flips them to `rolloutHours=0` shortly afterward. The renderer polls every 30 minutes, so active stable users pick up the new manifest on their next check.
+**Why this is gap-free:** `desktop-release.yml`'s `finalize-rollout` job and `desktop-rollout.yml` share the concurrency group `desktop-rollout-<tag>`. Dispatching `desktop-rollout.yml` while the tag-push pipeline is still running queues it safely behind `finalize-rollout`. The first public manifests already carry `rolloutHours=36`, then `desktop-rollout.yml` flips them to `rolloutHours=0` shortly afterward. The renderer polls every 30 minutes, so active stable users pick up the new manifest on their next check.
 
 Run the dispatch right after `release:patch` returns. Don't wait for the tag-push CI to finish.
 
@@ -132,7 +132,7 @@ gh workflow run desktop-release.yml \
   -f rollout_hours=6
 ```
 
-This does **not** apply to fresh releases cut via `npm run release:patch` — that path always tag-pushes and stamps 24. For a fresh release with a custom ramp, cut normally and then dispatch `desktop-rollout.yml` (same pattern as the instant-admit flow above, with your chosen `rollout_hours`).
+This does **not** apply to fresh releases cut via `npm run release:patch` — that path always tag-pushes and stamps 36. For a fresh release with a custom ramp, cut normally and then dispatch `desktop-rollout.yml` (same pattern as the instant-admit flow above, with your chosen `rollout_hours`).
 
 ### Releasing during an active rollout
 
@@ -147,11 +147,16 @@ If N+1 is a hotfix for a bug in N, dispatch `desktop-rollout.yml -f tag=v0.1.<N+
 - **Bootstrap caveat.** Clients running a build older than the rollout feature ignore `rolloutHours` and admit immediately. Rollout protection only applies to clients running the rollout-aware version or later.
 - **Up to ~30 min admission latency.** Renderer polls every 30 minutes, so a stable user may take up to that long to be evaluated against the rollout window.
 
+## Release notes on GitHub
+
+The GitHub Release body is populated automatically by the `Release Notes Sync` workflow (`.github/workflows/release-notes-sync.yml`). It triggers on every `v*` tag push and on any push to `main` that touches `CHANGELOG.md`, then runs `scripts/sync-release-notes-from-changelog.mjs` to mirror the matching changelog entry into the release body. You don't need to write release notes on GitHub manually — keep `CHANGELOG.md` correct and the workflow will sync it. To force a re-sync, dispatch the workflow with the tag input.
+
 ## Website behavior
 
 - The website download page points to GitHub's latest published **stable** release.
 - Published beta prereleases are public on GitHub Releases, but they do **not** become the website download target.
 - The website only moves when you publish the final stable release tag like `v0.1.41`.
+- The website itself is deployed by `Deploy Website` (Cloudflare Workers), which redeploys on `release: published` for non-prerelease releases and on pushes to `main` that touch `CHANGELOG.md` or `packages/website/**`.
 
 ## Fixing a failed release build
 

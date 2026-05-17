@@ -27,12 +27,12 @@ Or from `packages/app`:
 
 ```bash
 # Debug
-APP_VARIANT=development npx expo prebuild --platform android --non-interactive
-APP_VARIANT=development npx expo run:android --variant=debug
+npx cross-env APP_VARIANT=development expo prebuild --platform android --non-interactive
+npx cross-env APP_VARIANT=development expo run:android --variant=debug
 
 # Release
-APP_VARIANT=production npx expo prebuild --platform android --non-interactive
-APP_VARIANT=production npx expo run:android --variant=release
+npx cross-env APP_VARIANT=production expo prebuild --platform android --non-interactive
+npx cross-env APP_VARIANT=production expo run:android --variant=release
 
 # Clear generated Android project
 rm -rf android
@@ -52,6 +52,8 @@ Stable tag pushes like `v0.1.0` trigger:
 - `.github/workflows/android-apk-release.yml` on GitHub Actions (APK asset on GitHub Release)
 
 Beta tags like `v0.1.1-beta.1` only trigger the GitHub APK workflow. They publish a GitHub prerelease APK for testing and do not submit to the stores.
+
+`android-v*` tags also trigger only the GitHub APK workflow — useful when you want to ship an APK without going through stores. Both workflows also support `workflow_dispatch`; the GitHub APK one takes an existing `tag` input so you can rebuild without cutting a new tag.
 
 ### Useful commands
 

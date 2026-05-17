@@ -30,6 +30,9 @@ import type {
   CheckoutPullResponse,
   CheckoutPushResponse,
   CheckoutPrCreateResponse,
+  CheckoutPrMergeResponse,
+  CheckoutPrMergeMethod,
+  CheckoutGithubSetAutoMergeResponse,
   CheckoutPrStatusResponse,
   PullRequestTimelineResponse,
   CheckoutSwitchBranchResponse,
@@ -121,12 +124,20 @@ const perfNow: () => number =
     ? () => performance.now()
     : () => Date.now();
 
-export interface ImportAgentInput {
-  provider: AgentProvider;
-  sessionId: string;
+interface ImportAgentInputBase {
   cwd?: string;
   labels?: Record<string, string>;
 }
+
+export type ImportAgentInput =
+  | (ImportAgentInputBase & {
+      providerId: string;
+      providerHandleId: string;
+    })
+  | (ImportAgentInputBase & {
+      provider: AgentProvider;
+      sessionId: string;
+    });
 
 function normalizePassword(value: string | undefined): string | null {
   if (typeof value !== "string") {
@@ -248,7 +259,13 @@ export interface CreateAgentRequestOptions extends AgentConfigOverrides {
 
 export interface CreatePaseoWorktreeInput extends Pick<
   CreatePaseoWorktreeRequest,
-  "cwd" | "worktreeSlug" | "firstAgentContext" | "refName" | "action" | "githubPrNumber"
+  | "cwd"
+  | "projectId"
+  | "worktreeSlug"
+  | "firstAgentContext"
+  | "refName"
+  | "action"
+  | "githubPrNumber"
 > {}
 
 type CheckoutStatusPayload = CheckoutStatusResponse["payload"];
@@ -263,6 +280,8 @@ type CheckoutMergeFromBasePayload = CheckoutMergeFromBaseResponse["payload"];
 type CheckoutPullPayload = CheckoutPullResponse["payload"];
 type CheckoutPushPayload = CheckoutPushResponse["payload"];
 type CheckoutPrCreatePayload = CheckoutPrCreateResponse["payload"];
+type CheckoutPrMergePayload = CheckoutPrMergeResponse["payload"];
+type CheckoutGithubSetAutoMergePayload = CheckoutGithubSetAutoMergeResponse["payload"];
 type CheckoutPrStatusPayload = CheckoutPrStatusResponse["payload"];
 type PullRequestTimelinePayload = PullRequestTimelineResponse["payload"];
 type CheckoutSwitchBranchPayload = CheckoutSwitchBranchResponse["payload"];
@@ -435,6 +454,21 @@ export type FetchAgentHistoryOptions = Omit<FetchAgentHistoryRequest, "type" | "
 };
 export type FetchAgentHistoryEntry = FetchAgentHistoryPayload["entries"][number];
 export type FetchAgentHistoryPageInfo = FetchAgentHistoryPayload["pageInfo"];
+type FetchRecentProviderSessionsPayload = Extract<
+  SessionOutboundMessage,
+  { type: "fetch_recent_provider_sessions_response" }
+>["payload"];
+type FetchRecentProviderSessionsRequest = Extract<
+  SessionInboundMessage,
+  { type: "fetch_recent_provider_sessions_request" }
+>;
+export type FetchRecentProviderSessionsOptions = Omit<
+  FetchRecentProviderSessionsRequest,
+  "type" | "requestId"
+> & {
+  requestId?: string;
+};
+export type FetchRecentProviderSessionEntry = FetchRecentProviderSessionsPayload["entries"][number];
 type FetchWorkspacesPayload = Extract<
   SessionOutboundMessage,
   { type: "fetch_workspaces_response" }
@@ -1399,6 +1433,25 @@ export class DaemonClient {
     });
   }
 
+  private sendNamespacedCorrelatedSessionRequest<
+    TResponseType extends CorrelatedResponseType,
+    TResult = CorrelatedResponsePayload<TResponseType>,
+  >(params: {
+    requestId?: string;
+    message: { type: Extract<SessionInboundMessage["type"], `${string}.request`> } & Record<
+      string,
+      unknown
+    >;
+    timeout: number;
+    selectPayload?: (payload: CorrelatedResponsePayload<TResponseType>) => TResult | null;
+  }): Promise<TResult> {
+    const responseType = params.message.type.replace(/\.request$/, ".response") as TResponseType;
+    return this.sendCorrelatedSessionRequest({
+      ...params,
+      responseType,
+    });
+  }
+
   private sendSessionMessageStrict(message: SessionInboundMessage): void {
     if (!this.transport || this.connectionState.status !== "connected") {
       throw new Error("Transport not connected");
@@ -1540,6 +1593,35 @@ export class DaemonClient {
       options: { skipQueue: true },
       select: (msg) => {
         if (msg.type !== "fetch_agent_history_response") {
+          return null;
+        }
+        if (msg.payload.requestId !== resolvedRequestId) {
+          return null;
+        }
+        return msg.payload;
+      },
+    });
+  }
+
+  async fetchRecentProviderSessions(
+    options?: FetchRecentProviderSessionsOptions,
+  ): Promise<FetchRecentProviderSessionsPayload> {
+    const resolvedRequestId = this.createRequestId(options?.requestId);
+    const message = SessionInboundMessageSchema.parse({
+      type: "fetch_recent_provider_sessions_request",
+      requestId: resolvedRequestId,
+      ...(options?.cwd ? { cwd: options.cwd } : {}),
+      ...(options?.providers ? { providers: options.providers } : {}),
+      ...(options?.since ? { since: options.since } : {}),
+      ...(options?.limit ? { limit: options.limit } : {}),
+    });
+    return this.sendRequest({
+      requestId: resolvedRequestId,
+      message,
+      timeout: 10000,
+      options: { skipQueue: true },
+      select: (msg) => {
+        if (msg.type !== "fetch_recent_provider_sessions_response") {
           return null;
         }
         if (msg.payload.requestId !== resolvedRequestId) {
@@ -1872,6 +1954,27 @@ export class DaemonClient {
     }
   }
 
+  async renameProject(
+    projectId: string,
+    customName: string | null,
+    requestId?: string,
+  ): Promise<{ customName: string | null }> {
+    const payload = await this.sendCorrelatedSessionRequest({
+      requestId,
+      message: {
+        type: "project.rename.request",
+        projectId,
+        customName,
+      },
+      responseType: "project.rename.response",
+      timeout: 10000,
+    });
+    if (!payload.accepted) {
+      throw new Error(payload.error ?? "renameProject rejected");
+    }
+    return { customName: payload.customName };
+  }
+
   async resumeAgent(
     handle: AgentPersistenceHandle,
     overrides?: Partial<AgentSessionConfig>,
@@ -1909,8 +2012,9 @@ export class DaemonClient {
     const message = SessionInboundMessageSchema.parse({
       type: "import_agent_request",
       requestId,
-      provider: input.provider,
-      sessionId: input.sessionId,
+      ...("providerId" in input
+        ? { providerId: input.providerId, providerHandleId: input.providerHandleId }
+        : { provider: input.provider, sessionId: input.sessionId }),
       ...(input.cwd ? { cwd: input.cwd } : {}),
       ...(input.labels && Object.keys(input.labels).length > 0 ? { labels: input.labels } : {}),
     });
@@ -2754,6 +2858,40 @@ export class DaemonClient {
     });
   }
 
+  async checkoutPrMerge(
+    cwd: string,
+    input: { method: CheckoutPrMergeMethod },
+    requestId?: string,
+  ): Promise<CheckoutPrMergePayload> {
+    return this.sendCorrelatedSessionRequest({
+      requestId,
+      message: {
+        type: "checkout_pr_merge_request",
+        cwd,
+        mergeMethod: input.method,
+      },
+      responseType: "checkout_pr_merge_response",
+      timeout: 60000,
+    });
+  }
+
+  async checkoutGithubSetAutoMerge(
+    cwd: string,
+    input: { enabled: true; method: CheckoutPrMergeMethod } | { enabled: false },
+    requestId?: string,
+  ): Promise<CheckoutGithubSetAutoMergePayload> {
+    return this.sendNamespacedCorrelatedSessionRequest<"checkout.github.set_auto_merge.response">({
+      requestId,
+      message: {
+        type: "checkout.github.set_auto_merge.request",
+        cwd,
+        enabled: input.enabled,
+        ...(input.enabled ? { mergeMethod: input.method } : {}),
+      },
+      timeout: 60000,
+    });
+  }
+
   async checkoutPrStatus(cwd: string, requestId?: string): Promise<CheckoutPrStatusPayload> {
     return this.sendCorrelatedSessionRequest({
       requestId,
@@ -2890,6 +3028,7 @@ export class DaemonClient {
       message: {
         type: "create_paseo_worktree_request",
         cwd: input.cwd,
+        ...(input.projectId !== undefined ? { projectId: input.projectId } : {}),
         worktreeSlug: input.worktreeSlug,
         ...(input.firstAgentContext !== undefined
           ? { firstAgentContext: input.firstAgentContext }
@@ -2961,6 +3100,7 @@ export class DaemonClient {
       cwd?: string;
       includeFiles?: boolean;
       includeDirectories?: boolean;
+      matchMode?: "fuzzy" | "suffix";
     },
     requestId?: string,
   ): Promise<DirectorySuggestionsPayload> {
@@ -2972,6 +3112,7 @@ export class DaemonClient {
         cwd: options.cwd,
         includeFiles: options.includeFiles,
         includeDirectories: options.includeDirectories,
+        matchMode: options.matchMode,
         limit: options.limit,
       },
       responseType: "directory_suggestions_response",

@@ -299,8 +299,8 @@ function ensureRelayBuildArtifact(repoRoot: string): void {
     return;
   }
 
-  console.log("[e2e] Building @bas-more/relay for daemon startup");
-  execSync("npm run build --workspace=@bas-more/relay", {
+  console.log("[e2e] Building @getpaseo/relay for daemon startup");
+  execSync("npm run build --workspace=@getpaseo/relay", {
     cwd: repoRoot,
     stdio: "inherit",
   });
@@ -414,18 +414,20 @@ async function resolveDictationConfig(): Promise<DictationConfig> {
   );
   const hasDefaultLocalModelsDir =
     defaultLocalModelsDir.trim().length > 0 && existsSync(defaultLocalModelsDir);
-  const dictationProvider = openAiUsable ? "openai" : "local";
 
-  if (dictationProvider === "local" && !hasDefaultLocalModelsDir) {
+  // Fork PRs run without secrets and usually without local models. Don't crash
+  // the whole Playwright run — disable dictation/voice and let tests that need
+  // them gate on PASEO_DICTATION_ENABLED.
+  if (!openAiUsable && !hasDefaultLocalModelsDir) {
     console.warn(
-      "[e2e] WARNING: OpenAI key is not usable and local speech models are unavailable at ~/.paseo/models/local-speech. " +
-        "Speech-dependent tests will be skipped. Provide a valid OPENAI_API_KEY or install local speech models.",
+      "[e2e] Neither OPENAI_API_KEY nor local speech models found — running with dictation/voice disabled. " +
+        "Tests that require dictation should gate on PASEO_DICTATION_ENABLED.",
     );
-    process.env.PASEO_E2E_SPEECH_UNAVAILABLE = "1";
+    return { openAiUsable: false, localModelsDir: null };
   }
 
-  const localModelsDir =
-    dictationProvider === "local" && hasDefaultLocalModelsDir ? defaultLocalModelsDir : null;
+  const dictationProvider = openAiUsable ? "openai" : "local";
+  const localModelsDir = dictationProvider === "local" ? defaultLocalModelsDir : null;
   console.log(
     `[e2e] Dictation STT provider: ${dictationProvider}${openAiUsable ? "" : " (OpenAI probe failed)"}`,
   );

@@ -872,6 +872,7 @@ test("sends worktree base-ref fields in create_paseo_worktree_request", async ()
   const createPromise = client.createPaseoWorktree(
     {
       cwd: "/tmp/project",
+      projectId: "remote:github.com/acme/project",
       worktreeSlug: "review-pr-123",
       refName: "feature/worktree-base-ref",
       action: "checkout",
@@ -885,6 +886,7 @@ test("sends worktree base-ref fields in create_paseo_worktree_request", async ()
   expect(request).toEqual({
     type: "create_paseo_worktree_request",
     cwd: "/tmp/project",
+    projectId: "remote:github.com/acme/project",
     worktreeSlug: "review-pr-123",
     refName: "feature/worktree-base-ref",
     action: "checkout",
@@ -1495,6 +1497,7 @@ test("requests directory suggestions via RPC", async () => {
       cwd: "/tmp/project",
       includeFiles: true,
       includeDirectories: true,
+      matchMode: "suffix",
     },
     "req-directories",
   );
@@ -1506,6 +1509,7 @@ test("requests directory suggestions via RPC", async () => {
   expect(request.cwd).toBe("/tmp/project");
   expect(request.includeFiles).toBe(true);
   expect(request.includeDirectories).toBe(true);
+  expect(request.matchMode).toBe("suffix");
   expect(request.limit).toBe(10);
   expect(request.requestId).toBe("req-directories");
 
@@ -1581,6 +1585,118 @@ test("requests checkout merge from base via RPC", async () => {
   await expect(promise).resolves.toEqual({
     cwd: "/tmp/project",
     requestId: "req-merge-from-base",
+    success: true,
+    error: null,
+  });
+});
+
+test("requests GitHub auto-merge enable via namespaced RPC", async () => {
+  const logger = createMockLogger();
+  const mock = createMockTransport();
+
+  const client = new DaemonClient({
+    url: "ws://test",
+    clientId: "clsk_unit_test",
+    logger,
+    reconnect: { enabled: false },
+    transportFactory: () => mock.transport,
+  });
+  clients.push(client);
+
+  const connectPromise = client.connect();
+  mock.triggerOpen();
+  await connectPromise;
+
+  const promise = client.checkoutGithubSetAutoMerge(
+    "/tmp/project",
+    { enabled: true, method: "squash" },
+    "req-enable-auto-merge",
+  );
+
+  expect(mock.sent).toHaveLength(1);
+  const request = parseSentFrame(mock.sent[0]);
+  expect(request.type).toBe("checkout.github.set_auto_merge.request");
+  expect(request.cwd).toBe("/tmp/project");
+  expect(request.enabled).toBe(true);
+  expect(request.mergeMethod).toBe("squash");
+  expect(request.requestId).toBe("req-enable-auto-merge");
+
+  mock.triggerMessage(
+    JSON.stringify({
+      type: "session",
+      message: {
+        type: "checkout.github.set_auto_merge.response",
+        payload: {
+          cwd: "/tmp/project",
+          enabled: true,
+          requestId: "req-enable-auto-merge",
+          success: true,
+          error: null,
+        },
+      },
+    }),
+  );
+
+  await expect(promise).resolves.toEqual({
+    cwd: "/tmp/project",
+    enabled: true,
+    requestId: "req-enable-auto-merge",
+    success: true,
+    error: null,
+  });
+});
+
+test("requests GitHub auto-merge disable via namespaced RPC", async () => {
+  const logger = createMockLogger();
+  const mock = createMockTransport();
+
+  const client = new DaemonClient({
+    url: "ws://test",
+    clientId: "clsk_unit_test",
+    logger,
+    reconnect: { enabled: false },
+    transportFactory: () => mock.transport,
+  });
+  clients.push(client);
+
+  const connectPromise = client.connect();
+  mock.triggerOpen();
+  await connectPromise;
+
+  const promise = client.checkoutGithubSetAutoMerge(
+    "/tmp/project",
+    { enabled: false },
+    "req-disable-auto-merge",
+  );
+
+  expect(mock.sent).toHaveLength(1);
+  const request = parseSentFrame(mock.sent[0]);
+  expect(request.type).toBe("checkout.github.set_auto_merge.request");
+  expect(request.cwd).toBe("/tmp/project");
+  expect(request.enabled).toBe(false);
+  expect(request.mergeMethod).toBeUndefined();
+  expect(request.requestId).toBe("req-disable-auto-merge");
+
+  mock.triggerMessage(
+    JSON.stringify({
+      type: "session",
+      message: {
+        type: "checkout.github.set_auto_merge.response",
+        payload: {
+          cwd: "/tmp/project",
+          enabled: false,
+          requestId: "req-disable-auto-merge",
+          success: true,
+          error: null,
+        },
+      },
+    }),
+  );
+
+  await expect(promise).resolves.toEqual({
+    cwd: "/tmp/project",
+    enabled: false,
+    requestId: "req-disable-auto-merge",
     success: true,
     error: null,
   });
@@ -1846,6 +1962,185 @@ test("fetches paginated agent history separately from active agents", async () =
       prevCursor: "cursor-1",
       hasMore: false,
     },
+  });
+});
+
+test("fetches scoped recent provider sessions", async () => {
+  const logger = createMockLogger();
+  const mock = createMockTransport();
+
+  const client = new DaemonClient({
+    url: "ws://test",
+    clientId: "clsk_unit_test",
+    logger,
+    reconnect: { enabled: false },
+    transportFactory: () => mock.transport,
+  });
+  clients.push(client);
+
+  const connectPromise = client.connect();
+  mock.triggerOpen();
+  await connectPromise;
+
+  const promise = client.fetchRecentProviderSessions({
+    cwd: "/tmp/repo",
+    providers: ["my-claude"],
+    since: "2026-04-30T00:00:00.000Z",
+    limit: 25,
+  });
+
+  expect(mock.sent).toHaveLength(1);
+  const request = JSON.parse(String(mock.sent[0])) as {
+    type: "session";
+    message: {
+      type: "fetch_recent_provider_sessions_request";
+      requestId: string;
+      cwd?: string;
+      providers?: string[];
+      since?: string;
+      limit?: number;
+    };
+  };
+  expect(request.message).toMatchObject({
+    type: "fetch_recent_provider_sessions_request",
+    cwd: "/tmp/repo",
+    providers: ["my-claude"],
+    since: "2026-04-30T00:00:00.000Z",
+    limit: 25,
+  });
+
+  mock.triggerMessage(
+    JSON.stringify({
+      type: "session",
+      message: {
+        type: "fetch_recent_provider_sessions_response",
+        payload: {
+          requestId: request.message.requestId,
+          entries: [
+            {
+              providerId: "codex",
+              providerLabel: "Codex",
+              providerHandleId: "thread-1",
+              cwd: "/tmp/repo",
+              title: "Import me",
+              firstPromptPreview: "first prompt",
+              lastPromptPreview: "last prompt",
+              lastActivityAt: "2026-04-30T12:34:56.000Z",
+            },
+          ],
+        },
+      },
+    }),
+  );
+
+  await expect(promise).resolves.toEqual({
+    requestId: request.message.requestId,
+    entries: [
+      {
+        providerId: "codex",
+        providerLabel: "Codex",
+        providerHandleId: "thread-1",
+        cwd: "/tmp/repo",
+        title: "Import me",
+        firstPromptPreview: "first prompt",
+        lastPromptPreview: "last prompt",
+        lastActivityAt: "2026-04-30T12:34:56.000Z",
+      },
+    ],
+  });
+});
+
+test("imports an agent by provider handle id", async () => {
+  const logger = createMockLogger();
+  const mock = createMockTransport();
+
+  const client = new DaemonClient({
+    url: "ws://test",
+    clientId: "clsk_unit_test",
+    logger,
+    reconnect: { enabled: false },
+    transportFactory: () => mock.transport,
+  });
+  clients.push(client);
+
+  const connectPromise = client.connect();
+  mock.triggerOpen();
+  await connectPromise;
+
+  const promise = client.importAgent({
+    providerId: "custom-codex",
+    providerHandleId: "thread-1",
+    cwd: "/tmp/repo",
+  });
+
+  expect(mock.sent).toHaveLength(1);
+  const request = JSON.parse(String(mock.sent[0])) as {
+    type: "session";
+    message: {
+      type: "import_agent_request";
+      requestId: string;
+      providerId?: string;
+      providerHandleId?: string;
+      sessionId?: string;
+      cwd?: string;
+    };
+  };
+  expect(request.message).toMatchObject({
+    type: "import_agent_request",
+    providerId: "custom-codex",
+    providerHandleId: "thread-1",
+    cwd: "/tmp/repo",
+  });
+  expect(request.message).not.toHaveProperty("sessionId");
+
+  mock.triggerMessage(
+    wrapSessionMessage({
+      type: "status",
+      payload: {
+        status: "agent_resumed",
+        requestId: request.message.requestId,
+        agentId: "agent-1",
+        timelineSize: 0,
+        agent: {
+          id: "agent-1",
+          provider: "custom-codex",
+          cwd: "/tmp/repo",
+          model: null,
+          features: [],
+          thinkingOptionId: null,
+          effectiveThinkingOptionId: null,
+          createdAt: "2026-04-30T00:00:00.000Z",
+          updatedAt: "2026-04-30T00:00:00.000Z",
+          lastUserMessageAt: null,
+          status: "idle",
+          capabilities: {
+            supportsStreaming: false,
+            supportsSessionPersistence: false,
+            supportsDynamicModes: false,
+            supportsMcpServers: false,
+            supportsReasoningStream: false,
+            supportsToolInvocations: false,
+          },
+          currentModeId: null,
+          availableModes: [],
+          pendingPermissions: [],
+          persistence: {
+            provider: "custom-codex",
+            sessionId: "thread-1",
+            nativeHandle: "thread-1",
+          },
+          title: null,
+          labels: {},
+          requiresAttention: false,
+          attentionReason: null,
+        },
+      },
+    }),
+  );
+
+  await expect(promise).resolves.toMatchObject({
+    id: "agent-1",
+    provider: "custom-codex",
   });
 });
 

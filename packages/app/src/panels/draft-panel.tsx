@@ -18,17 +18,17 @@ function useDraftPanelDescriptor() {
 }
 
 function DraftPanel() {
-  const { serverId, workspaceId, tabId, target, openFileInWorkspace, retargetCurrentTab } =
-    usePaneContext();
+  const {
+    serverId,
+    workspaceId,
+    tabId,
+    target,
+    openFileInWorkspace,
+    openImportSheet,
+    retargetCurrentTab,
+  } = usePaneContext();
   const { isInteractive } = usePaneFocus();
   invariant(target.kind === "draft", "DraftPanel requires draft target");
-
-  const handleOpenWorkspaceFile = useCallback(
-    ({ filePath }: { filePath: string }) => {
-      openFileInWorkspace(filePath);
-    },
-    [openFileInWorkspace],
-  );
 
   const handleCreated = useCallback(
     (agentSnapshot: Parameters<typeof normalizeAgentSnapshot>[0]) => {
@@ -49,9 +49,11 @@ function DraftPanel() {
       workspaceId={workspaceId}
       tabId={tabId}
       draftId={target.draftId}
+      initialSetup={target.setup}
       isPaneFocused={isInteractive}
-      onOpenWorkspaceFile={handleOpenWorkspaceFile}
+      onOpenWorkspaceFile={openFileInWorkspace}
       onCreated={handleCreated}
+      onOpenImportSheet={openImportSheet}
     />
   );
 }

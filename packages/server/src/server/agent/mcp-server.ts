@@ -8,6 +8,7 @@ import type { ServerNotification, ServerRequest } from "@modelcontextprotocol/sd
 import type { AgentProvider } from "./agent-sdk-types.js";
 import type { AgentManager, WaitForAgentResult } from "./agent-manager.js";
 import {
+  AgentFeatureSchema,
   AgentPermissionRequestPayloadSchema,
   AgentListItemPayloadSchema,
   AgentPermissionResponseSchema,
@@ -38,6 +39,7 @@ import { WaitForAgentTracker } from "./wait-for-agent-tracker.js";
 import { scheduleAgentMetadataGeneration } from "./agent-metadata-generator.js";
 import type { VoiceCallerContext, VoiceSpeakHandler } from "../voice-types.js";
 import { expandUserPath, isSameOrDescendantPath, resolvePathFromBase } from "../path-utils.js";
+import { PARENT_AGENT_ID_LABEL } from "../../shared/agent-labels.js";
 import type { TerminalManager } from "../../terminal/terminal-manager.js";
 import type {
   AgentWorktreeSetupContinuation,
@@ -46,7 +48,12 @@ import type {
   CreatePaseoWorktreeWorkflowResult,
 } from "../worktree-session.js";
 import type { ScheduleService } from "../schedule/service.js";
-import { ScheduleSummarySchema, StoredScheduleSchema } from "../schedule/types.js";
+import {
+  ScheduleRunSchema,
+  ScheduleSummarySchema,
+  StoredScheduleSchema,
+} from "../schedule/types.js";
+import type { ScheduleCadence, UpdateScheduleInput } from "../schedule/types.js";
 import type { ProviderDefinition } from "./provider-registry.js";
 import { getAgentProviderDefinition } from "./provider-manifest.js";
 import { resolveAndValidateCreateAgentMode } from "./create-agent-mode.js";
@@ -59,13 +66,11 @@ import {
   parseDurationString,
   resolveRequiredProviderModel,
   sanitizePermissionRequest,
-  sendPromptToAgent,
-  setupFinishNotification,
   serializeSnapshotWithMetadata,
-  startAgentRun,
   toScheduleSummary,
   waitForAgentWithTimeout,
 } from "./mcp-shared.js";
+import { sendPromptToAgent, setupFinishNotification, startAgentRun } from "./agent-prompt.js";
 import type { GitHubService } from "../../services/github-service.js";
 import type { WorkspaceGitService } from "../workspace-git-service.js";
 import type { CreatePaseoWorktreeInput } from "../paseo-worktree-service.js";
@@ -80,7 +85,10 @@ export interface AgentMcpServerOptions {
   scheduleService?: ScheduleService | null;
   providerRegistry?: Record<AgentProvider, ProviderDefinition> | null;
   github?: GitHubService;
-  workspaceGitService?: Pick<WorkspaceGitService, "getSnapshot" | "listWorktrees">;
+  workspaceGitService?: Pick<
+    WorkspaceGitService,
+    "getSnapshot" | "listWorktrees" | "resolveRepoRoot"
+  >;
   archiveWorkspaceRecord?: ArchivePaseoWorktreeDependencies["archiveWorkspaceRecord"];
   emitWorkspaceUpdatesForWorkspaceIds?: ArchivePaseoWorktreeDependencies["emitWorkspaceUpdatesForWorkspaceIds"];
   markWorkspaceArchiving?: ArchivePaseoWorktreeDependencies["markWorkspaceArchiving"];
@@ -253,6 +261,113 @@ function resolveScheduleProviderAndModel(params: {
   };
 }
 
+function resolveScheduleUpdateProviderAndModel(params: {
+  provider?: string;
+  model?: string | null;
+}): { provider?: string; model?: string | null } {
+  const providerInput = params.provider?.trim();
+  const modelInput = typeof params.model === "string" ? params.model.trim() : params.model;
+
+  if (params.model !== undefined && modelInput === "") {
+    throw new Error("model cannot be empty");
+  }
+
+  if (!providerInput) {
+    return params.model !== undefined ? { model: modelInput } : {};
+  }
+
+  const slashIndex = providerInput.indexOf("/");
+  if (slashIndex === -1) {
+    return {
+      provider: providerInput,
+      ...(params.model !== undefined ? { model: modelInput } : {}),
+    };
+  }
+
+  const provider = providerInput.slice(0, slashIndex).trim();
+  const modelFromProvider = providerInput.slice(slashIndex + 1).trim();
+  if (!provider || !modelFromProvider) {
+    throw new Error("provider must be <provider> or <provider>/<model>");
+  }
+  if (params.model === null) {
+    throw new Error("provider specifies a model but model is null");
+  }
+  if (typeof modelInput === "string" && modelInput !== modelFromProvider) {
+    throw new Error("Conflicting model values provided");
+  }
+
+  return {
+    provider,
+    model: modelInput ?? modelFromProvider,
+  };
+}
+
+interface ScheduleUpdateToolInput {
+  id: string;
+  every?: string;
+  cron?: string;
+  name?: string | null;
+  prompt?: string;
+  maxRuns?: number | null;
+  provider?: string;
+  model?: string | null;
+  mode?: string | null;
+  cwd?: string;
+  expiresIn?: string;
+  clearExpires?: boolean;
+}
+
+function resolveScheduleUpdateCadence(input: ScheduleUpdateToolInput): ScheduleCadence | undefined {
+  if (input.every !== undefined && input.cron !== undefined) {
+    throw new Error("Specify at most one of every or cron");
+  }
+  if (input.every !== undefined) {
+    return { type: "every", everyMs: parseDurationString(input.every) };
+  }
+  if (input.cron !== undefined) {
+    return { type: "cron", expression: input.cron.trim() };
+  }
+  return undefined;
+}
+
+function resolveScheduleUpdateExpiresAt(input: ScheduleUpdateToolInput): string | null | undefined {
+  if (input.expiresIn !== undefined && input.clearExpires) {
+    throw new Error("Specify at most one of expiresIn or clearExpires");
+  }
+  if (input.expiresIn !== undefined) {
+    return new Date(Date.now() + parseDurationString(input.expiresIn)).toISOString();
+  }
+  if (input.clearExpires) {
+    return null;
+  }
+  return undefined;
+}
+
+function buildScheduleUpdateInput(input: ScheduleUpdateToolInput): UpdateScheduleInput {
+  const cadence = resolveScheduleUpdateCadence(input);
+  const expiresAt = resolveScheduleUpdateExpiresAt(input);
+  const providerModelPatch = resolveScheduleUpdateProviderAndModel({
+    provider: input.provider,
+    model: input.model,
+  });
+  const newAgentConfig = {
+    ...(providerModelPatch.provider !== undefined ? { provider: providerModelPatch.provider } : {}),
+    ...(providerModelPatch.model !== undefined ? { model: providerModelPatch.model } : {}),
+    ...(input.mode !== undefined ? { modeId: input.mode } : {}),
+    ...(input.cwd !== undefined ? { cwd: input.cwd } : {}),
+  };
+
+  return {
+    id: input.id,
+    ...(input.name !== undefined ? { name: input.name } : {}),
+    ...(input.prompt !== undefined ? { prompt: input.prompt } : {}),
+    ...(cadence !== undefined ? { cadence } : {}),
+    ...(input.maxRuns !== undefined ? { maxRuns: input.maxRuns } : {}),
+    ...(expiresAt !== undefined ? { expiresAt } : {}),
+    ...(Object.keys(newAgentConfig).length > 0 ? { newAgentConfig } : {}),
+  };
+}
+
 function resolveChildAgentCwd(params: {
   parentCwd: string;
   requestedCwd?: string;
@@ -338,22 +453,6 @@ export async function createAgentMcpServer(options: AgentMcpServerOptions): Prom
     name: "agent-mcp",
     version: "2.0.0",
   });
-
-  // Workaround: tsgo resolves `import { z } from "zod"` (Zod v4) and the MCP SDK's
-  // internal `import * as z4 from "zod/v4/core"` to different declaration roots, making
-  // Zod v4 schema types (ZodNullable, ZodEffects, ZodNumber, etc.) fail the SDK's
-  // `AnySchema = z3.ZodTypeAny | z4.$ZodType` assignability check and triggering TS2589
-  // (excessively deep type instantiation) on every registerTool() call.
-  // This wrapper bypasses the generic constraint while preserving contextual callback
-  // typing (args destructured from `any` become explicit `any`, not implicit).
-  const registerTool = (
-    name: string,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    config: Record<string, any>,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    cb: (args: any, extra?: any) => any,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  ) => (server.registerTool as any)(name, config, cb);
 
   const resolveCallerAgent = () => {
     if (!callerAgentId) {
@@ -503,6 +602,10 @@ export async function createAgentMcpServer(options: AgentMcpServerOptions): Prom
       "Required provider/model pair, for example codex/gpt-5.4.",
     ),
     thinking: z.string().optional().describe("Thinking option ID"),
+    features: z
+      .record(z.unknown())
+      .optional()
+      .describe("Provider-specific feature values, for example { fast_mode: true } for Codex."),
     labels: z.record(z.string(), z.string()).optional().describe("Labels to set on the agent"),
     initialPrompt: z
       .string()
@@ -545,6 +648,10 @@ export async function createAgentMcpServer(options: AgentMcpServerOptions): Prom
       "Required provider/model pair, for example codex/gpt-5.4.",
     ),
     thinking: z.string().optional().describe("Thinking option ID"),
+    features: z
+      .record(z.unknown())
+      .optional()
+      .describe("Provider-specific feature values, for example { fast_mode: true } for Codex."),
     labels: z.record(z.string(), z.string()).optional().describe("Labels to set on the agent"),
     initialPrompt: z
       .string()
@@ -593,9 +700,17 @@ export async function createAgentMcpServer(options: AgentMcpServerOptions): Prom
   const createAgentInputSchema = callerAgentId ? agentToAgentInputSchema : topLevelInputSchema;
   const agentToAgentCreateAgentArgsSchema = z.object(agentToAgentInputSchema).strict();
   const topLevelCreateAgentArgsSchema = z.object(topLevelInputSchema).strict();
+  const listProviderFeaturesInputSchema = {
+    provider: AgentProviderEnum,
+    cwd: z.string().describe("Working directory used to resolve provider feature availability."),
+    modeId: z.string().optional(),
+    model: z.string().optional(),
+    thinkingOptionId: z.string().optional(),
+    featureValues: z.record(z.unknown()).optional(),
+  };
 
   if (options.voiceOnly || options.enableVoiceTools || callerContext?.enableVoiceTools) {
-    registerTool(
+    server.registerTool(
       "speak",
       {
         title: "Speak",
@@ -644,6 +759,7 @@ export async function createAgentMcpServer(options: AgentMcpServerOptions): Prom
     normalizedTitle: string | null;
     model: string | undefined;
     thinking: string | undefined;
+    features: Record<string, unknown> | undefined;
     labels: Record<string, string> | undefined;
     notifyOnFinish: boolean;
     resolvedCwd: string;
@@ -651,16 +767,31 @@ export async function createAgentMcpServer(options: AgentMcpServerOptions): Prom
     setupContinuation: AgentWorktreeSetupContinuation | undefined;
   }
 
-  const getAvailableModeIds = (provider: AgentProvider): string[] | undefined => {
+  const getProviderModes = (provider: AgentProvider) => {
     const fromRegistry = providerRegistry?.[provider];
     if (fromRegistry) {
-      return fromRegistry.modes.map((mode) => mode.id);
+      return fromRegistry.modes;
     }
     try {
-      return getAgentProviderDefinition(provider).modes.map((mode) => mode.id);
+      return getAgentProviderDefinition(provider).modes;
     } catch {
       return undefined;
     }
+  };
+
+  const getAvailableModeIds = (provider: AgentProvider): string[] | undefined => {
+    return getProviderModes(provider)?.map((mode) => mode.id);
+  };
+
+  const getUnattendedModeId = (provider: AgentProvider): string | undefined => {
+    return getProviderModes(provider)?.find((mode) => mode.isUnattended)?.id;
+  };
+
+  const isParentInUnattendedMode = (provider: AgentProvider, modeId: string | null): boolean => {
+    if (modeId === null) return false;
+    const modes = getProviderModes(provider);
+    if (!modes) return false;
+    return modes.some((mode) => mode.id === modeId && mode.isUnattended === true);
   };
 
   const resolveCallerCreateAgentArgs = (
@@ -683,8 +814,13 @@ export async function createAgentMcpServer(options: AgentMcpServerOptions): Prom
     const resolvedMode = resolveAndValidateCreateAgentMode({
       requestedMode: callerArgs.mode,
       targetProvider: provider,
-      parent: { provider: parentAgent.provider, modeId: parentAgent.currentModeId },
+      parent: {
+        provider: parentAgent.provider,
+        modeId: parentAgent.currentModeId,
+        isUnattended: isParentInUnattendedMode(parentAgent.provider, parentAgent.currentModeId),
+      },
       availableModes: getAvailableModeIds(provider),
+      targetUnattendedMode: getUnattendedModeId(provider),
     });
     return {
       provider,
@@ -693,6 +829,7 @@ export async function createAgentMcpServer(options: AgentMcpServerOptions): Prom
       normalizedTitle: callerArgs.title.trim(),
       model: resolvedProviderModel.model,
       thinking: callerArgs.thinking,
+      features: callerArgs.features,
       labels: callerArgs.labels,
       notifyOnFinish: callerArgs.notifyOnFinish ?? false,
       resolvedCwd,
@@ -712,6 +849,7 @@ export async function createAgentMcpServer(options: AgentMcpServerOptions): Prom
       targetProvider: resolvedProviderModel.provider,
       parent: null,
       availableModes: getAvailableModeIds(resolvedProviderModel.provider),
+      targetUnattendedMode: getUnattendedModeId(resolvedProviderModel.provider),
     });
     let resolvedCwd = expandUserPath(cwd);
     let setupContinuation: AgentWorktreeSetupContinuation | undefined;
@@ -765,6 +903,7 @@ export async function createAgentMcpServer(options: AgentMcpServerOptions): Prom
       normalizedTitle: topLevelArgs.title.trim(),
       model: resolvedProviderModel.model,
       thinking: topLevelArgs.thinking,
+      features: topLevelArgs.features,
       labels: topLevelArgs.labels,
       notifyOnFinish: topLevelArgs.notifyOnFinish ?? false,
       resolvedCwd,
@@ -773,7 +912,7 @@ export async function createAgentMcpServer(options: AgentMcpServerOptions): Prom
     };
   };
 
-  registerTool(
+  server.registerTool(
     "create_agent",
     {
       title: "Create agent",
@@ -808,6 +947,7 @@ export async function createAgentMcpServer(options: AgentMcpServerOptions): Prom
         normalizedTitle,
         model,
         thinking,
+        features,
         labels,
         notifyOnFinish,
         resolvedCwd,
@@ -817,7 +957,7 @@ export async function createAgentMcpServer(options: AgentMcpServerOptions): Prom
 
       const childAgentDefaultLabels = callerContext?.childAgentDefaultLabels;
       const mergedLabels = {
-        ...(callerAgentId ? { "paseo.parent-agent-id": callerAgentId } : {}),
+        ...(callerAgentId ? { [PARENT_AGENT_ID_LABEL]: callerAgentId } : {}),
         ...childAgentDefaultLabels,
         ...labels,
       };
@@ -829,6 +969,7 @@ export async function createAgentMcpServer(options: AgentMcpServerOptions): Prom
           title: normalizedTitle ?? undefined,
           model,
           thinkingOptionId: thinking,
+          featureValues: features,
         },
         undefined,
         Object.keys(mergedLabels).length > 0 ? { labels: mergedLabels } : undefined,
@@ -843,6 +984,7 @@ export async function createAgentMcpServer(options: AgentMcpServerOptions): Prom
         agentManager,
         agentId: snapshot.id,
         cwd: snapshot.cwd,
+        workspaceGitService: options.workspaceGitService,
         initialPrompt: trimmedPrompt,
         explicitTitle: snapshot.config.title,
         paseoHome: options.paseoHome,
@@ -915,7 +1057,30 @@ export async function createAgentMcpServer(options: AgentMcpServerOptions): Prom
     },
   );
 
-  registerTool(
+  server.registerTool(
+    "set_agent_feature",
+    {
+      title: "Set agent feature",
+      description: "Set a provider-specific feature on an existing agent, such as Codex fast_mode.",
+      inputSchema: {
+        agentId: z.string(),
+        featureId: z.string().trim().min(1),
+        value: z.unknown(),
+      },
+      outputSchema: {
+        success: z.boolean(),
+      },
+    },
+    async ({ agentId, featureId, value }) => {
+      await agentManager.setAgentFeature(agentId, featureId, value);
+      return {
+        content: [],
+        structuredContent: ensureValidJson({ success: true }),
+      };
+    },
+  );
+
+  server.registerTool(
     "wait_for_agent",
     {
       title: "Wait for agent",
@@ -992,7 +1157,7 @@ export async function createAgentMcpServer(options: AgentMcpServerOptions): Prom
     },
   );
 
-  registerTool(
+  server.registerTool(
     "send_agent_prompt",
     {
       title: "Send agent prompt",
@@ -1093,7 +1258,7 @@ export async function createAgentMcpServer(options: AgentMcpServerOptions): Prom
     },
   );
 
-  registerTool(
+  server.registerTool(
     "get_agent_status",
     {
       title: "Get agent status",
@@ -1143,7 +1308,7 @@ export async function createAgentMcpServer(options: AgentMcpServerOptions): Prom
     },
   );
 
-  registerTool(
+  server.registerTool(
     "list_agents",
     {
       title: "List agents",
@@ -1202,7 +1367,7 @@ export async function createAgentMcpServer(options: AgentMcpServerOptions): Prom
     },
   );
 
-  registerTool(
+  server.registerTool(
     "cancel_agent",
     {
       title: "Cancel agent run",
@@ -1226,7 +1391,7 @@ export async function createAgentMcpServer(options: AgentMcpServerOptions): Prom
     },
   );
 
-  registerTool(
+  server.registerTool(
     "archive_agent",
     {
       title: "Archive agent",
@@ -1249,7 +1414,7 @@ export async function createAgentMcpServer(options: AgentMcpServerOptions): Prom
     },
   );
 
-  registerTool(
+  server.registerTool(
     "kill_agent",
     {
       title: "Kill agent",
@@ -1271,7 +1436,7 @@ export async function createAgentMcpServer(options: AgentMcpServerOptions): Prom
     },
   );
 
-  registerTool(
+  server.registerTool(
     "update_agent",
     {
       title: "Update agent",
@@ -1311,7 +1476,7 @@ export async function createAgentMcpServer(options: AgentMcpServerOptions): Prom
     },
   );
 
-  registerTool(
+  server.registerTool(
     "list_terminals",
     {
       title: "List terminals",
@@ -1359,7 +1524,7 @@ export async function createAgentMcpServer(options: AgentMcpServerOptions): Prom
     },
   );
 
-  registerTool(
+  server.registerTool(
     "create_terminal",
     {
       title: "Create terminal",
@@ -1394,7 +1559,7 @@ export async function createAgentMcpServer(options: AgentMcpServerOptions): Prom
     },
   );
 
-  registerTool(
+  server.registerTool(
     "kill_terminal",
     {
       title: "Kill terminal",
@@ -1425,7 +1590,7 @@ export async function createAgentMcpServer(options: AgentMcpServerOptions): Prom
     },
   );
 
-  registerTool(
+  server.registerTool(
     "capture_terminal",
     {
       title: "Capture terminal",
@@ -1469,7 +1634,7 @@ export async function createAgentMcpServer(options: AgentMcpServerOptions): Prom
     },
   );
 
-  registerTool(
+  server.registerTool(
     "send_terminal_keys",
     {
       title: "Send terminal keys",
@@ -1505,7 +1670,7 @@ export async function createAgentMcpServer(options: AgentMcpServerOptions): Prom
     },
   );
 
-  registerTool(
+  server.registerTool(
     "create_schedule",
     {
       title: "Create schedule",
@@ -1586,7 +1751,7 @@ export async function createAgentMcpServer(options: AgentMcpServerOptions): Prom
     },
   );
 
-  registerTool(
+  server.registerTool(
     "list_schedules",
     {
       title: "List schedules",
@@ -1611,7 +1776,7 @@ export async function createAgentMcpServer(options: AgentMcpServerOptions): Prom
     },
   );
 
-  registerTool(
+  server.registerTool(
     "inspect_schedule",
     {
       title: "Inspect schedule",
@@ -1634,7 +1799,7 @@ export async function createAgentMcpServer(options: AgentMcpServerOptions): Prom
     },
   );
 
-  registerTool(
+  server.registerTool(
     "pause_schedule",
     {
       title: "Pause schedule",
@@ -1659,7 +1824,7 @@ export async function createAgentMcpServer(options: AgentMcpServerOptions): Prom
     },
   );
 
-  registerTool(
+  server.registerTool(
     "resume_schedule",
     {
       title: "Resume schedule",
@@ -1684,7 +1849,7 @@ export async function createAgentMcpServer(options: AgentMcpServerOptions): Prom
     },
   );
 
-  registerTool(
+  server.registerTool(
     "delete_schedule",
     {
       title: "Delete schedule",
@@ -1709,7 +1874,94 @@ export async function createAgentMcpServer(options: AgentMcpServerOptions): Prom
     },
   );
 
-  registerTool(
+  server.registerTool(
+    "update_schedule",
+    {
+      title: "Update schedule",
+      description:
+        "Update an existing schedule. Only provided fields are changed; omitted fields remain unchanged.",
+      inputSchema: {
+        id: z.string(),
+        every: z.string().optional().describe("New interval duration string (e.g. 5m, 1h)."),
+        cron: z.string().optional().describe("New cron expression."),
+        name: z.string().nullable().optional().describe("New name (null to clear)."),
+        prompt: z.string().trim().min(1).optional().describe("New prompt text."),
+        maxRuns: z
+          .number()
+          .int()
+          .positive()
+          .nullable()
+          .optional()
+          .describe("New max runs limit (null to clear)."),
+        provider: z
+          .string()
+          .trim()
+          .min(1)
+          .optional()
+          .describe("New provider for new-agent target."),
+        model: z
+          .string()
+          .trim()
+          .min(1)
+          .nullable()
+          .optional()
+          .describe("New model for new-agent target (null to clear)."),
+        mode: z
+          .string()
+          .trim()
+          .min(1)
+          .nullable()
+          .optional()
+          .describe("New mode for new-agent target (null to clear)."),
+        cwd: z.string().trim().min(1).optional().describe("New cwd for new-agent target."),
+        expiresIn: z
+          .string()
+          .optional()
+          .describe("New relative expiry duration (for example: 1h, 2d)."),
+        clearExpires: z.boolean().optional().describe("Clear any schedule expiry."),
+      },
+      outputSchema: StoredScheduleSchema.shape,
+    },
+    async (input) => {
+      if (!scheduleService) {
+        throw new Error("Schedule service is not configured");
+      }
+
+      const schedule = await scheduleService.update(buildScheduleUpdateInput(input));
+
+      return {
+        content: [],
+        structuredContent: ensureValidJson(schedule),
+      };
+    },
+  );
+
+  server.registerTool(
+    "schedule_logs",
+    {
+      title: "Schedule logs",
+      description: "Get the run history (logs) for a schedule.",
+      inputSchema: {
+        id: z.string(),
+      },
+      outputSchema: {
+        runs: z.array(ScheduleRunSchema),
+      },
+    },
+    async ({ id }) => {
+      if (!scheduleService) {
+        throw new Error("Schedule service is not configured");
+      }
+
+      const runs = await scheduleService.logs(id);
+      return {
+        content: [],
+        structuredContent: ensureValidJson({ runs }),
+      };
+    },
+  );
+
+  server.registerTool(
     "list_providers",
     {
       title: "List providers",
@@ -1732,7 +1984,7 @@ export async function createAgentMcpServer(options: AgentMcpServerOptions): Prom
     },
   );
 
-  registerTool(
+  server.registerTool(
     "list_models",
     {
       title: "List models",
@@ -1769,7 +2021,38 @@ export async function createAgentMcpServer(options: AgentMcpServerOptions): Prom
     },
   );
 
-  registerTool(
+  server.registerTool(
+    "list_provider_features",
+    {
+      title: "List provider features",
+      description:
+        "List provider-specific features available for a draft agent configuration, such as Codex fast_mode.",
+      inputSchema: listProviderFeaturesInputSchema,
+      outputSchema: {
+        provider: AgentProviderEnum,
+        features: z.array(AgentFeatureSchema),
+      },
+    },
+    async ({ provider, cwd, modeId, model, thinkingOptionId, featureValues }) => {
+      const features = await agentManager.listDraftFeatures({
+        provider,
+        cwd: expandUserPath(cwd),
+        ...(modeId ? { modeId } : {}),
+        ...(model ? { model } : {}),
+        ...(thinkingOptionId ? { thinkingOptionId } : {}),
+        ...(featureValues ? { featureValues } : {}),
+      });
+      return {
+        content: [],
+        structuredContent: ensureValidJson({
+          provider,
+          features,
+        }),
+      };
+    },
+  );
+
+  server.registerTool(
     "list_worktrees",
     {
       title: "List worktrees",
@@ -1800,7 +2083,7 @@ export async function createAgentMcpServer(options: AgentMcpServerOptions): Prom
     },
   );
 
-  registerTool(
+  server.registerTool(
     "create_worktree",
     {
       title: "Create worktree",
@@ -1850,6 +2133,10 @@ export async function createAgentMcpServer(options: AgentMcpServerOptions): Prom
         resolveDefaultBranch: mcpInput.resolveDefaultBranch,
       });
       const { worktree } = createdWorktree;
+      await options.workspaceGitService?.listWorktrees?.(repoRoot, {
+        force: true,
+        reason: "mcp:create-worktree",
+      });
 
       return {
         content: [],
@@ -1861,7 +2148,7 @@ export async function createAgentMcpServer(options: AgentMcpServerOptions): Prom
     },
   );
 
-  registerTool(
+  server.registerTool(
     "archive_worktree",
     {
       title: "Archive worktree",
@@ -1879,7 +2166,7 @@ export async function createAgentMcpServer(options: AgentMcpServerOptions): Prom
       },
     },
     async ({ cwd, worktreePath, worktreeSlug }) => {
-      const repoRoot = resolveScopedCwd(cwd, { required: true });
+      const resolvedCwd = resolveScopedCwd(cwd, { required: true });
       if (!worktreePath && !worktreeSlug) {
         throw new Error("worktreePath or worktreeSlug is required");
       }
@@ -1904,6 +2191,7 @@ export async function createAgentMcpServer(options: AgentMcpServerOptions): Prom
       if (!options.emitSessionMessage) {
         throw new Error("Session message emitter is required to archive worktrees");
       }
+      const repoRoot = await options.workspaceGitService.resolveRepoRoot(resolvedCwd);
 
       const targetPath =
         worktreePath ??
@@ -1940,6 +2228,10 @@ export async function createAgentMcpServer(options: AgentMcpServerOptions): Prom
           requestId: "mcp:archive_worktree",
         },
       );
+      await options.workspaceGitService.listWorktrees(repoRoot, {
+        force: true,
+        reason: "mcp:archive-worktree",
+      });
 
       return {
         content: [],
@@ -1948,7 +2240,7 @@ export async function createAgentMcpServer(options: AgentMcpServerOptions): Prom
     },
   );
 
-  registerTool(
+  server.registerTool(
     "get_agent_activity",
     {
       title: "Get agent activity",
@@ -2004,7 +2296,7 @@ export async function createAgentMcpServer(options: AgentMcpServerOptions): Prom
     },
   );
 
-  registerTool(
+  server.registerTool(
     "set_agent_mode",
     {
       title: "Set agent session mode",
@@ -2028,7 +2320,7 @@ export async function createAgentMcpServer(options: AgentMcpServerOptions): Prom
     },
   );
 
-  registerTool(
+  server.registerTool(
     "list_pending_permissions",
     {
       title: "List pending permissions",
@@ -2062,7 +2354,7 @@ export async function createAgentMcpServer(options: AgentMcpServerOptions): Prom
     },
   );
 
-  registerTool(
+  server.registerTool(
     "respond_to_permission",
     {
       title: "Respond to permission",

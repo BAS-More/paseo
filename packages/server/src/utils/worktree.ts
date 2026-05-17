@@ -1278,7 +1278,7 @@ async function resolveWorktreeSourcePlan({
       return {
         branchName: newBranchName,
         metadataBaseRefName: normalizedBaseBranch,
-        addArguments: ["-b", newBranchName, base],
+        addArguments: ["-b", newBranchName, "--no-track", base],
       };
     }
     case "checkout-branch": {

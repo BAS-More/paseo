@@ -1,8 +1,7 @@
 {
-  "name": "@bas-more/relay",
-  "version": "0.2.0",
+  "name": "@getpaseo/relay",
+  "version": "0.1.76",
   "description": "Paseo relay for bridging daemon and client connections",
-  "license": "AGPL-3.0-or-later",
   "files": [
     "dist"
   ],
@@ -29,8 +28,7 @@
     }
   },
   "publishConfig": {
-    "access": "public",
-    "registry": "https://npm.pkg.github.com"
+    "access": "public"
   },
   "scripts": {
     "build": "node -e \"require('node:fs').rmSync('dist',{ recursive: true, force: true })\" && tsc -p tsconfig.json --incremental false",

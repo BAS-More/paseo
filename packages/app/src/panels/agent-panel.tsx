@@ -8,8 +8,6 @@ import invariant from "tiny-invariant";
 import { shallow, useShallow } from "zustand/shallow";
 import { useStoreWithEqualityFn } from "zustand/traditional";
 import { AgentStreamView, type AgentStreamViewHandle } from "@/components/agent-stream-view";
-import { HandoffChips } from "@/components/handoff-chips";
-import type { Handoff } from "@/lib/spec-kit/handoffs";
 import { ArchivedAgentCallout } from "@/components/archived-agent-callout";
 import { Composer } from "@/components/composer";
 import { FileDropZone } from "@/components/file-drop-zone";
@@ -34,7 +32,6 @@ import {
 } from "@/hooks/use-agent-screen-state-machine";
 import { useArchiveAgent } from "@/hooks/use-archive-agent";
 import { useKeyboardShiftStyle } from "@/hooks/use-keyboard-shift-style";
-import { useStableEvent } from "@/hooks/use-stable-event";
 import { usePaneContext, usePaneFocus } from "@/panels/pane-context";
 import type { PanelDescriptor, PanelRegistration } from "@/panels/panel-registry";
 import {
@@ -50,16 +47,22 @@ import {
   deriveRouteBottomAnchorRequest,
 } from "@/screens/agent/agent-ready-screen-bottom-anchor";
 import { useCreateFlowStore } from "@/stores/create-flow-store";
-import { buildDraftStoreKey } from "@/stores/draft-keys";
+import { buildDraftStoreKey, generateDraftId } from "@/stores/draft-keys";
 import { usePanelStore } from "@/stores/panel-store";
 import { type Agent, useSessionStore } from "@/stores/session-store";
+import { useWorkspaceLayoutStore } from "@/stores/workspace-layout-store";
+import { buildWorkspaceTabPersistenceKey } from "@/stores/workspace-tabs-store";
 import type { Theme } from "@/styles/theme";
+import { SubagentsSection, useArchiveSubagent, useSubagentsForParent } from "@/subagents";
 import type { PendingPermission } from "@/types/shared";
 import type { StreamItem } from "@/types/stream";
 import { getInitDeferred, getInitKey } from "@/utils/agent-initialization";
 import { derivePendingPermissionKey, normalizeAgentSnapshot } from "@/utils/agent-snapshots";
+import type { WorkspaceFileOpenRequest } from "@/workspace/file-open";
 import { mergePendingCreateImages } from "@/utils/pending-create-images";
+import { navigateToAgent } from "@/utils/navigate-to-agent";
 import { deriveSidebarStateBucket } from "@/utils/sidebar-agent-state";
+import { buildDraftAgentSetup, type ClientSlashCommand } from "@/client-slash-commands";
 
 interface ChatAgentStateShape {
   serverId: string | null;
@@ -285,18 +288,12 @@ function AgentPanel() {
   const { isInteractive } = usePaneFocus();
   invariant(target.kind === "agent", "AgentPanel requires agent target");
 
-  function openWorkspaceFile(input: { filePath: string }) {
-    openFileInWorkspace(input.filePath);
-  }
-
-  const handleOpenWorkspaceFile = useStableEvent(openWorkspaceFile);
-
   return (
     <AgentPanelContent
       serverId={serverId}
       agentId={target.agentId}
       isPaneFocused={isInteractive}
-      onOpenWorkspaceFile={handleOpenWorkspaceFile}
+      onOpenWorkspaceFile={openFileInWorkspace}
     />
   );
 }
@@ -362,7 +359,7 @@ function AgentPanelContent({
   serverId: string;
   agentId: string;
   isPaneFocused: boolean;
-  onOpenWorkspaceFile?: (input: { filePath: string }) => void;
+  onOpenWorkspaceFile?: (request: WorkspaceFileOpenRequest) => void;
 }) {
   const resolvedAgentId = agentId.trim() || undefined;
   const resolvedServerId = serverId.trim() || undefined;
@@ -424,7 +421,7 @@ function AgentPanelBody({
   client: NonNullable<ReturnType<typeof useHostRuntimeClient>>;
   isConnected: boolean;
   connectionStatus: HostRuntimeConnectionStatus;
-  onOpenWorkspaceFile?: (input: { filePath: string }) => void;
+  onOpenWorkspaceFile?: (request: WorkspaceFileOpenRequest) => void;
 }) {
   const { isArchivingAgent: _isArchivingAgent } = useArchiveAgent();
   const hasSession = useSessionStore((state) => Boolean(state.sessions[serverId]));
@@ -589,7 +586,7 @@ function ChatAgentContent({
   client: NonNullable<ReturnType<typeof useHostRuntimeClient>>;
   isConnected: boolean;
   connectionStatus: HostRuntimeConnectionStatus;
-  onOpenWorkspaceFile?: (input: { filePath: string }) => void;
+  onOpenWorkspaceFile?: (request: WorkspaceFileOpenRequest) => void;
 }) {
   const panelToast = useToastHost();
   const { isArchivingAgent } = useArchiveAgent();
@@ -603,29 +600,6 @@ function ChatAgentContent({
     routeKey: string;
     reason: "initial-entry" | "resume";
   } | null>(null);
-  const suggestedPromptSetterRef = useRef<((text: string) => void) | null>(null);
-  const handleSuggestedPrompt = useCallback((prompt: string) => {
-    suggestedPromptSetterRef.current?.(prompt);
-  }, []);
-
-  // Handoff chips appear above the composer after a slash-command turn.
-  // Today this state is never populated — daemon's `listCommands` does
-  // not yet return handoff metadata. When that lands, set this from the
-  // most-recently-invoked command's parsed frontmatter. See
-  // packages/app/src/lib/spec-kit/README.md for the integration notes.
-  const [currentHandoffs, _setCurrentHandoffs] = useState<ReadonlyArray<Handoff>>([]);
-  const handleHandoffSelect = useCallback((handoff: Handoff) => {
-    // Both send=true and send!=true populate the composer for now.
-    // Auto-submit for send=true is a follow-up — it needs an
-    // explicit "submit" ref alongside the existing setter ref.
-    suggestedPromptSetterRef.current?.(handoff.prompt);
-  }, []);
-  const handleRegisterSuggestedPromptSetter = useCallback(
-    (setter: ((text: string) => void) | null) => {
-      suggestedPromptSetterRef.current = setter;
-    },
-    [],
-  );
   const handleFilesDropped = useCallback((files: ImageAttachment[]) => {
     addImagesRef.current?.(files);
   }, []);
@@ -972,6 +946,7 @@ function ChatAgentContent({
   });
   if (nonReadyView) return nonReadyView;
   invariant(effectiveAgent, "effectiveAgent is defined when the non-ready view is absent");
+  invariant(agentState.cwd, "agent cwd is defined when agent content is ready");
 
   return (
     <View style={styles.root}>
@@ -991,12 +966,9 @@ function ChatAgentContent({
                 hasAppliedAuthoritativeHistory={hasAppliedAuthoritativeHistory}
                 toast={panelToast.api}
                 onOpenWorkspaceFile={onOpenWorkspaceFile}
-                onSuggestedPrompt={handleSuggestedPrompt}
               />
             </ReanimatedAnimated.View>
           </View>
-
-          <HandoffChips handoffs={currentHandoffs} onSelect={handleHandoffSelect} />
 
           <AgentComposerSection
             agentId={agentId}
@@ -1004,14 +976,13 @@ function ChatAgentContent({
             isPaneFocused={isPaneFocused}
             isArchivingCurrentAgent={isArchivingCurrentAgent}
             archivedAt={agentState.archivedAt}
-            initialCwd={agentState.cwd ?? ""}
+            cwd={agentState.cwd}
             isSubmitLoading={showPendingCreateSubmitLoading}
             onAttentionInputFocus={attentionController.clearOnInputFocus}
             onAttentionPromptSend={attentionController.clearOnPromptSend}
             onAddImages={handleAddImagesCallback}
             onComposerHeightChange={handleComposerHeightChange}
             onMessageSent={handleMessageSent}
-            onRegisterSuggestedPromptSetter={handleRegisterSuggestedPromptSetter}
           />
 
           {viewState.tag === "ready" &&
@@ -1053,7 +1024,6 @@ function AgentStreamSection({
   hasAppliedAuthoritativeHistory,
   toast,
   onOpenWorkspaceFile,
-  onSuggestedPrompt,
 }: {
   streamViewRef: React.RefObject<AgentStreamViewHandle | null>;
   serverId: string;
@@ -1065,8 +1035,7 @@ function AgentStreamSection({
   routeBottomAnchorRequest: RouteBottomAnchorRequest;
   hasAppliedAuthoritativeHistory: boolean;
   toast: ReturnType<typeof useToastHost>["api"];
-  onOpenWorkspaceFile?: (input: { filePath: string }) => void;
-  onSuggestedPrompt?: (prompt: string) => void;
+  onOpenWorkspaceFile?: (request: WorkspaceFileOpenRequest) => void;
 }) {
   const streamItemsRaw = useSessionStore((state) =>
     agentId ? state.sessions[serverId]?.agentStreamTail?.get(agentId) : undefined,
@@ -1202,7 +1171,6 @@ function AgentStreamSection({
       isAuthoritativeHistoryReady={hasAppliedAuthoritativeHistory}
       toast={toast}
       onOpenWorkspaceFile={onOpenWorkspaceFile}
-      onSuggestedPrompt={onSuggestedPrompt}
     />
   );
 }
@@ -1213,28 +1181,26 @@ function AgentComposerSection({
   isPaneFocused,
   isArchivingCurrentAgent,
   archivedAt,
-  initialCwd,
+  cwd,
   isSubmitLoading,
   onAttentionInputFocus,
   onAttentionPromptSend,
   onAddImages,
   onComposerHeightChange,
   onMessageSent,
-  onRegisterSuggestedPromptSetter,
 }: {
   agentId?: string;
   serverId: string;
   isPaneFocused: boolean;
   isArchivingCurrentAgent: boolean;
   archivedAt: Date | null;
-  initialCwd: string;
+  cwd: string;
   isSubmitLoading: boolean;
   onAttentionInputFocus: () => void;
   onAttentionPromptSend: () => void;
   onAddImages: (addImages: (images: ImageAttachment[]) => void) => void;
   onComposerHeightChange: (height: number) => void;
   onMessageSent: () => void;
-  onRegisterSuggestedPromptSetter: (setter: ((text: string) => void) | null) => void;
 }) {
   if (!agentId) {
     return null;
@@ -1251,14 +1217,13 @@ function AgentComposerSection({
       agentId={agentId}
       serverId={serverId}
       isPaneFocused={isPaneFocused}
-      initialCwd={initialCwd}
+      cwd={cwd}
       isSubmitLoading={isSubmitLoading}
       onAttentionInputFocus={onAttentionInputFocus}
       onAttentionPromptSend={onAttentionPromptSend}
       onAddImages={onAddImages}
       onComposerHeightChange={onComposerHeightChange}
       onMessageSent={onMessageSent}
-      onRegisterSuggestedPromptSetter={onRegisterSuggestedPromptSetter}
     />
   );
 }
@@ -1267,45 +1232,53 @@ function ActiveAgentComposer({
   agentId,
   serverId,
   isPaneFocused,
-  initialCwd,
+  cwd,
   isSubmitLoading,
   onAttentionInputFocus,
   onAttentionPromptSend,
   onAddImages,
   onComposerHeightChange,
   onMessageSent,
-  onRegisterSuggestedPromptSetter,
 }: {
   agentId: string;
   serverId: string;
   isPaneFocused: boolean;
-  initialCwd: string;
+  cwd: string;
   isSubmitLoading: boolean;
   onAttentionInputFocus: () => void;
   onAttentionPromptSend: () => void;
   onAddImages: (addImages: (images: ImageAttachment[]) => void) => void;
   onComposerHeightChange: (height: number) => void;
   onMessageSent: () => void;
-  onRegisterSuggestedPromptSetter: (setter: ((text: string) => void) | null) => void;
 }) {
   const insets = useSafeAreaInsets();
   const isCompact = useIsCompactFormFactor();
-  const { workspaceId } = usePaneContext();
+  const paneContext = usePaneContext();
+  const { workspaceId, tabId, retargetCurrentTab } = paneContext;
+  const { archiveAgent } = useArchiveAgent();
+  const closeWorkspaceTab = useWorkspaceLayoutStore((state) => state.closeTab);
+  const hideWorkspaceAgent = useWorkspaceLayoutStore((state) => state.hideAgent);
+  const unpinWorkspaceAgent = useWorkspaceLayoutStore((state) => state.unpinAgent);
+  const subagentRows = useSubagentsForParent({
+    serverId,
+    parentAgentId: agentId,
+  });
+  const handleOpenSubagent = useCallback(
+    (subagentId: string) => {
+      navigateToAgent({ serverId, agentId: subagentId });
+    },
+    [serverId],
+  );
+  const handleArchiveSubagent = useArchiveSubagent({ serverId });
   const agentInputDraft = useAgentInputDraft({
     draftKey: buildDraftStoreKey({
       serverId,
       agentId,
     }),
-    initialCwd,
   });
-  useEffect(() => {
-    onRegisterSuggestedPromptSetter(agentInputDraft.setText);
-    return () => onRegisterSuggestedPromptSetter(null);
-  }, [onRegisterSuggestedPromptSetter, agentInputDraft.setText]);
-
   const workspaceAttachmentScopeKey = useWorkspaceAttachmentScopeKey({
     serverId,
-    cwd: agentInputDraft.cwd,
+    cwd,
     workspaceId,
   });
   const workspaceAttachments = useWorkspaceAttachments(workspaceAttachmentScopeKey);
@@ -1333,6 +1306,44 @@ function ActiveAgentComposer({
     [isCompact, openFileExplorerForCheckout, serverId, setExplorerTabForCheckout],
   );
 
+  const handleClientSlashCommand = useCallback(
+    async (command: ClientSlashCommand) => {
+      const agent = resolveChatAgentFromSession(useSessionStore.getState(), serverId, agentId);
+      if (!agent) {
+        throw new Error("Agent not found");
+      }
+
+      const workspaceKey = buildWorkspaceTabPersistenceKey({ serverId, workspaceId });
+      if (workspaceKey) {
+        unpinWorkspaceAgent(workspaceKey, agentId);
+        hideWorkspaceAgent(workspaceKey, agentId);
+      }
+
+      if (command.kind === "replace-agent-with-draft") {
+        retargetCurrentTab({
+          kind: "draft",
+          draftId: generateDraftId(),
+          setup: buildDraftAgentSetup(agent),
+        });
+      } else if (workspaceKey) {
+        closeWorkspaceTab(workspaceKey, tabId);
+      }
+
+      await archiveAgent({ serverId, agentId });
+    },
+    [
+      agentId,
+      archiveAgent,
+      closeWorkspaceTab,
+      hideWorkspaceAgent,
+      retargetCurrentTab,
+      serverId,
+      tabId,
+      unpinWorkspaceAgent,
+      workspaceId,
+    ],
+  );
+
   const inputAreaStyle = useMemo(
     () => [styles.inputAreaWrapper, { paddingBottom: insets.bottom }],
     [insets.bottom],
@@ -1340,6 +1351,11 @@ function ActiveAgentComposer({
 
   return (
     <View style={inputAreaStyle}>
+      <SubagentsSection
+        rows={subagentRows}
+        onOpenSubagent={handleOpenSubagent}
+        onArchiveSubagent={handleArchiveSubagent}
+      />
       <Composer
         agentId={agentId}
         serverId={serverId}
@@ -1350,7 +1366,7 @@ function ActiveAgentComposer({
         workspaceAttachments={workspaceAttachments}
         onOpenWorkspaceAttachment={handleOpenWorkspaceAttachment}
         onChangeAttachments={agentInputDraft.setAttachments}
-        cwd={agentInputDraft.cwd}
+        cwd={cwd}
         clearDraft={agentInputDraft.clear}
         autoFocus={isPaneFocused}
         isSubmitLoading={isSubmitLoading}
@@ -1359,6 +1375,7 @@ function ActiveAgentComposer({
         onAddImages={onAddImages}
         onComposerHeightChange={onComposerHeightChange}
         onMessageSent={onMessageSent}
+        onClientSlashCommand={handleClientSlashCommand}
       />
     </View>
   );

@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import type { ComponentType, ReactNode } from "react";
 import {
   Alert,
   Pressable,
   ScrollView,
   Text,
+  TextInput,
   View,
   type PressableStateCallbackType,
 } from "react-native";
@@ -37,8 +38,8 @@ import { SettingsSection } from "@/screens/settings/settings-section";
 import {
   useAppSettings,
   useSettings,
+  parseTerminalScrollbackLines,
   type AppSettings,
-  type LayoutMode,
   type SendBehavior,
   type ServiceUrlBehavior,
   type Settings as EffectiveSettings,
@@ -76,8 +77,8 @@ import { HostPage, HostRenameButton } from "@/screens/settings/host-page";
 import ProjectsScreen from "@/screens/projects-screen";
 import ProjectSettingsScreen from "@/screens/project-settings-screen";
 import { useIsCompactFormFactor } from "@/constants/layout";
-import { isWeb } from "@/constants/platform";
 import { useLocalDaemonServerId } from "@/hooks/use-is-local-daemon";
+import { useWebScrollbarStyle } from "@/hooks/use-web-scrollbar-style";
 import {
   buildHostOpenProjectRoute,
   buildProjectsSettingsRoute,
@@ -177,9 +178,6 @@ const THEME_LABELS: Record<AppSettings["theme"], string> = {
   midnight: "Midnight",
   claude: "Claude",
   ghostty: "Ghostty",
-  soifer: "Soifer",
-  "soifer-dark": "Soifer Dark",
-  claudeLight: "Claude Light",
   auto: "System",
 };
 
@@ -188,11 +186,6 @@ const ROW_WITH_BORDER_STYLE = [settingsStyles.row, settingsStyles.rowBorder];
 const SEND_BEHAVIOR_OPTIONS = [
   { value: "interrupt" as const, label: "Interrupt" },
   { value: "queue" as const, label: "Queue" },
-];
-
-const LAYOUT_MODE_OPTIONS = [
-  { value: "workspace" as const, label: "Workspace" },
-  { value: "claude-desktop" as const, label: "Claude Desktop" },
 ];
 
 const RELEASE_CHANNEL_OPTIONS = [
@@ -218,7 +211,7 @@ interface GeneralSectionProps {
   handleThemeChange: (theme: AppSettings["theme"]) => void;
   handleSendBehaviorChange: (behavior: SendBehavior) => void;
   handleServiceUrlBehaviorChange: (behavior: ServiceUrlBehavior) => void;
-  handleLayoutModeChange: (mode: LayoutMode) => void;
+  handleTerminalScrollbackLinesChange: (lines: number) => void;
 }
 
 interface ThemeMenuItemProps {
@@ -277,11 +270,35 @@ function GeneralSection({
   handleThemeChange,
   handleSendBehaviorChange,
   handleServiceUrlBehaviorChange,
-  handleLayoutModeChange,
+  handleTerminalScrollbackLinesChange,
 }: GeneralSectionProps) {
   const { theme } = useUnistyles();
   const iconSize = theme.iconSize.md;
   const iconColor = theme.colors.foregroundMuted;
+  const [terminalScrollbackValue, setTerminalScrollbackValue] = useState(
+    String(settings.terminalScrollbackLines),
+  );
+
+  const handleTerminalScrollbackChangeText = useCallback((value: string) => {
+    setTerminalScrollbackValue(value.replace(/[^\d]/g, ""));
+  }, []);
+
+  const commitTerminalScrollback = useCallback(() => {
+    const parsed = parseTerminalScrollbackLines(terminalScrollbackValue);
+    const nextValue = parsed ?? settings.terminalScrollbackLines;
+    setTerminalScrollbackValue(String(nextValue));
+    if (nextValue !== settings.terminalScrollbackLines) {
+      handleTerminalScrollbackLinesChange(nextValue);
+    }
+  }, [
+    handleTerminalScrollbackLinesChange,
+    settings.terminalScrollbackLines,
+    terminalScrollbackValue,
+  ]);
+
+  useEffect(() => {
+    setTerminalScrollbackValue(String(settings.terminalScrollbackLines));
+  }, [settings.terminalScrollbackLines]);
 
   return (
     <SettingsSection title="General">
@@ -308,7 +325,7 @@ function GeneralSection({
                 />
               ))}
               <DropdownMenuSeparator />
-              {(["zinc", "midnight", "claude", "claudeLight", "ghostty"] as const).map((t) => (
+              {(["zinc", "midnight", "claude", "ghostty"] as const).map((t) => (
                 <ThemeMenuItem
                   key={t}
                   themeValue={t}
@@ -320,20 +337,6 @@ function GeneralSection({
               ))}
             </DropdownMenuContent>
           </DropdownMenu>
-        </View>
-        <View style={ROW_WITH_BORDER_STYLE}>
-          <View style={settingsStyles.rowContent}>
-            <Text style={settingsStyles.rowTitle}>Layout</Text>
-            <Text style={settingsStyles.rowHint}>
-              Switch between multi-pane workspace and single-pane Claude Desktop style
-            </Text>
-          </View>
-          <SegmentedControl
-            size="sm"
-            value={settings.layoutMode}
-            onValueChange={handleLayoutModeChange}
-            options={LAYOUT_MODE_OPTIONS}
-          />
         </View>
         <View style={ROW_WITH_BORDER_STYLE}>
           <View style={settingsStyles.rowContent}>
@@ -375,6 +378,23 @@ function GeneralSection({
             </DropdownMenu>
           </View>
         ) : null}
+        <View style={ROW_WITH_BORDER_STYLE}>
+          <View style={settingsStyles.rowContent}>
+            <Text style={settingsStyles.rowTitle}>Terminal scrollback</Text>
+            <Text style={settingsStyles.rowHint}>Lines kept in the built-in terminal buffer</Text>
+          </View>
+          <TextInput
+            value={terminalScrollbackValue}
+            onChangeText={handleTerminalScrollbackChangeText}
+            onBlur={commitTerminalScrollback}
+            onSubmitEditing={commitTerminalScrollback}
+            keyboardType="number-pad"
+            inputMode="numeric"
+            selectTextOnFocus
+            style={styles.terminalScrollbackInput}
+            accessibilityLabel="Terminal scrollback lines"
+          />
+        </View>
       </View>
     </SettingsSection>
   );
@@ -745,9 +765,16 @@ function SettingsSidebar({
   }, [hosts, localServerId]);
   const isDesktopApp = isElectronRuntime();
   const items = SIDEBAR_SECTION_ITEMS.filter((item) => !item.desktopOnly || isDesktopApp);
+  const insets = useSafeAreaInsets();
   const padding = useWindowControlsPadding("sidebar");
   const isDesktop = layout === "desktop";
-  const containerStyle = isDesktop ? sidebarStyles.desktopContainer : sidebarStyles.mobileContainer;
+  const containerStyle = useMemo(
+    () => [
+      isDesktop ? sidebarStyles.desktopContainer : sidebarStyles.mobileContainer,
+      isDesktop ? { paddingTop: insets.top } : null,
+    ],
+    [insets.top, isDesktop],
+  );
   const selectedSectionId = view.kind === "section" ? view.section : null;
   const selectedServerId = view.kind === "host" ? view.serverId : null;
   const isProjectsSelected = view.kind === "projects" || view.kind === "project";
@@ -771,16 +798,19 @@ function SettingsSidebar({
       ) : null}
       <View style={sidebarStyles.list}>
         {items.map((item) => (
-          <SidebarSectionButton
-            key={item.id}
-            itemId={item.id}
-            label={item.label}
-            icon={item.icon}
-            isSelected={selectedSectionId === item.id}
-            onSelect={onSelectSection}
-          />
+          <Fragment key={item.id}>
+            <SidebarSectionButton
+              itemId={item.id}
+              label={item.label}
+              icon={item.icon}
+              isSelected={selectedSectionId === item.id}
+              onSelect={onSelectSection}
+            />
+            {item.id === "general" ? (
+              <SidebarProjectsButton isSelected={isProjectsSelected} onSelect={onSelectProjects} />
+            ) : null}
+          </Fragment>
         ))}
-        <SidebarProjectsButton isSelected={isProjectsSelected} onSelect={onSelectProjects} />
       </View>
       <SidebarSeparator />
       <View style={sidebarStyles.list}>
@@ -835,12 +865,14 @@ export default function SettingsScreen({ view }: SettingsScreenProps) {
   const isCompactLayout = useIsCompactFormFactor();
   const insets = useSafeAreaInsets();
   const insetBottomStyle = useMemo(() => ({ paddingBottom: insets.bottom }), [insets.bottom]);
+  const webScrollbarStyle = useWebScrollbarStyle();
+  const scrollViewStyle = useMemo(
+    () => [styles.scrollView, webScrollbarStyle],
+    [webScrollbarStyle],
+  );
   const hosts = useHosts();
   const hostServerIds = useMemo(() => hosts.map((host) => host.serverId), [hosts]);
   const anyOnlineServerId = useAnyOnlineHostServerId(hostServerIds);
-
-  const isClaudeDesktop = settings.layoutMode === "claude-desktop";
-  const showModalOverlay = isClaudeDesktop && !isCompactLayout && isWeb;
 
   const handleThemeChange = useCallback(
     (nextTheme: AppSettings["theme"]) => {
@@ -863,9 +895,9 @@ export default function SettingsScreen({ view }: SettingsScreenProps) {
     [updateSettings],
   );
 
-  const handleLayoutModeChange = useCallback(
-    (mode: LayoutMode) => {
-      void updateSettings({ layoutMode: mode });
+  const handleTerminalScrollbackLinesChange = useCallback(
+    (terminalScrollbackLines: number) => {
+      void updateSettings({ terminalScrollbackLines });
     },
     [updateSettings],
   );
@@ -1006,19 +1038,6 @@ export default function SettingsScreen({ view }: SettingsScreenProps) {
     router.replace("/");
   }, [anyOnlineServerId, router]);
 
-  // Escape key dismisses settings modal in claude-desktop mode
-  useEffect(() => {
-    if (!showModalOverlay || typeof document === "undefined") return;
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        e.preventDefault();
-        handleBackToWorkspace();
-      }
-    };
-    document.addEventListener("keydown", handler);
-    return () => document.removeEventListener("keydown", handler);
-  }, [showModalOverlay, handleBackToWorkspace]);
-
   const detailHeader = ((): {
     title: string;
     Icon: ComponentType<{ size: number; color: string }>;
@@ -1064,7 +1083,7 @@ export default function SettingsScreen({ view }: SettingsScreenProps) {
               handleThemeChange={handleThemeChange}
               handleSendBehaviorChange={handleSendBehaviorChange}
               handleServiceUrlBehaviorChange={handleServiceUrlBehaviorChange}
-              handleLayoutModeChange={handleLayoutModeChange}
+              handleTerminalScrollbackLinesChange={handleTerminalScrollbackLinesChange}
             />
           );
         case "shortcuts":
@@ -1126,7 +1145,7 @@ export default function SettingsScreen({ view }: SettingsScreenProps) {
     return (
       <View style={styles.container}>
         <BackHeader title="Settings" onBack={handleBackToWorkspace} />
-        <ScrollView style={styles.scrollView} contentContainerStyle={insetBottomStyle}>
+        <ScrollView style={scrollViewStyle} contentContainerStyle={insetBottomStyle}>
           <SettingsSidebar
             view={view}
             onSelectSection={handleSelectSection}
@@ -1155,7 +1174,7 @@ export default function SettingsScreen({ view }: SettingsScreenProps) {
           titleAccessory={detailHeader?.titleAccessory}
           onBack={detailBackHandler}
         />
-        <ScrollView style={styles.scrollView} contentContainerStyle={insetBottomStyle}>
+        <ScrollView style={scrollViewStyle} contentContainerStyle={insetBottomStyle}>
           <View style={styles.content}>{content}</View>
         </ScrollView>
         {addHostModals}
@@ -1166,8 +1185,8 @@ export default function SettingsScreen({ view }: SettingsScreenProps) {
   // Desktop split view — mirrors AppContainer: sidebar owns the titlebar drag
   // region + traffic-light padding; detail pane renders whatever header the
   // selected section provides.
-  const settingsBody = (
-    <View style={showModalOverlay ? modalStyles.card : styles.container}>
+  return (
+    <View style={styles.container}>
       <View style={desktopStyles.row}>
         <SettingsSidebar
           view={view}
@@ -1181,7 +1200,7 @@ export default function SettingsScreen({ view }: SettingsScreenProps) {
         <View style={desktopStyles.contentPane}>
           <ScreenHeader
             borderless={!detailHeader}
-            windowControlsPaddingRole={showModalOverlay ? undefined : "detailHeader"}
+            windowControlsPaddingRole="detailHeader"
             left={
               detailHeader ? (
                 <>
@@ -1200,7 +1219,7 @@ export default function SettingsScreen({ view }: SettingsScreenProps) {
             }
             leftStyle={desktopStyles.detailLeft}
           />
-          <ScrollView style={styles.scrollView} contentContainerStyle={insetBottomStyle}>
+          <ScrollView style={scrollViewStyle} contentContainerStyle={insetBottomStyle}>
             <View style={styles.content}>{content}</View>
           </ScrollView>
         </View>
@@ -1208,16 +1227,6 @@ export default function SettingsScreen({ view }: SettingsScreenProps) {
       {addHostModals}
     </View>
   );
-
-  if (showModalOverlay) {
-    return (
-      <Pressable style={modalStyles.backdrop} onPress={handleBackToWorkspace}>
-        <Pressable>{settingsBody}</Pressable>
-      </Pressable>
-    );
-  }
-
-  return settingsBody;
 }
 
 // ---------------------------------------------------------------------------
@@ -1277,6 +1286,19 @@ const styles = StyleSheet.create((theme) => ({
     color: theme.colors.foreground,
     fontSize: theme.fontSize.sm,
   },
+  terminalScrollbackInput: {
+    width: 112,
+    minHeight: 36,
+    paddingVertical: theme.spacing[2],
+    paddingHorizontal: theme.spacing[3],
+    borderRadius: theme.borderRadius.md,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    backgroundColor: theme.colors.surface2,
+    color: theme.colors.foreground,
+    fontSize: theme.fontSize.sm,
+    textAlign: "right",
+  },
   placeholder: {
     flex: 1,
     alignItems: "center",
@@ -1286,26 +1308,6 @@ const styles = StyleSheet.create((theme) => ({
   placeholderText: {
     color: theme.colors.foregroundMuted,
     fontSize: theme.fontSize.sm,
-  },
-}));
-
-const modalStyles = StyleSheet.create((theme) => ({
-  backdrop: {
-    flex: 1,
-    backgroundColor: "rgba(0, 0, 0, 0.4)",
-    alignItems: "center",
-    justifyContent: "center",
-    padding: theme.spacing[8],
-  },
-  card: {
-    width: "100%",
-    maxWidth: 860,
-    maxHeight: "85%",
-    borderRadius: theme.borderRadius.xl,
-    backgroundColor: theme.colors.surface0,
-    overflow: "hidden",
-    // Web shadow for depth
-    ...theme.shadow.lg,
   },
 }));
 

@@ -19,7 +19,7 @@ import {
   IsolatedBottomSheetModal,
   useIsolatedBottomSheetVisibility,
 } from "@/components/ui/isolated-bottom-sheet-modal";
-import { isWeb } from "@/constants/platform";
+import { isNative, isWeb } from "@/constants/platform";
 
 type EscHandler = () => void;
 const escStack: EscHandler[] = [];
@@ -326,19 +326,14 @@ export function AdaptiveModalSheet({
 }
 
 /**
- * TextInput that automatically uses BottomSheetTextInput on native mobile
- * for proper keyboard dodging inside AdaptiveModalSheet bottom sheets.
- *
- * On web, AdaptiveModalSheet uses portals instead of real bottom sheets,
- * so BottomSheetTextInput is never needed — and would crash if rendered
- * outside a BottomSheet context (e.g. in settings pages that use
- * AdaptiveTextInput directly).
+ * TextInput that automatically uses BottomSheetTextInput on mobile
+ * for proper keyboard dodging in AdaptiveModalSheet.
  */
 export const AdaptiveTextInput = forwardRef<TextInput, TextInputProps>(
   function AdaptiveTextInput(props, ref) {
     const isMobile = useIsCompactFormFactor();
 
-    if (isMobile && !isWeb) {
+    if (isMobile && isNative) {
       return <BottomSheetTextInput ref={ref as unknown as Ref<never>} {...props} />;
     }
 

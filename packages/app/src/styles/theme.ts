@@ -1,3 +1,5 @@
+import { darkHighlightColors, lightHighlightColors } from "@getpaseo/highlight";
+
 export const baseColors = {
   // Base colors
   white: "#ffffff",
@@ -552,6 +554,7 @@ function buildDarkTheme(semanticColors: ReturnType<typeof buildDarkSemanticColor
     colors: {
       ...semanticColors,
       palette: baseColors,
+      syntax: darkHighlightColors,
     },
     shadow: darkShadow,
     ...commonTheme,
@@ -570,6 +573,7 @@ export const lightTheme = {
   colors: {
     ...lightSemanticColors,
     palette: baseColors,
+    syntax: lightHighlightColors,
   },
   shadow: {
     sm: {
