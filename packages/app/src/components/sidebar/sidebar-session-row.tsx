@@ -1,7 +1,18 @@
-import { memo, useCallback, useMemo } from "react";
-import { Pressable, Text, View, type PressableStateCallbackType } from "react-native";
+import { memo, useCallback, useMemo, useState } from "react";
+import { Text, View, type PressableStateCallbackType } from "react-native";
+import { Archive, Clipboard, Pin, PinOff } from "lucide-react-native";
 import { StyleSheet, useUnistyles } from "react-native-unistyles";
 import type { AggregatedAgent } from "@/hooks/use-aggregated-agents";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuTrigger,
+  type ActionStatus,
+} from "@/components/ui/context-menu";
+import { usePinnedWorkspacesStore } from "@/stores/pinned-workspaces-store";
+import { useArchiveAgent } from "@/hooks/use-archive-agent";
 
 interface SidebarSessionRowProps {
   agent: AggregatedAgent;
@@ -11,10 +22,18 @@ interface SidebarSessionRowProps {
   onLongPress?: (agent: AggregatedAgent) => void;
 }
 
-export const SidebarSessionRow = memo(function SidebarSessionRow({
+export const SidebarSessionRow = memo(function SidebarSessionRow(props: SidebarSessionRowProps) {
+  return (
+    <ContextMenu>
+      <SidebarSessionRowContent {...props} />
+    </ContextMenu>
+  );
+});
+
+const SidebarSessionRowContent = memo(function SidebarSessionRowContent({
   agent,
   isSelected,
-  isPinned: _isPinned,
+  isPinned,
   onPress,
   onLongPress,
 }: SidebarSessionRowProps) {
@@ -22,8 +41,8 @@ export const SidebarSessionRow = memo(function SidebarSessionRow({
   const handlePress = useCallback(() => onPress(agent), [onPress, agent]);
   const handleLongPress = useCallback(() => onLongPress?.(agent), [onLongPress, agent]);
 
-  const pressableStyle = useCallback(
-    ({ hovered }: PressableStateCallbackType & { hovered?: boolean }) => [
+  const triggerStyle = useCallback(
+    ({ hovered }: PressableStateCallbackType & { hovered?: boolean; open?: boolean }) => [
       styles.row,
       isSelected && styles.rowSelected,
       !isSelected && Boolean(hovered) && styles.rowHovered,
@@ -37,19 +56,96 @@ export const SidebarSessionRow = memo(function SidebarSessionRow({
   );
 
   const statusIcon = resolveStatusIcon(agent, theme);
+  const agentKey = `${agent.serverId}:${agent.id}`;
+
+  const togglePin = usePinnedWorkspacesStore((s) => s.togglePin);
+  const { archiveAgent } = useArchiveAgent();
+  const [archiveStatus, setArchiveStatus] = useState<ActionStatus>("idle");
+
+  const handleTogglePin = useCallback(() => {
+    togglePin(agentKey);
+  }, [togglePin, agentKey]);
+
+  const handleArchive = useCallback(() => {
+    setArchiveStatus("pending");
+    void archiveAgent({ serverId: agent.serverId, agentId: agent.id })
+      .then(() => setArchiveStatus("success"))
+      .catch(() => setArchiveStatus("idle"));
+  }, [archiveAgent, agent.serverId, agent.id]);
+
+  const handleCopyTitle = useCallback(() => {
+    const title = agent.title || "New session";
+    if (typeof navigator !== "undefined" && navigator.clipboard) {
+      void navigator.clipboard.writeText(title);
+    }
+  }, [agent.title]);
+
+  const pinIcon = useMemo(
+    () =>
+      isPinned ? (
+        <PinOff size={14} color={theme.colors.foregroundMuted} />
+      ) : (
+        <Pin size={14} color={theme.colors.foregroundMuted} />
+      ),
+    [isPinned, theme.colors.foregroundMuted],
+  );
+  const archiveIcon = useMemo(
+    () => <Archive size={14} color={theme.colors.foregroundMuted} />,
+    [theme.colors.foregroundMuted],
+  );
+  const clipboardIcon = useMemo(
+    () => <Clipboard size={14} color={theme.colors.foregroundMuted} />,
+    [theme.colors.foregroundMuted],
+  );
 
   return (
-    <Pressable
-      style={pressableStyle}
-      onPress={handlePress}
-      onLongPress={handleLongPress}
-      testID={`sidebar-session-${agent.id}`}
-    >
-      <View style={styles.statusIconWrap}>{statusIcon}</View>
-      <Text style={titleStyle} numberOfLines={1}>
-        {agent.title || "New session"}
-      </Text>
-    </Pressable>
+    <>
+      <ContextMenuTrigger
+        style={triggerStyle}
+        onPress={handlePress}
+        onLongPress={handleLongPress}
+        enabledOnMobile
+        testID={`sidebar-session-${agent.id}`}
+      >
+        <View style={styles.statusIconWrap}>{statusIcon}</View>
+        <Text style={titleStyle} numberOfLines={1}>
+          {agent.title || "New session"}
+        </Text>
+      </ContextMenuTrigger>
+      <ContextMenuContent
+        align="start"
+        width={200}
+        mobileMode="sheet"
+        testID={`sidebar-session-context-${agent.id}`}
+      >
+        <ContextMenuItem
+          onSelect={handleTogglePin}
+          leading={pinIcon}
+          testID={`sidebar-session-context-${agent.id}-pin`}
+        >
+          {isPinned ? "Unpin" : "Pin to top"}
+        </ContextMenuItem>
+        <ContextMenuItem
+          onSelect={handleCopyTitle}
+          leading={clipboardIcon}
+          testID={`sidebar-session-context-${agent.id}-copy`}
+        >
+          Copy title
+        </ContextMenuItem>
+        <ContextMenuSeparator />
+        <ContextMenuItem
+          onSelect={handleArchive}
+          leading={archiveIcon}
+          destructive
+          status={archiveStatus}
+          pendingLabel="Archiving…"
+          successLabel="Archived"
+          testID={`sidebar-session-context-${agent.id}-archive`}
+        >
+          Archive session
+        </ContextMenuItem>
+      </ContextMenuContent>
+    </>
   );
 });
 
