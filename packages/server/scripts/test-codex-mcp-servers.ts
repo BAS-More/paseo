@@ -6,7 +6,7 @@ async function main() {
   const transport = new StdioClientTransport({
     command: "codex",
     args: ["mcp-server"],
-    env: { ...process.env },
+    env: { ...process.env } as Record<string, string>,
   });
 
   const client = new Client(
@@ -15,15 +15,16 @@ async function main() {
   );
 
   // Listen for events
-  client.setNotificationHandler(
+  // SDK type workaround — setNotificationHandler generics too deep
+  (client as unknown as Record<string, (...args: unknown[]) => void>).setNotificationHandler(
     z
       .object({
         method: z.literal("codex/event"),
-        params: z.object({ msg: z.any() }),
+        params: z.object({ msg: z.unknown() }),
       })
       .passthrough(),
-    (data) => {
-      const event = (data.params as { msg: unknown }).msg as {
+    (data: unknown) => {
+      const event = ((data as Record<string, unknown>).params as { msg: unknown }).msg as {
         type?: string;
         data?: { text?: string; item?: { type?: string } };
         text?: string;

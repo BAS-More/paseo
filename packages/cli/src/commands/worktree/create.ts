@@ -1,6 +1,6 @@
 import path from "node:path";
 import type { Command } from "commander";
-import type { DaemonClient } from "@getpaseo/server";
+import type { DaemonClient } from "@bas-more/server";
 import { connectToDaemon, getDaemonHost } from "../../utils/client.js";
 import type {
   CommandError,
@@ -123,6 +123,8 @@ export function toDaemonCreateInput(parsed: ParsedWorktreeCreateInput) {
         action: "checkout" as const,
         githubPrNumber: parsed.target.prNumber,
       };
+    default:
+      throw new Error("unreachable");
   }
 }
 

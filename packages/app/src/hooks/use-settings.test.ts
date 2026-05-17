@@ -87,6 +87,7 @@ describe("use-settings", () => {
       manageBuiltInDaemon: true,
       sendBehavior: "interrupt",
       serviceUrlBehavior: "ask",
+      layoutMode: "workspace",
       releaseChannel: "stable",
     });
   });
@@ -130,6 +131,7 @@ describe("use-settings", () => {
       theme: "dark",
       sendBehavior: "interrupt",
       serviceUrlBehavior: "ask",
+      layoutMode: "workspace",
     });
     expect(asyncStorageMock.setItem).toHaveBeenCalledWith(
       mod.APP_SETTINGS_KEY,
@@ -169,6 +171,7 @@ describe("use-settings", () => {
       theme: "light",
       sendBehavior: "interrupt",
       serviceUrlBehavior: "ask",
+      layoutMode: "workspace",
       manageBuiltInDaemon: false,
       releaseChannel: "beta",
     });
@@ -188,6 +191,7 @@ describe("use-settings", () => {
       theme: "light",
       sendBehavior: "interrupt",
       serviceUrlBehavior: "ask",
+      layoutMode: "workspace",
       manageBuiltInDaemon: true,
       releaseChannel: "stable",
     });

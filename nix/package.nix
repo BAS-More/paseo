@@ -40,9 +40,13 @@ buildNpmPackage rec {
 
   nodejs = nodejs_22;
 
+  # v2 fetcher caches packuments alongside tarballs, fixing ENOTCACHED
+  # failures with lockfileVersion 3 workspace monorepos.
+  npmDepsFetcherVersion = 2;
+
   # To update: run `nix build` with lib.fakeHash, copy the `got:` hash.
   # CI auto-updates this when package-lock.json changes (see .github/workflows/).
-  npmDepsHash = "sha256-14DjNXerk2vLOe7UV0oVo+ifmskwsWpu/jahxrLw4M8=";
+  npmDepsHash = "sha256-andHNtuJGbirylMdR+B+0VpkrtH5uJ02BmNWycDun78=";
 
   # Prevent onnxruntime-node's install script from running during automatic
   # npm rebuild (it tries to download from api.nuget.org, which fails in the sandbox).
@@ -87,9 +91,9 @@ buildNpmPackage rec {
     # Copy node_modules (preserving workspace symlinks)
     cp -a node_modules $out/lib/paseo/
 
-    # Auto-detect which @getpaseo/* packages were built by build:daemon
+    # Auto-detect which @bas-more/* packages were built by build:daemon
     # (they'll have a dist/ directory). Copy those and remove the rest.
-    for link in $out/lib/paseo/node_modules/@getpaseo/*; do
+    for link in $out/lib/paseo/node_modules/@bas-more/*; do
       name=$(basename "$link")
       if [ -d "packages/$name/dist" ]; then
         mkdir -p "$out/lib/paseo/packages/$name"
@@ -123,7 +127,7 @@ buildNpmPackage rec {
     # Create wrapper for the server entry point (for systemd / direct use)
     mkdir -p $out/bin
     makeWrapper ${nodejs}/bin/node $out/bin/paseo-server \
-      --add-flags "$out/lib/paseo/packages/server/dist/server/server/index.js" \
+      --add-flags "$out/lib/paseo/packages/server/dist/scripts/supervisor-entrypoint.js" \
       --set NODE_ENV production
 
     # Create wrapper for the CLI

@@ -55,9 +55,10 @@ import { createGitHubService, type GitHubService } from "../services/github-serv
 import {
   extractWsBearerProtocol,
   extractWsBearerToken,
-  isBearerTokenValid,
+  isBearerTokenValidAsync,
   type DaemonAuthConfig,
 } from "./auth.js";
+import { shouldSendMessage } from "./ws-backpressure.js";
 
 const WS_CLOSE_DAEMON_AUTH_FAILED = 4401;
 
@@ -286,6 +287,8 @@ interface WebSocketRuntimeCounters {
   relayExternalSocketAttached: number;
   originRejected: number;
   hostRejected: number;
+  connectionLimit: number;
+  authRateLimited: number;
 }
 
 const SLOW_REQUEST_THRESHOLD_MS = 500;
@@ -399,6 +402,8 @@ export class VoiceAssistantWebSocketServer {
     relayExternalSocketAttached: 0,
     originRejected: 0,
     hostRejected: 0,
+    connectionLimit: 0,
+    authRateLimited: 0,
   };
   private readonly inboundMessageCounts = new Map<string, number>();
   private readonly inboundSessionRequestCounts = new Map<string, number>();
@@ -412,6 +417,11 @@ export class VoiceAssistantWebSocketServer {
   private runtimeMetricsInterval: ReturnType<typeof setInterval> | null = null;
   private unsubscribeSpeechReadiness: (() => void) | null = null;
   private unsubscribeDaemonConfigChange: (() => void) | null = null;
+  // SEC-002: per-IP WS auth failure tracker. Rejects new upgrades from an IP
+  // that has exceeded the failure budget in the rolling window. Defends
+  // against bearer-token brute force at the upgrade layer (HTTP rate limiter
+  // doesn't cover WS upgrades).
+  private readonly wsAuthFailures = new Map<string, { count: number; windowStart: number }>();
 
   constructor(
     server: HTTPServer,
@@ -582,11 +592,38 @@ export class VoiceAssistantWebSocketServer {
   ): WebSocketServer {
     const { allowedOrigins, hostnames } = wsConfig;
     const password = auth?.password;
+    // M-04: cap message size (1 MiB) and concurrent connections so a single
+    // peer can't OOM the daemon. PASEO_WS_MAX_PAYLOAD_BYTES and
+    // PASEO_WS_MAX_CONNECTIONS override the defaults.
+    const maxPayload =
+      Number.parseInt(process.env.PASEO_WS_MAX_PAYLOAD_BYTES ?? "", 10) || 1024 * 1024;
+    const maxConnections = Number.parseInt(process.env.PASEO_WS_MAX_CONNECTIONS ?? "", 10) || 1000;
+
     const wss = new WebSocketServer({
       server,
       path: "/ws",
+      maxPayload,
       handleProtocols: (protocols) => selectWebSocketProtocol(protocols, password),
       verifyClient: ({ req }, callback) => {
+        if (wss.clients.size >= maxConnections) {
+          this.incrementRuntimeCounter("connectionLimit");
+          this.logger.warn(
+            { active: wss.clients.size, max: maxConnections },
+            "Rejected WebSocket upgrade: concurrent connection limit reached",
+          );
+          callback(false, 503, "Server at capacity");
+          return;
+        }
+        // SEC-002: reject upgrade if the source IP has burned through its auth
+        // failure budget. Brute force attempts now hit a hard ceiling before
+        // even reaching the bearer-token check.
+        const ip = this.extractIp(req);
+        if (this.isAuthFailureBlocked(ip)) {
+          this.incrementRuntimeCounter("authRateLimited");
+          this.logger.warn({ ip }, "Rejected WebSocket upgrade: auth rate limit exceeded");
+          callback(false, 429, "Too many auth attempts");
+          return;
+        }
         this.verifyWsUpgrade(req, allowedOrigins, hostnames, callback);
       },
     });
@@ -594,6 +631,42 @@ export class VoiceAssistantWebSocketServer {
       void this.attachAuthenticatedSocket(ws, request, password);
     });
     return wss;
+  }
+
+  private extractIp(req: IncomingMessage): string {
+    const fwd = req.headers?.["x-forwarded-for"];
+    if (typeof fwd === "string" && fwd.length > 0) {
+      return fwd.split(",")[0].trim();
+    }
+    return req.socket?.remoteAddress ?? "unknown";
+  }
+
+  /**
+   * SEC-002: returns true when the IP has exceeded WS_AUTH_MAX_FAILURES
+   * (default 10) within the WS_AUTH_FAIL_WINDOW_MS rolling window (default
+   * 60_000ms). Tunable via PASEO_WS_AUTH_MAX_FAILURES + PASEO_WS_AUTH_WINDOW_MS.
+   */
+  private isAuthFailureBlocked(ip: string): boolean {
+    const max = Number.parseInt(process.env.PASEO_WS_AUTH_MAX_FAILURES ?? "", 10) || 10;
+    const window = Number.parseInt(process.env.PASEO_WS_AUTH_WINDOW_MS ?? "", 10) || 60_000;
+    const entry = this.wsAuthFailures.get(ip);
+    if (!entry) return false;
+    if (Date.now() - entry.windowStart > window) {
+      this.wsAuthFailures.delete(ip);
+      return false;
+    }
+    return entry.count >= max;
+  }
+
+  private recordAuthFailure(ip: string): void {
+    const window = Number.parseInt(process.env.PASEO_WS_AUTH_WINDOW_MS ?? "", 10) || 60_000;
+    const now = Date.now();
+    const entry = this.wsAuthFailures.get(ip);
+    if (!entry || now - entry.windowStart > window) {
+      this.wsAuthFailures.set(ip, { count: 1, windowStart: now });
+      return;
+    }
+    entry.count += 1;
   }
 
   private startRuntimeMetricsInterval(): void {
@@ -645,9 +718,12 @@ export class VoiceAssistantWebSocketServer {
       const requestMetadata = extractSocketRequestMetadata(request);
       const protocol = extractWsBearerProtocol(request.headers["sec-websocket-protocol"]);
       const token = extractWsBearerToken(protocol);
-      const isAuthorized = isBearerTokenValid({ password, token });
+      const isAuthorized = await isBearerTokenValidAsync({ password, token });
       if (!isAuthorized) {
         const reason = token === null ? "Password required" : "Incorrect password";
+        // SEC-002: record the failure against the source IP so repeated
+        // attempts trip the upgrade-layer rate limit on the next attempt.
+        this.recordAuthFailure(this.extractIp(request));
         this.logger.warn(
           { ...requestMetadata, hasToken: token !== null },
           "Rejected WebSocket connection with invalid daemon password",
@@ -665,6 +741,13 @@ export class VoiceAssistantWebSocketServer {
     for (const ws of this.sessions.keys()) {
       // WebSocket.OPEN = 1
       if (ws.readyState === 1) {
+        if (!shouldSendMessage(ws.bufferedAmount ?? 0)) {
+          this.logger.warn(
+            { bufferedAmount: ws.bufferedAmount, messageType: message.type },
+            "ws_broadcast_dropped_backpressure",
+          );
+          continue;
+        }
         ws.send(payload);
         this.recordOutboundMessage(message, ws);
       }
@@ -781,6 +864,13 @@ export class VoiceAssistantWebSocketServer {
     if (ws.readyState !== 1) {
       return;
     }
+    if (!shouldSendMessage(ws.bufferedAmount ?? 0)) {
+      this.logger.warn(
+        { bufferedAmount: ws.bufferedAmount, messageType: message.type },
+        "ws_send_dropped_backpressure",
+      );
+      return;
+    }
     try {
       ws.send(JSON.stringify(message));
       this.recordOutboundMessage(message, ws);
@@ -791,6 +881,13 @@ export class VoiceAssistantWebSocketServer {
 
   private sendBinaryToClient(ws: WebSocketLike, frame: Uint8Array): void {
     if (ws.readyState !== 1) {
+      return;
+    }
+    if (!shouldSendMessage(ws.bufferedAmount ?? 0)) {
+      this.logger.warn(
+        { bufferedAmount: ws.bufferedAmount },
+        "ws_send_binary_dropped_backpressure",
+      );
       return;
     }
     try {

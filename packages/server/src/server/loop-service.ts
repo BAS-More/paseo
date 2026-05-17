@@ -493,6 +493,16 @@ export class LoopService {
     return cloneLoop(loop);
   }
 
+  /**
+   * Stops all currently running loops and waits for them to settle.
+   * Called during daemon shutdown (ARCH-009) so AbortControllers are not
+   * abandoned and loop state is persisted as "stopped" before process exit.
+   */
+  async stop(): Promise<void> {
+    const runningIds = Array.from(this.running.keys());
+    await Promise.all(runningIds.map((id) => this.stopLoop(id).catch(() => undefined)));
+  }
+
   private async executeLoop(loopId: string, signal: AbortSignal): Promise<void> {
     const loop = this.requireLoop(loopId);
     const deadline = loop.maxTimeMs ? Date.now() + loop.maxTimeMs : null;

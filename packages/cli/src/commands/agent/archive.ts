@@ -1,5 +1,5 @@
 import { Command } from "commander";
-import type { DaemonClient } from "@getpaseo/server";
+import type { DaemonClient } from "@bas-more/server";
 import { connectToDaemon, getDaemonHost, resolveAgentId } from "../../utils/client.js";
 import type {
   CommandOptions,

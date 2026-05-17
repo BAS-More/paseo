@@ -7,6 +7,7 @@ import {
   hashDaemonPassword,
   isBearerTokenValidAsync,
   isBearerTokenValid,
+  shouldBypassBearerAuth,
 } from "./auth.js";
 
 const CORRECT_PASSWORD_HASH = "$2b$12$OLxyuuP9uLK30Uzc4wQX0O6liuU/Q1t5P2b0Ebf36mULvpVK3DRZW";
@@ -43,6 +44,19 @@ describe("daemon bearer validator", () => {
     expect(extractHttpBearerToken("Bearer secret")).toBe("secret");
     expect(extractHttpBearerToken("Basic secret")).toBeNull();
     expect(extractHttpBearerToken(undefined)).toBeNull();
+  });
+
+  test("bypasses auth for CORS preflight with Origin, blocks bare OPTIONS", () => {
+    expect(shouldBypassBearerAuth("OPTIONS", "/api/agents", "http://localhost:6767")).toBe(true);
+    expect(shouldBypassBearerAuth("OPTIONS", "/api/agents", undefined)).toBe(false);
+    expect(shouldBypassBearerAuth("OPTIONS", "/api/agents")).toBe(false);
+    expect(shouldBypassBearerAuth("GET", "/api/agents", "http://localhost:6767")).toBe(false);
+  });
+
+  test("bypasses auth for health endpoint regardless of method", () => {
+    expect(shouldBypassBearerAuth("GET", "/api/health")).toBe(true);
+    expect(shouldBypassBearerAuth("POST", "/api/health")).toBe(true);
+    expect(shouldBypassBearerAuth("GET", "/api/agents")).toBe(false);
   });
 
   test("extracts WebSocket paseo bearer subprotocol tokens", () => {

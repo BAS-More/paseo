@@ -61,8 +61,18 @@ if (args.print) {
   process.exit(0);
 }
 
-execFileSync(
-  "npm",
-  ["version", nextVersion, "--include-workspace-root", "--message", "chore(release): cut %s"],
-  { cwd: rootDir, stdio: "inherit" },
-);
+execFileSync("npm", ["version", nextVersion, "--include-workspace-root", "--no-git-tag-version"], {
+  cwd: rootDir,
+  stdio: "inherit",
+  shell: true,
+});
+
+execFileSync("git", ["add", "-A"], { cwd: rootDir, stdio: "inherit" });
+execFileSync("git", ["commit", "-m", `chore(release): cut ${nextVersion}`], {
+  cwd: rootDir,
+  stdio: "inherit",
+});
+execFileSync("git", ["tag", "-a", `v${nextVersion}`, "-m", `v${nextVersion}`], {
+  cwd: rootDir,
+  stdio: "inherit",
+});

@@ -70,10 +70,10 @@ function appendOutputCapture(target: OutputCapture, chunk: Buffer): void {
 }
 
 function formatOutputCapture(target: OutputCapture): string {
-  if (!target.truncated) {
-    return target.value;
-  }
-  return `[truncated; showing last ${TEST_OUTPUT_CAPTURE_LIMIT} chars]\n${target.value}`;
+  // Return raw captured value without prefixing truncation metadata.
+  // The prefix corrupts JSON.parse when tests consume --json stdout.
+  // Truncation is still visible via the `truncated` flag on the capture.
+  return target.value;
 }
 
 function readNodeErrnoCode(error: unknown): string | undefined {

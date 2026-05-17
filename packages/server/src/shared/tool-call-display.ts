@@ -122,6 +122,8 @@ function buildCanonicalDetailDisplay(input: ToolCallDisplayInput): DetailDisplay
       };
     case "unknown":
       return {};
+    default:
+      throw new Error("unreachable");
   }
 }
 
@@ -134,8 +136,12 @@ function buildUnknownDetailOverride(input: ToolCallDisplayInput): DetailDisplay 
     };
   }
   if (input.detail.type === "unknown" && lowerName === "thinking") {
+    let duration: number | undefined;
+    if (isRecord(input.metadata) && typeof input.metadata.thinkingDurationSeconds === "number") {
+      duration = input.metadata.thinkingDurationSeconds;
+    }
     return {
-      displayName: "Thinking",
+      displayName: duration !== undefined ? `Thought for ${duration}s` : "Thinking",
     };
   }
   if (lowerName === "terminal") {

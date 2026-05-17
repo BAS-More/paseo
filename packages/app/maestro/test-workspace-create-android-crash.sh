@@ -64,7 +64,7 @@ render_flow_tree() {
 
 if [ ! -f "$SERVER_EXPORTS" ]; then
   echo "Missing server build artifact: $SERVER_EXPORTS" >&2
-  echo "Run: npm run build --workspace=@getpaseo/server" >&2
+  echo "Run: npm run build --workspace=@bas-more/server" >&2
   exit 1
 fi
 
@@ -78,7 +78,7 @@ if [ -z "${PASEO_MAESTRO_PROJECT_PATH:-}" ]; then
   git -C "$PASEO_MAESTRO_PROJECT_PATH" init >/dev/null
   git -C "$PASEO_MAESTRO_PROJECT_PATH" checkout -b main >/dev/null 2>&1 || true
   git -C "$PASEO_MAESTRO_PROJECT_PATH" config user.name "Paseo Maestro"
-  git -C "$PASEO_MAESTRO_PROJECT_PATH" config user.email "maestro@getpaseo.local"
+  git -C "$PASEO_MAESTRO_PROJECT_PATH" config user.email "maestro@bas-more.local"
   printf "# Workspace create Android repro\n" > "$PASEO_MAESTRO_PROJECT_PATH/README.md"
   git -C "$PASEO_MAESTRO_PROJECT_PATH" add README.md
   git -C "$PASEO_MAESTRO_PROJECT_PATH" commit -m "Initial commit" >/dev/null

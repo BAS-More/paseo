@@ -7,17 +7,15 @@ import {
   type EncryptedChannel,
   type Transport as RelayTransport,
   type KeyPair,
-} from "@getpaseo/relay/e2ee";
-import {
-  buildRelayWebSocketUrl,
-  shouldUseTlsForDefaultHostedRelay,
-} from "../shared/daemon-endpoints.js";
+} from "@bas-more/relay/e2ee";
+import { buildRelayWebSocketUrl } from "../shared/daemon-endpoints.js";
 import type { ExternalSocketMetadata } from "./websocket-server.js";
 
 interface RelayTransportOptions {
   logger: pino.Logger;
   attachSocket: (ws: RelaySocketLike, metadata?: ExternalSocketMetadata) => Promise<void>;
   relayEndpoint: string; // "host:port"
+  relayUseTls: boolean;
   serverId: string;
   daemonKeyPair?: KeyPair;
 }
@@ -105,6 +103,7 @@ export function startRelayTransport({
   logger,
   attachSocket,
   relayEndpoint,
+  relayUseTls,
   serverId,
   daemonKeyPair,
 }: RelayTransportOptions): RelayTransportController {
@@ -158,7 +157,7 @@ export function startRelayTransport({
     const connectionId = ++controlConnectionSeq;
     const url = buildRelayWebSocketUrl({
       endpoint: relayEndpoint,
-      useTls: shouldUseTlsForDefaultHostedRelay(relayEndpoint),
+      useTls: relayUseTls,
       serverId,
       role: "server",
     });
@@ -331,10 +330,21 @@ export function startRelayTransport({
     if (stopped) return;
     if (!connectionId) return;
     if (dataSockets.has(connectionId)) return;
+    // ARCH-005: cap concurrent data sockets to bound memory under burst load.
+    // PASEO_RELAY_MAX_DATA_SOCKETS overrides the 256 default.
+    const maxDataSockets =
+      Number.parseInt(process.env.PASEO_RELAY_MAX_DATA_SOCKETS ?? "", 10) || 256;
+    if (dataSockets.size >= maxDataSockets) {
+      relayLogger.warn(
+        { connectionId, active: dataSockets.size, max: maxDataSockets },
+        "relay_data_socket_limit_reached",
+      );
+      return;
+    }
 
     const url = buildRelayWebSocketUrl({
       endpoint: relayEndpoint,
-      useTls: shouldUseTlsForDefaultHostedRelay(relayEndpoint),
+      useTls: relayUseTls,
       serverId,
       role: "server",
       connectionId,

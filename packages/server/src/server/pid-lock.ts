@@ -1,8 +1,13 @@
 import { open, readFile, unlink, mkdir } from "node:fs/promises";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import { hostname } from "node:os";
 import { z } from "zod";
+
+// M-05: track which paseoHome+pid pairs have a process.on("exit") handler
+// already installed. acquirePidLock can be called more than once per process
+// (tests, retries) — we want exactly one sync cleanup handler per pair.
+const registeredAutoReleases = new Set<string>();
 
 export const pidLockInfoSchema = z.object({
   pid: z.number(),
@@ -54,10 +59,38 @@ function resolveOwnerPid(ownerPid?: number): number {
   return process.pid;
 }
 
+/**
+ * M-05: install a synchronous `process.on("exit")` handler that removes the
+ * lockfile if it still belongs to us. Idempotent per (paseoHome, ownerPid).
+ *
+ * `exit` listeners MUST be synchronous — async APIs (fs/promises, setTimeout)
+ * are silently dropped. That's why this uses the sync fs variants. SIGTERM /
+ * SIGINT handling lives in the supervisor; this is the last-resort cleanup
+ * for unexpected exits (uncaughtException, process.exit(), etc.).
+ */
+function registerAutoRelease(paseoHome: string, ownerPid: number): void {
+  const key = `${paseoHome}::${ownerPid}`;
+  if (registeredAutoReleases.has(key)) return;
+  registeredAutoReleases.add(key);
+
+  const pidPath = getPidFilePath(paseoHome);
+  process.on("exit", () => {
+    try {
+      const content = readFileSync(pidPath, "utf-8");
+      const lock = parsePidLockInfo(JSON.parse(content));
+      if (lock?.pid === ownerPid) {
+        unlinkSync(pidPath);
+      }
+    } catch {
+      // Lockfile may be gone, unreadable, or owned by someone else — ignore.
+    }
+  });
+}
+
 export async function acquirePidLock(
   paseoHome: string,
   listen: string | null,
-  options?: { ownerPid?: number },
+  options?: { ownerPid?: number; autoRelease?: boolean },
 ): Promise<void> {
   const pidPath = getPidFilePath(paseoHome);
 
@@ -106,6 +139,9 @@ export async function acquirePidLock(
   try {
     fd = await open(pidPath, "wx");
     await fd.write(JSON.stringify(lockInfo));
+    if (options?.autoRelease !== false) {
+      registerAutoRelease(paseoHome, lockOwnerPid);
+    }
   } catch (err) {
     if (isErrnoException(err) && err.code === "EEXIST") {
       // Race condition - another process created the file

@@ -36,6 +36,7 @@ import {
 import { getClaudeModels, normalizeClaudeRuntimeModelId } from "./claude/claude-models.js";
 import { parsePartialJsonObject } from "./claude/partial-json.js";
 import { ClaudeSidechainTracker } from "./claude/sidechain-tracker.js";
+import { resolveBundledClaudeBinary } from "./claude/resolve-bundled-binary.js";
 import {
   formatDiagnosticStatus,
   formatProviderDiagnostic,
@@ -86,6 +87,61 @@ import { getOrchestratorModeInstructions } from "../orchestrator-instructions.js
 
 const fsPromises = promises;
 const CLAUDE_SETTING_SOURCES: NonNullable<Options["settingSources"]> = ["user", "project"];
+
+function readNonEmptyString(value: unknown): string | null {
+  return typeof value === "string" && value.trim().length > 0 ? value : null;
+}
+
+export function normalizeClaudeAskUserQuestionUpdatedInput(
+  updatedInput: AgentMetadata | undefined,
+  fallbackInput: AgentMetadata | undefined,
+): AgentMetadata {
+  const fallback = isMetadata(fallbackInput) ? fallbackInput : {};
+  const base = isMetadata(updatedInput) ? updatedInput : {};
+  // Paseo's shared question UI serializes answers by question header, but Claude's
+  // AskUserQuestion tool expects answer keys to match the full question text. Merge
+  // the original request payload back in so provider callbacks that only return
+  // `{ answers }` still satisfy Claude's full tool input schema.
+  const merged = { ...fallback, ...base };
+  const questions =
+    (Array.isArray(base.questions) ? base.questions : null) ??
+    (Array.isArray(fallback.questions) ? fallback.questions : null);
+  const answers = isMetadata(base.answers) ? base.answers : null;
+
+  if (!questions || !answers) {
+    return merged;
+  }
+
+  const normalizedAnswers: Record<string, string> = {};
+  for (const item of questions) {
+    const question = isMetadata(item) ? item : null;
+    if (!question) {
+      continue;
+    }
+
+    const questionText = readNonEmptyString(question.question);
+    if (!questionText) {
+      continue;
+    }
+
+    const header = readNonEmptyString(question.header);
+    const answer =
+      readNonEmptyString(answers[questionText]) ??
+      (header ? readNonEmptyString(answers[header]) : null);
+    if (answer) {
+      normalizedAnswers[questionText] = answer;
+    }
+  }
+
+  if (Object.keys(normalizedAnswers).length === 0) {
+    return merged;
+  }
+
+  return {
+    ...merged,
+    answers: normalizedAnswers,
+  };
+}
 
 function isObjectRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
@@ -1315,6 +1371,23 @@ export class ClaudeAgentClient implements AgentClient {
   }
 }
 
+type ClaudeBinarySource = "PATH" | "bundled-sdk" | "none";
+
+async function resolveClaudeBinaryWithSource(): Promise<{
+  binary: string | null;
+  source: ClaudeBinarySource;
+}> {
+  const pathBinary = await findExecutable("claude");
+  if (pathBinary) {
+    return { binary: pathBinary, source: "PATH" };
+  }
+  const bundled = resolveBundledClaudeBinary();
+  if (bundled) {
+    return { binary: bundled, source: "bundled-sdk" };
+  }
+  return { binary: null, source: "none" };
+}
+
 async function resolveClaudeVersion(
   runtimeSettings?: ProviderRuntimeSettings,
 ): Promise<string | null> {
@@ -1805,9 +1878,16 @@ class ClaudeAgentSession implements AgentSession {
           }),
         );
       }
+      const updatedInput =
+        pending.request.kind === "question"
+          ? normalizeClaudeAskUserQuestionUpdatedInput(
+              response.updatedInput,
+              pending.request.input ?? undefined,
+            )
+          : (response.updatedInput ?? pending.request.input ?? {});
       const result: PermissionResult = {
         behavior: "allow",
-        updatedInput: response.updatedInput ?? pending.request.input ?? {},
+        updatedInput,
         updatedPermissions: this.normalizePermissionUpdates(response.updatedPermissions),
       };
       pending.resolve(result);
@@ -2182,8 +2262,6 @@ class ClaudeAgentSession implements AgentSession {
         : undefined;
     if (thinkingOptionId && isClaudeThinkingEffort(thinkingOptionId)) {
       if (thinkingOptionId === "xhigh") {
-        // "xhigh" is accepted by Claude Opus 4.7 but not yet in the SDK type definitions
-        // @ts-expect-error -- SDK 0.2.71 effort type doesn't include "xhigh" yet
         return { thinking: { type: "adaptive" }, effort: thinkingOptionId };
       }
       return { thinking: { type: "adaptive" }, effort: thinkingOptionId };
@@ -2215,10 +2293,17 @@ class ClaudeAgentSession implements AgentSession {
       ],
     });
 
-    const claudeBinary = await findExecutable("claude");
+    // Prefer a `claude` binary on PATH (developer machine, CI with pre-installed
+    // Claude Code). Fall back to the SDK's bundled platform binary, picking the
+    // correct libc variant — the SDK ships musl and gnu Linux variants but its
+    // own resolver picks musl on glibc systems, which fails to launch. See
+    // resolve-bundled-binary.ts for the libc detection.
+    const { binary: claudeBinary, source: claudeBinarySource } =
+      await resolveClaudeBinaryWithSource();
     this.logger.debug(
       {
         claudeBinary,
+        claudeBinarySource,
         pathEnvKey: resolvePathEnvKey(),
         pathIncludesClaudeLocalBin: (process.env["Path"] ?? process.env["PATH"] ?? "")
           .toLowerCase()

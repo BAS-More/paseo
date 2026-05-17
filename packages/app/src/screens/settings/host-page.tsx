@@ -23,6 +23,8 @@ import { useDaemonConfig } from "@/hooks/use-daemon-config";
 import { useIsLocalDaemon } from "@/hooks/use-is-local-daemon";
 import { SettingsSection } from "@/screens/settings/settings-section";
 import { ProvidersSection } from "@/screens/settings/providers-section";
+import { NineRouterSection } from "@/screens/settings/nine-router-section";
+import { StackServicesPanel } from "@/screens/settings/stack-services-panel";
 import { PairDeviceModal } from "@/desktop/components/pair-device-modal";
 import { LocalDaemonSection } from "@/desktop/components/desktop-updates-section";
 
@@ -164,6 +166,10 @@ export function HostPage({ serverId, onHostRemoved }: HostPageProps) {
       <DaemonSection host={host} isLocalDaemon={isLocalDaemon} />
 
       <ProvidersSection serverId={serverId} />
+
+      <NineRouterSection serverId={serverId} />
+
+      <StackServicesPanel serverId={serverId} />
 
       <RemoveHostSection host={host} onRemoved={onHostRemoved} />
     </View>

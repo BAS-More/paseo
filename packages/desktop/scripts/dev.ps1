@@ -12,8 +12,11 @@ npm run build:main
 # localhost origin across restarts. Fall back only when earlier ports are busy.
 $env:EXPO_PORT = (npx get-port-cli 8081 8082 8083 8084 8085).Trim()
 
-# Set EXPO_DEV_URL in the environment so Electron inherits it
+# Set env vars for child processes. concurrently spawns cmd.exe subshells on
+# Windows so PowerShell $env: syntax won't work inline. Setting them in the
+# parent lets all children inherit them.
 $env:EXPO_DEV_URL = "http://localhost:$($env:EXPO_PORT)"
+$env:PASEO_WEB_PLATFORM = "electron"
 
 # Allow any origin in dev so Electron on random ports works.
 # SECURITY: wildcard CORS is unsafe in production — only acceptable here because
@@ -28,10 +31,12 @@ Write-Host @"
 ======================================================
 "@
 
-# Launch Metro + Electron together, kill both on exit
-& "$RootDir\node_modules\.bin\concurrently" `
+# Launch Metro + Electron together, kill both on exit.
+# concurrently spawns cmd.exe subshells on Windows, so env vars must be set
+# in the parent process (above) rather than inline with $env: syntax.
+& npx concurrently `
     --kill-others `
     --names "metro,electron" `
     --prefix-colors "magenta,cyan" `
-    "cd `"$AppDir`" && `$env:PASEO_WEB_PLATFORM = `"electron`"; npx expo start --port $($env:EXPO_PORT)" `
+    "cd /d `"$AppDir`" && npx expo start --port $($env:EXPO_PORT)" `
     "npx wait-on tcp:$($env:EXPO_PORT) && npx electron `"$DesktopDir`""

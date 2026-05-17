@@ -1,0 +1,8 @@
+fastapi==0.136.1
+uvicorn==0.46.0
+pydantic==2.12.5
+
+# Test dependencies
+httpx==0.28.1
+anyio[asyncio]==4.13.0
+pytest==9.0.3

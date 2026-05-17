@@ -18,14 +18,17 @@ const APP_SETTINGS_QUERY_KEY = ["app-settings"];
 export type SendBehavior = "interrupt" | "queue";
 export type ReleaseChannel = "stable" | "beta";
 export type ServiceUrlBehavior = "ask" | "in-app" | "external";
+export type LayoutMode = "workspace" | "claude-desktop";
 
 const VALID_THEMES = new Set<string>([...Object.keys(THEME_TO_UNISTYLES), "auto"]);
 const VALID_SERVICE_URL_BEHAVIORS = new Set<ServiceUrlBehavior>(["ask", "in-app", "external"]);
+const VALID_LAYOUT_MODES = new Set<LayoutMode>(["workspace", "claude-desktop"]);
 
 export interface AppSettings {
   theme: ThemeName | "auto";
   sendBehavior: SendBehavior;
   serviceUrlBehavior: ServiceUrlBehavior;
+  layoutMode: LayoutMode;
 }
 
 export interface Settings extends AppSettings {
@@ -37,6 +40,7 @@ export const DEFAULT_CLIENT_SETTINGS: AppSettings = {
   theme: "auto",
   sendBehavior: "interrupt",
   serviceUrlBehavior: "ask",
+  layoutMode: "workspace",
 };
 
 export const DEFAULT_APP_SETTINGS: Settings = {
@@ -75,9 +79,18 @@ export function useAppSettings(): UseAppSettingsReturn {
       try {
         const prev =
           queryClient.getQueryData<AppSettings>(APP_SETTINGS_QUERY_KEY) ?? DEFAULT_CLIENT_SETTINGS;
+
+        // Auto-link theme when switching layout mode (unless caller explicitly sets theme)
+        if (updates.layoutMode === "claude-desktop" && updates.theme === undefined) {
+          updates = { ...updates, theme: "claudeLight" };
+        }
+
         const next = { ...prev, ...updates };
         queryClient.setQueryData<AppSettings>(APP_SETTINGS_QUERY_KEY, next);
         await AsyncStorage.setItem(APP_SETTINGS_KEY, JSON.stringify(next));
+        if (updates.layoutMode) {
+          syncLayoutModeToBackend(updates.layoutMode);
+        }
       } catch (err) {
         console.error("[AppSettings] Failed to save settings:", err);
         throw err;
@@ -121,6 +134,9 @@ export function useSettings(): UseSettingsReturn {
       }
       if (updates.serviceUrlBehavior !== undefined) {
         appUpdates.serviceUrlBehavior = updates.serviceUrlBehavior;
+      }
+      if (updates.layoutMode !== undefined) {
+        appUpdates.layoutMode = updates.layoutMode;
       }
 
       const promises: Promise<void>[] = [];
@@ -179,12 +195,37 @@ export async function persistAppSettings(updates: Partial<AppSettings>): Promise
   await AsyncStorage.setItem(APP_SETTINGS_KEY, JSON.stringify(next));
 }
 
+/**
+ * Fire-and-forget sync of layoutMode to Soifer Backend so the preference
+ * is available stack-wide (9Router, CrewAI, OCC). Failures are silent —
+ * AsyncStorage remains the source of truth for the frontend.
+ */
+function syncLayoutModeToBackend(layoutMode: LayoutMode): void {
+  void (async () => {
+    try {
+      const { SoiferBackendClient } = await import("@server/server/soifer-backend-client");
+      const client = new SoiferBackendClient();
+      await client.setLayoutMode(layoutMode);
+    } catch {
+      // Soifer Backend may be offline — that's fine
+    }
+  })();
+}
+
 export async function loadAppSettingsFromStorage(): Promise<AppSettings> {
   try {
     const stored = await AsyncStorage.getItem(APP_SETTINGS_KEY);
     if (stored) {
       const parsed = JSON.parse(stored) as Partial<AppSettings>;
-      return { ...DEFAULT_CLIENT_SETTINGS, ...pickAppSettings(parsed) };
+      const result = { ...DEFAULT_CLIENT_SETTINGS, ...pickAppSettings(parsed) };
+
+      // Migration: auto-link Claude Light theme for existing claude-desktop users
+      if (result.layoutMode === "claude-desktop" && result.theme !== "claudeLight") {
+        result.theme = "claudeLight";
+        await AsyncStorage.setItem(APP_SETTINGS_KEY, JSON.stringify(result));
+      }
+
+      return result;
     }
 
     const legacyStored = await AsyncStorage.getItem(LEGACY_SETTINGS_KEY);
@@ -245,6 +286,9 @@ function pickAppSettings(stored: Partial<AppSettings>): Partial<AppSettings> {
     VALID_SERVICE_URL_BEHAVIORS.has(stored.serviceUrlBehavior)
   ) {
     result.serviceUrlBehavior = stored.serviceUrlBehavior;
+  }
+  if (typeof stored.layoutMode === "string" && VALID_LAYOUT_MODES.has(stored.layoutMode)) {
+    result.layoutMode = stored.layoutMode;
   }
   return result;
 }

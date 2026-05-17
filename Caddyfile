@@ -1,0 +1,25 @@
+# Paseo TLS reverse proxy
+# PASEO_DOMAIN defaults to localhost (self-signed).
+# Set to your domain for automatic Let's Encrypt certs.
+#
+# Usage:
+#   PASEO_DOMAIN=paseo.example.com docker compose -f docker-compose.prod.yml up
+
+{$PASEO_DOMAIN:localhost} {
+	reverse_proxy paseo-daemon:6767
+
+	encode gzip
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+		X-Frame-Options "DENY"
+		X-Content-Type-Options "nosniff"
+		X-XSS-Protection "0"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Content-Security-Policy "default-src 'self'; script-src 'self'; connect-src 'self' wss:; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+		Permissions-Policy "camera=(), microphone=(self), geolocation=(), payment=()"
+		Cross-Origin-Opener-Policy "same-origin"
+		Cross-Origin-Resource-Policy "same-origin"
+		-Server
+	}
+}

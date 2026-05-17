@@ -1,6 +1,7 @@
 {
-  "name": "@getpaseo/highlight",
-  "version": "0.1.67",
+  "name": "@bas-more/highlight",
+  "version": "0.2.0",
+  "license": "AGPL-3.0-or-later",
   "files": [
     "dist"
   ],
@@ -15,7 +16,8 @@
     }
   },
   "publishConfig": {
-    "access": "public"
+    "access": "public",
+    "registry": "https://npm.pkg.github.com"
   },
   "scripts": {
     "build": "node -e \"require('node:fs').rmSync('dist',{ recursive: true, force: true })\" && tsc -p tsconfig.json --incremental false",

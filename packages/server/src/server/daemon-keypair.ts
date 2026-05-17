@@ -10,7 +10,7 @@ import {
   importPublicKey,
   importSecretKey,
   type KeyPair,
-} from "@getpaseo/relay/e2ee";
+} from "@bas-more/relay/e2ee";
 
 const KeyPairSchema = z.object({
   v: z.literal(2),

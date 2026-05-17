@@ -1,0 +1,69 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: paseo-daemon
+  namespace: paseo
+  labels:
+    app.kubernetes.io/name: paseo-daemon
+    app.kubernetes.io/component: server
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: paseo-daemon
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: paseo-daemon
+        app.kubernetes.io/component: server
+    spec:
+      containers:
+        - name: paseo-daemon
+          image: ghcr.io/bas-more/paseo/paseo-daemon:latest
+          ports:
+            - containerPort: 6767
+              name: http
+          env:
+            - name: NODE_ENV
+              value: "production"
+            - name: PASEO_HOME
+              value: "/data/paseo"
+            - name: PASEO_LISTEN
+              value: "0.0.0.0:6767"
+            - name: PASEO_LOG_FORMAT
+              value: "json"
+          envFrom:
+            - secretRef:
+                name: paseo-secrets
+          volumeMounts:
+            - name: data
+              mountPath: /data/paseo
+          resources:
+            requests:
+              cpu: 250m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+          livenessProbe:
+            httpGet:
+              path: /health/live
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 5
+          startupProbe:
+            httpGet:
+              path: /health/startup
+              port: http
+            failureThreshold: 30
+            periodSeconds: 2
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: paseo-data

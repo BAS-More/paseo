@@ -77,6 +77,7 @@ import type { ScriptHealthState } from "./script-health-monitor.js";
 import { spawnWorkspaceScript } from "./worktree-bootstrap.js";
 import type { WorkspaceScriptRuntimeStore } from "./workspace-script-runtime-store.js";
 import type { DaemonConfigStore } from "./daemon-config-store.js";
+import { NineRouterClient } from "./nine-router-client.js";
 import { applyMutableProviderConfigToOverrides } from "./daemon-config-store.js";
 import { getErrorMessage, getErrorMessageOr } from "../shared/error-utils.js";
 import type { WorkspaceGitRuntimeSnapshot, WorkspaceGitService } from "./workspace-git-service.js";
@@ -2077,6 +2078,8 @@ export class Session {
         return this.handleOpenInEditorRequest(msg);
       case "open_project_request":
         return this.handleOpenProjectRequest(msg);
+      case "rename_workspace_request":
+        return this.handleRenameWorkspaceRequest(msg);
       case "archive_workspace_request":
         return this.handleArchiveWorkspaceRequest(msg);
       case "file_explorer_request":
@@ -2106,6 +2109,10 @@ export class Session {
         return this.handleRefreshProvidersSnapshotRequest(msg);
       case "provider_diagnostic_request":
         return this.handleProviderDiagnosticRequest(msg);
+      case "provider_connection_test_request":
+        return this.handleProviderConnectionTestRequest(msg);
+      case "stack_services_request":
+        return this.handleStackServicesRequest(msg);
       default:
         return undefined;
     }
@@ -2182,7 +2189,265 @@ export class Session {
       case "register_push_token":
         this.handleRegisterPushToken(msg.token);
         return;
+      case "nine_router_status_request":
+        await this.handleNineRouterStatusRequest(msg.requestId);
+        return;
+      case "nine_router_keys_request":
+        await this.handleNineRouterKeysRequest(msg.requestId);
+        return;
+      case "nine_router_create_key_request":
+        await this.handleNineRouterCreateKeyRequest(msg.requestId, msg.name);
+        return;
+      case "nine_router_delete_key_request":
+        await this.handleNineRouterDeleteKeyRequest(msg.requestId, msg.keyId);
+        return;
+      case "nine_router_models_request":
+        await this.handleNineRouterModelsRequest(msg.requestId);
+        return;
+      case "nine_router_providers_request":
+        await this.handleNineRouterProvidersRequest(msg.requestId);
+        return;
+      case "nine_router_usage_request":
+        await this.handleNineRouterUsageRequest(msg.requestId, msg.period);
+        return;
+      case "nine_router_oauth_import_request":
+        await this.handleNineRouterOAuthImportRequest(msg.requestId, msg.provider);
+        return;
+      case "nine_router_cli_tool_settings_request":
+        await this.handleNineRouterCliToolSettingsRequest(msg.requestId, msg.tool);
+        return;
+      case "nine_router_cli_tool_settings_update_request":
+        await this.handleNineRouterCliToolSettingsUpdateRequest(
+          msg.requestId,
+          msg.tool,
+          msg.settings,
+        );
+        return;
+      case "nine_router_model_aliases_request":
+        await this.handleNineRouterModelAliasesRequest(msg.requestId);
+        return;
+      case "nine_router_set_model_alias_request":
+        await this.handleNineRouterSetModelAlias(msg.requestId, msg.alias, msg.target);
+        return;
+      case "nine_router_delete_model_alias_request":
+        await this.handleNineRouterDeleteModelAlias(msg.requestId, msg.alias);
+        return;
+      case "nine_router_test_model_request":
+        await this.handleNineRouterTestModel(msg.requestId, msg.model);
+        return;
+      case "soifer_backend_status_request":
+        await this.handleSoiferBackendStatusRequest(msg.requestId);
+        return;
     }
+  }
+
+  private async handleNineRouterStatusRequest(requestId: string): Promise<void> {
+    const client = this.createNineRouterClient();
+    const status = await client.getStatus();
+    this.emit({
+      type: "nine_router_status_response",
+      payload: {
+        requestId,
+        reachable: status.reachable,
+        accounts: status.accounts,
+        usage: status.usage,
+      },
+    });
+  }
+
+  private async handleNineRouterKeysRequest(requestId: string): Promise<void> {
+    const client = this.createNineRouterClient();
+    const keys = await client.getKeys();
+    this.emit({ type: "nine_router_keys_response", payload: { requestId, keys } });
+  }
+
+  private async handleNineRouterCreateKeyRequest(requestId: string, name: string): Promise<void> {
+    const client = this.createNineRouterClient();
+    await client.createKey(name);
+    // Re-fetch keys to return current list
+    const keys = await client.getKeys();
+    this.emit({ type: "nine_router_keys_response", payload: { requestId, keys } });
+  }
+
+  private async handleNineRouterDeleteKeyRequest(requestId: string, keyId: string): Promise<void> {
+    const client = this.createNineRouterClient();
+    await client.deleteKey(keyId);
+    const keys = await client.getKeys();
+    this.emit({ type: "nine_router_keys_response", payload: { requestId, keys } });
+  }
+
+  private async handleNineRouterModelsRequest(requestId: string): Promise<void> {
+    const client = this.createNineRouterClient();
+    const models = await client.getModels();
+    this.emit({ type: "nine_router_models_response", payload: { requestId, models } });
+  }
+
+  private async handleNineRouterProvidersRequest(requestId: string): Promise<void> {
+    const client = this.createNineRouterClient();
+    const providers = await client.getProviders();
+    this.emit({ type: "nine_router_providers_response", payload: { requestId, providers } });
+  }
+
+  private async handleNineRouterUsageRequest(requestId: string, period?: string): Promise<void> {
+    const client = this.createNineRouterClient();
+    const usage = await client.getUsage(period ? { period } : undefined);
+    this.emit({
+      type: "nine_router_usage_response",
+      payload: {
+        requestId,
+        period: period ?? "all",
+        totalRequests: usage.totalRequests,
+        totalTokens: usage.totalTokens,
+        totalCost: usage.totalCost,
+        byProvider: usage.byAccount.map((a) => ({
+          provider: a.id,
+          requests: a.requests,
+          tokens: a.tokens,
+          cost: a.cost,
+        })),
+        byModel: [],
+      },
+    });
+  }
+
+  private async handleNineRouterOAuthImportRequest(
+    requestId: string,
+    provider: string,
+  ): Promise<void> {
+    const client = this.createNineRouterClient();
+    const result = await client.importOAuthToken(provider);
+    this.emit({
+      type: "nine_router_oauth_import_response",
+      payload: {
+        requestId,
+        success: result.success,
+        provider,
+        email: result.email,
+        error: result.success ? undefined : "Import failed",
+      },
+    });
+  }
+
+  private async handleNineRouterCliToolSettingsRequest(
+    requestId: string,
+    tool: string,
+  ): Promise<void> {
+    const client = this.createNineRouterClient();
+    const result = await client.getCliToolSettings(tool);
+    this.emit({
+      type: "nine_router_cli_tool_settings_response",
+      payload: {
+        requestId,
+        tool,
+        installed: result?.installed ?? false,
+        has9Router: result?.has9Router ?? false,
+        settings: result?.settings ?? {},
+        settingsPath: result?.settingsPath,
+      },
+    });
+  }
+
+  private async handleNineRouterCliToolSettingsUpdateRequest(
+    requestId: string,
+    tool: string,
+    settings: Record<string, unknown>,
+  ): Promise<void> {
+    const client = this.createNineRouterClient();
+    const success = await client.updateCliToolSettings(tool, settings);
+    this.emit({
+      type: "nine_router_cli_tool_settings_update_response",
+      payload: {
+        requestId,
+        tool,
+        success,
+        error: success ? undefined : "Failed to update settings",
+      },
+    });
+  }
+
+  private async handleNineRouterModelAliasesRequest(requestId: string): Promise<void> {
+    const client = this.createNineRouterClient();
+    const aliases = await client.getModelAliases();
+    this.emit({
+      type: "nine_router_model_aliases_response",
+      payload: { requestId, aliases },
+    });
+  }
+
+  private async handleNineRouterSetModelAlias(
+    requestId: string,
+    alias: string,
+    target: string,
+  ): Promise<void> {
+    const client = this.createNineRouterClient();
+    const success = await client.setModelAlias(alias, target);
+    this.emit({
+      type: "nine_router_set_model_alias_response",
+      payload: { requestId, success, error: success ? undefined : "Failed to set alias" },
+    });
+  }
+
+  private async handleNineRouterDeleteModelAlias(requestId: string, alias: string): Promise<void> {
+    const client = this.createNineRouterClient();
+    const success = await client.deleteModelAlias(alias);
+    this.emit({
+      type: "nine_router_delete_model_alias_response",
+      payload: { requestId, success, error: success ? undefined : "Alias not found" },
+    });
+  }
+
+  private async handleNineRouterTestModel(requestId: string, model: string): Promise<void> {
+    const client = this.createNineRouterClient();
+    const result = await client.testModel(model);
+    this.emit({
+      type: "nine_router_test_model_response",
+      payload: {
+        requestId,
+        success: result.success,
+        latencyMs: result.latencyMs,
+        provider: result.provider,
+      },
+    });
+  }
+
+  private createNineRouterClient(): NineRouterClient {
+    const nineRouterUrl = this.daemonConfigStore.get().nineRouter?.url;
+    return new NineRouterClient(nineRouterUrl ? { baseUrl: nineRouterUrl } : undefined);
+  }
+
+  private async handleSoiferBackendStatusRequest(requestId: string): Promise<void> {
+    const { SoiferBackendClient } = await import("./soifer-backend-client.js");
+    const client = new SoiferBackendClient();
+    const status = await client.getFullStatus();
+    const health = await client.checkHealth();
+    this.emit({
+      type: "soifer_backend_status_response",
+      payload: { requestId, reachable: health.reachable, ...status },
+    });
+  }
+
+  private syncRenameToSoifer(cwd: string, displayName: string): void {
+    void (async () => {
+      try {
+        const { SoiferBackendClient } = await import("./soifer-backend-client.js");
+        const client = new SoiferBackendClient();
+        await client.renameProjectByPath(cwd, displayName);
+      } catch {
+        // Soifer Backend may be offline — fire-and-forget
+      }
+    })();
+  }
+
+  private syncArchiveToSoifer(cwd: string): void {
+    void (async () => {
+      try {
+        const { SoiferBackendClient } = await import("./soifer-backend-client.js");
+        const client = new SoiferBackendClient();
+        await client.archiveProjectByPath(cwd, true);
+      } catch {
+        // Soifer Backend may be offline — fire-and-forget
+      }
+    })();
   }
 
   public resetPeakInflight(): void {
@@ -3007,10 +3272,6 @@ export class Session {
       if (!resolvedWorkspace) {
         throw new Error(`Workspace not found: ${msg.workspaceId}`);
       }
-      this.scheduleAutoNameWorkspaceBranchForFirstAgent({
-        workspace: resolvedWorkspace,
-        firstAgentContext,
-      });
       const snapshot = await this.agentManager.createAgent(
         {
           ...sessionConfig,
@@ -3837,6 +4098,66 @@ export class Session {
         },
       });
     }
+  }
+
+  private async handleProviderConnectionTestRequest(
+    msg: Extract<SessionInboundMessage, { type: "provider_connection_test_request" }>,
+  ): Promise<void> {
+    try {
+      const registry = this.getProviderRegistry();
+      const entry = registry[msg.provider];
+      if (!entry) {
+        this.emit({
+          type: "provider_connection_test_response",
+          payload: {
+            requestId: msg.requestId,
+            provider: msg.provider,
+            available: false,
+            error: `Provider "${msg.provider}" not registered`,
+          },
+        });
+        return;
+      }
+      const client = entry.createClient(this.sessionLogger);
+      const start = Date.now();
+      const available = await client.isAvailable();
+      const latencyMs = Date.now() - start;
+      this.emit({
+        type: "provider_connection_test_response",
+        payload: {
+          requestId: msg.requestId,
+          provider: msg.provider,
+          available,
+          latencyMs,
+        },
+      });
+    } catch (error) {
+      const err = error instanceof Error ? error : new Error(String(error));
+      this.emit({
+        type: "provider_connection_test_response",
+        payload: {
+          requestId: msg.requestId,
+          provider: msg.provider,
+          available: false,
+          error: err.message,
+        },
+      });
+    }
+  }
+
+  private async handleStackServicesRequest(
+    msg: Extract<SessionInboundMessage, { type: "stack_services_request" }>,
+  ): Promise<void> {
+    const { StackServiceMonitor } = await import("./stack-service-monitor.js");
+    const monitor = new StackServiceMonitor();
+    const results = await monitor.checkAll();
+    this.emit({
+      type: "stack_services_response",
+      payload: {
+        requestId: msg.requestId,
+        services: results,
+      },
+    });
   }
 
   private assertSafeGitRef(ref: string, label: string): void {
@@ -6009,7 +6330,7 @@ export class Session {
       name: workspace.displayName,
       archivingAt: null,
       status: "done",
-      activityAt: null,
+      activityAt: workspace.updatedAt ?? workspace.createdAt,
       diffStat,
       scripts:
         this.scriptRouteStore && this.scriptRuntimeStore
@@ -6097,7 +6418,8 @@ export class Session {
       name: result.worktree.branchName || result.workspace.displayName,
       archivingAt: null,
       status: "done",
-      activityAt: null,
+      activityAt:
+        result.workspace.updatedAt ?? result.workspace.createdAt ?? new Date().toISOString(),
       diffStat: { additions: 0, deletions: 0 },
       scripts: [],
       gitRuntime: {
@@ -7022,6 +7344,49 @@ export class Session {
     );
   }
 
+  private async handleRenameWorkspaceRequest(
+    request: Extract<SessionInboundMessage, { type: "rename_workspace_request" }>,
+  ): Promise<void> {
+    try {
+      const existing = await this.workspaceRegistry.get(request.workspaceId);
+      if (!existing) {
+        throw new Error(`Workspace not found: ${request.workspaceId}`);
+      }
+      const updated = {
+        ...existing,
+        displayName: request.displayName,
+        updatedAt: new Date().toISOString(),
+      };
+      await this.workspaceRegistry.upsert(updated);
+      await this.emitWorkspaceUpdateForCwd(existing.cwd);
+      this.emit({
+        type: "rename_workspace_response",
+        payload: {
+          requestId: request.requestId,
+          workspaceId: request.workspaceId,
+          displayName: request.displayName,
+          error: null,
+        },
+      });
+      this.syncRenameToSoifer(existing.cwd, request.displayName);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to rename workspace";
+      this.sessionLogger.error(
+        { err: error, workspaceId: request.workspaceId },
+        "Failed to rename workspace",
+      );
+      this.emit({
+        type: "rename_workspace_response",
+        payload: {
+          requestId: request.requestId,
+          workspaceId: request.workspaceId,
+          displayName: null,
+          error: message,
+        },
+      });
+    }
+  }
+
   private async handleArchiveWorkspaceRequest(
     request: Extract<SessionInboundMessage, { type: "archive_workspace_request" }>,
   ): Promise<void> {
@@ -7045,6 +7410,7 @@ export class Session {
           error: null,
         },
       });
+      this.syncArchiveToSoifer(existing.cwd);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Failed to archive workspace";
       this.sessionLogger.error(
@@ -7310,8 +7676,9 @@ export class Session {
         { agentId, messageId: msg.messageId, textPrefix: msg.text.slice(0, 80) },
         "send_agent_message_request: dispatching shared sendPromptToAgent",
       );
+      let dispatchResult: { outOfBand: boolean };
       try {
-        await sendPromptToAgent({
+        dispatchResult = await sendPromptToAgent({
           agentManager: this.agentManager,
           agentStorage: this.agentStorage,
           agentId,
@@ -7330,6 +7697,19 @@ export class Session {
             agentId,
             accepted: false,
             error: message,
+          },
+        });
+        return;
+      }
+
+      if (dispatchResult.outOfBand) {
+        this.emit({
+          type: "send_agent_message_response",
+          payload: {
+            requestId: msg.requestId,
+            agentId,
+            accepted: true,
+            error: null,
           },
         });
         return;

@@ -9,7 +9,7 @@ import {
   DaemonClient,
   generateLocalPairingOffer,
   parseConnectionOfferFromUrl,
-} from "@getpaseo/server";
+} from "@bas-more/server";
 import { WebSocket } from "ws";
 import { getAvailablePort } from "../helpers/network.ts";
 import { createE2ETestContext } from "../helpers/test-daemon.ts";

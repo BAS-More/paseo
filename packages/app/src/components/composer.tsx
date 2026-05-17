@@ -22,7 +22,7 @@ import {
 } from "lucide-react-native";
 import Animated from "react-native-reanimated";
 import { useQuery } from "@tanstack/react-query";
-import { FOOTER_HEIGHT, MAX_CONTENT_WIDTH } from "@/constants/layout";
+import { FOOTER_HEIGHT, MAX_CONTENT_WIDTH, useMaxContentWidth } from "@/constants/layout";
 import {
   AgentStatusBar,
   DraftAgentStatusBar,
@@ -30,6 +30,7 @@ import {
 } from "./agent-status-bar";
 import { ContextWindowMeter } from "./context-window-meter";
 import { useImageAttachmentPicker } from "@/hooks/use-image-attachment-picker";
+import * as Clipboard from "expo-clipboard";
 import { useSessionStore } from "@/stores/session-store";
 import {
   MessageInput,
@@ -381,6 +382,22 @@ interface DispatchComposerKeyboardActionArgs {
   isConnected: boolean;
   handleCancelAgent: () => void;
   focusMessageInputForKeyboardAction: () => void;
+  serverId: string;
+  agentId: string;
+}
+
+function copyLastAssistantResponse(serverId: string, agentId: string): boolean {
+  const session = useSessionStore.getState().sessions[serverId];
+  const tail = session?.agentStreamTail?.get(agentId);
+  if (!tail) return false;
+  for (let i = tail.length - 1; i >= 0; i -= 1) {
+    const item = tail[i];
+    if (item?.kind === "assistant_message" && item.text.trim()) {
+      void Clipboard.setStringAsync(item.text);
+      return true;
+    }
+  }
+  return false;
 }
 
 function dispatchComposerKeyboardAction(args: DispatchComposerKeyboardActionArgs): boolean {
@@ -393,8 +410,14 @@ function dispatchComposerKeyboardAction(args: DispatchComposerKeyboardActionArgs
     isConnected,
     handleCancelAgent,
     focusMessageInputForKeyboardAction,
+    serverId,
+    agentId,
   } = args;
   if (!isPaneFocused) return false;
+
+  if (action.id === "agent.copy-last-response") {
+    return copyLastAssistantResponse(serverId, agentId);
+  }
 
   if (action.id === "agent.interrupt") {
     if (messageInputRef.current?.runKeyboardAction("dictation-cancel")) return true;
@@ -859,6 +882,7 @@ export function Composer({
   });
 
   const { settings: appSettings } = useAppSettings();
+  const maxContentWidth = useMaxContentWidth();
 
   const agentState = useSessionStore(useShallow(buildAgentStateSelector(serverId, agentId)));
 
@@ -1197,6 +1221,8 @@ export function Composer({
         isConnected,
         handleCancelAgent,
         focusMessageInputForKeyboardAction,
+        serverId,
+        agentId,
       }),
     [
       focusMessageInputForKeyboardAction,
@@ -1204,6 +1230,8 @@ export function Composer({
       isAgentRunning,
       isCancellingAgent,
       isConnected,
+      serverId,
+      agentId,
       isPaneFocused,
     ],
   );
@@ -1212,6 +1240,7 @@ export function Composer({
     handlerId: keyboardHandlerIdRef.current,
     actions: [
       "agent.interrupt",
+      "agent.copy-last-response",
       "message-input.focus",
       "message-input.send",
       "message-input.dictation-toggle",
@@ -1493,9 +1522,14 @@ export function Composer({
     () => [styles.container, keyboardAnimatedStyle],
     [keyboardAnimatedStyle],
   );
+  const isClaudeDesktop = appSettings.layoutMode === "claude-desktop";
   const inputAreaContainerStyle = useMemo(
-    () => [styles.inputAreaContainer, isComposerLocked && styles.inputAreaLocked],
-    [isComposerLocked],
+    () => [
+      styles.inputAreaContainer,
+      isClaudeDesktop && styles.inputAreaContainerPill,
+      isComposerLocked && styles.inputAreaLocked,
+    ],
+    [isComposerLocked, isClaudeDesktop],
   );
 
   const attachmentPreviewList = useMemo(
@@ -1530,12 +1564,17 @@ export function Composer({
     ? "Searching..."
     : "No results found.";
 
+  const inputAreaContentStyle = useMemo(
+    () => [styles.inputAreaContent, { maxWidth: maxContentWidth }],
+    [maxContentWidth],
+  );
+
   return (
     <Animated.View style={composerContainerStyle}>
       <AttachmentLightbox metadata={lightboxMetadata} onClose={handleLightboxClose} />
       {/* Input area */}
       <View style={inputAreaContainerStyle}>
-        <View style={styles.inputAreaContent}>
+        <View style={inputAreaContentStyle}>
           {queueList}
           {sendErrorNode}
 
@@ -1622,6 +1661,15 @@ const styles = StyleSheet.create((theme: Theme) => ({
     width: "100%",
     overflow: "visible",
     padding: theme.spacing[4],
+  },
+  inputAreaContainerPill: {
+    marginHorizontal: theme.spacing[4],
+    borderWidth: theme.borderWidth[1],
+    borderColor: theme.colors.border,
+    borderRadius: theme.borderRadius["2xl"],
+    backgroundColor: theme.colors.surface1,
+    width: "auto",
+    ...theme.shadow.md,
   },
   inputAreaLocked: {
     opacity: 0.6,

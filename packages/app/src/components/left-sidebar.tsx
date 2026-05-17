@@ -1,5 +1,12 @@
 import { router, usePathname } from "expo-router";
-import { FolderPlus, MessagesSquare, Settings } from "lucide-react-native";
+import {
+  FolderPlus,
+  MessagesSquare,
+  PanelLeftOpen,
+  Plus,
+  Search,
+  Settings,
+} from "lucide-react-native";
 import {
   type Dispatch,
   memo,
@@ -16,6 +23,7 @@ import {
   Pressable,
   StyleSheet as RNStyleSheet,
   Text,
+  TextInput,
   useWindowDimensions,
   View,
   type PressableStateCallbackType,
@@ -38,6 +46,7 @@ import { Combobox, ComboboxItem, type ComboboxOption } from "@/components/ui/com
 import { Shortcut } from "@/components/ui/shortcut";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useIsCompactFormFactor } from "@/constants/layout";
+import { useAppSettings } from "@/hooks/use-settings";
 import { isWeb } from "@/constants/platform";
 import { useSidebarAnimation } from "@/contexts/sidebar-animation-context";
 import { useOpenProjectPicker } from "@/hooks/use-open-project-picker";
@@ -58,13 +67,22 @@ import { resolveActiveHost } from "@/utils/active-host";
 import { formatConnectionStatus } from "@/utils/daemons";
 import { useWindowControlsPadding } from "@/utils/desktop-window";
 import {
+  buildHostAgentDetailRoute,
   buildHostSessionsRoute,
   buildSettingsRoute,
   mapPathnameToServer,
 } from "@/utils/host-routes";
+import { useAgentHistory } from "@/hooks/use-agent-history";
+import type { AggregatedAgent } from "@/hooks/use-aggregated-agents";
+import { useSessionStore } from "@/stores/session-store";
+import { resolveWorkspaceIdByExecutionDirectory } from "@/utils/workspace-execution";
+import { navigateToPreparedWorkspaceTab } from "@/utils/workspace-navigation";
 import { SidebarAgentListSkeleton } from "./sidebar-agent-list-skeleton";
-import { SidebarCalloutSlot } from "./sidebar-callout-slot";
 import { SidebarWorkspaceList } from "./sidebar-workspace-list";
+import { SidebarTabBar, type SidebarTab } from "./sidebar/sidebar-tab-bar";
+import { SidebarQuickActions } from "./sidebar/sidebar-quick-actions";
+import { SidebarSessionList } from "./sidebar/sidebar-session-list";
+import { SidebarUserFooter } from "./sidebar/sidebar-user-footer";
 
 const MIN_CHAT_WIDTH = 400;
 
@@ -101,6 +119,10 @@ interface SidebarSharedProps {
     active: boolean;
     onPress: () => void;
   }) => ReactElement;
+  agentHistoryAgents: AggregatedAgent[];
+  agentHistoryIsLoading: boolean;
+  agentHistoryLoadMore: () => void;
+  handleSessionPress: (agent: AggregatedAgent) => void;
 }
 
 interface MobileSidebarProps extends SidebarSharedProps {
@@ -190,12 +212,18 @@ export const LeftSidebar = memo(function LeftSidebar({
   const { collapsedProjectKeys, shortcutIndexByWorkspaceKey, toggleProjectCollapsed } =
     useSidebarShortcutModel({ projects, isInitialLoad });
 
+  const agentHistory = useAgentHistory({
+    serverId: activeServerId,
+    enabled: isCompactLayout || isOpen,
+  });
+
   const [isManualRefresh, setIsManualRefresh] = useState(false);
 
   const handleRefresh = useCallback(() => {
     setIsManualRefresh(true);
     refreshAll();
-  }, [refreshAll]);
+    agentHistory.refreshAll();
+  }, [refreshAll, agentHistory]);
 
   useEffect(() => {
     if (!isRevalidating && isManualRefresh) {
@@ -242,6 +270,27 @@ export const LeftSidebar = memo(function LeftSidebar({
     [pathname],
   );
 
+  const handleSessionPress = useCallback((agent: AggregatedAgent) => {
+    const serverId = agent.serverId;
+    const agentId = agent.id;
+    const workspaceId = resolveWorkspaceIdByExecutionDirectory({
+      workspaces: useSessionStore.getState().sessions[serverId]?.workspaces?.values(),
+      workspaceDirectory: agent.cwd,
+    });
+
+    if (!workspaceId) {
+      router.navigate(buildHostAgentDetailRoute(serverId, agentId) as import("expo-router").Href);
+      return;
+    }
+
+    navigateToPreparedWorkspaceTab({
+      serverId,
+      workspaceId,
+      target: { kind: "agent", agentId },
+      pin: Boolean(agent.archivedAt),
+    });
+  }, []);
+
   const sharedProps = {
     theme,
     activeServerId,
@@ -261,6 +310,10 @@ export const LeftSidebar = memo(function LeftSidebar({
     handleRefresh,
     handleHostSelect,
     renderHostOption,
+    agentHistoryAgents: agentHistory.agents,
+    agentHistoryIsLoading: agentHistory.isLoading,
+    agentHistoryLoadMore: agentHistory.loadMore,
+    handleSessionPress,
   };
 
   if (isCompactLayout) {
@@ -308,7 +361,7 @@ function HostPickerTrigger({
   const pressableStyle = useCallback(
     ({ hovered = false }: PressableStateCallbackType & { hovered?: boolean }) => [
       styles.hostTrigger,
-      Boolean(hovered) && styles.hostTriggerHovered,
+      hovered && styles.hostTriggerHovered,
     ],
     [],
   );
@@ -430,6 +483,13 @@ function SidebarFooter({
   handleSettings: () => void;
 }) {
   const newAgentKeys = useShortcutKeys("new-agent");
+  const { settings: footerSettings } = useAppSettings();
+  const isClaudeDesktopFooter = footerSettings.layoutMode === "claude-desktop";
+
+  if (isClaudeDesktopFooter) {
+    return null;
+  }
+
   return (
     <View style={styles.sidebarFooter}>
       <View style={styles.footerHostSlot}>
@@ -722,7 +782,7 @@ function DesktopSidebar({
   theme,
   activeServerId,
   activeHostLabel,
-  activeHostStatusColor,
+  activeHostStatusColor: _activeHostStatusColor,
   hostOptions,
   hostTriggerRef,
   isHostPickerOpen,
@@ -736,23 +796,38 @@ function DesktopSidebar({
   toggleProjectCollapsed,
   handleRefresh,
   handleHostSelect,
-  renderHostOption,
   handleOpenProject,
   handleSettings,
+  renderHostOption,
   insetsTop,
   isOpen,
   handleViewMore,
+  agentHistoryAgents,
+  agentHistoryIsLoading,
+  agentHistoryLoadMore,
+  handleSessionPress,
 }: DesktopSidebarProps) {
   const pathname = usePathname();
-  const isSessionsActive = pathname.includes("/sessions");
+  const { settings } = useAppSettings();
+  const isClaudeDesktop = settings.layoutMode === "claude-desktop";
   const padding = useWindowControlsPadding("sidebar");
   const sidebarWidth = usePanelStore((state) => state.sidebarWidth);
   const setSidebarWidth = usePanelStore((state) => state.setSidebarWidth);
-  const { width: viewportWidth } = useWindowDimensions();
-  const hostStatusDotStyle = useMemo(
-    () => [styles.hostStatusDot, { backgroundColor: activeHostStatusColor }],
-    [activeHostStatusColor],
+  const [searchQuery, setSearchQuery] = useState("");
+  const [activeTab, setActiveTab] = useState<SidebarTab>("code");
+
+  const searchInputStyle = useMemo(
+    () => [styles.searchInput, isWeb && ({ outlineStyle: "none" } as Record<string, unknown>)],
+    [],
   );
+
+  const selectedAgentKey = useMemo(() => {
+    const match = pathname.match(/\/agent\/([^/]+)/);
+    if (!match) return null;
+    return activeServerId ? `${activeServerId}:${match[1]}` : null;
+  }, [pathname, activeServerId]);
+
+  const { width: viewportWidth } = useWindowDimensions();
 
   const startWidthRef = useRef(sidebarWidth);
   const resizeWidth = useSharedValue(sidebarWidth);
@@ -800,8 +875,74 @@ function DesktopSidebar({
     [],
   );
 
+  const iconRailStyle = useMemo(() => [styles.iconRail, { paddingTop: insetsTop }], [insetsTop]);
+  const hostStatusDotStyle = useMemo(
+    () => [styles.hostStatusDot, { backgroundColor: _activeHostStatusColor }],
+    [_activeHostStatusColor],
+  );
+  const isSessionsActive = pathname.includes("/sessions");
+  const handleExpandSidebar = useCallback(
+    () => usePanelStore.getState().openDesktopAgentList(),
+    [],
+  );
+  const flexFillStyle = useMemo(() => ({ flex: 1 }) as const, []);
+
   if (!isOpen) {
-    return null;
+    return (
+      <View style={iconRailStyle}>
+        <TitlebarDragRegion />
+        <Tooltip delayDuration={200}>
+          <TooltipTrigger asChild>
+            <Pressable
+              onPress={handleExpandSidebar}
+              style={styles.iconRailButton}
+              accessibilityLabel="Expand sidebar"
+            >
+              <PanelLeftOpen size={18} color={theme.colors.foregroundMuted} />
+            </Pressable>
+          </TooltipTrigger>
+          <TooltipContent side="right">
+            <Text>Expand sidebar</Text>
+          </TooltipContent>
+        </Tooltip>
+        <Tooltip delayDuration={200}>
+          <TooltipTrigger asChild>
+            <Pressable
+              onPress={handleOpenProject}
+              style={styles.iconRailButton}
+              accessibilityLabel="New agent"
+            >
+              <Plus size={18} color={theme.colors.foregroundMuted} />
+            </Pressable>
+          </TooltipTrigger>
+          <TooltipContent side="right">
+            <Text>New agent</Text>
+          </TooltipContent>
+        </Tooltip>
+        <Tooltip delayDuration={200}>
+          <TooltipTrigger asChild>
+            <Pressable
+              onPress={handleViewMore}
+              style={styles.iconRailButton}
+              accessibilityLabel="Sessions"
+            >
+              <MessagesSquare size={18} color={theme.colors.foregroundMuted} />
+            </Pressable>
+          </TooltipTrigger>
+          <TooltipContent side="right">
+            <Text>Sessions</Text>
+          </TooltipContent>
+        </Tooltip>
+        <View style={flexFillStyle} />
+        <Pressable
+          onPress={handleSettings}
+          style={styles.iconRailButton}
+          accessibilityLabel="Settings"
+        >
+          <Settings size={18} color={theme.colors.foregroundMuted} />
+        </Pressable>
+      </View>
+    );
   }
 
   return (
@@ -810,48 +951,87 @@ function DesktopSidebar({
         <View style={styles.sidebarDragArea}>
           <TitlebarDragRegion />
           {padding.top > 0 ? <View style={paddingTopSpacerStyle} /> : null}
-          <SidebarHeaderRow
-            icon={MessagesSquare}
-            label="Sessions"
-            onPress={handleViewMore}
-            isActive={isSessionsActive}
-            testID="sidebar-sessions"
-          />
         </View>
 
-        {isInitialLoad ? (
-          <SidebarAgentListSkeleton />
+        {isClaudeDesktop ? (
+          <>
+            <SidebarTabBar activeTab={activeTab} onTabChange={setActiveTab} />
+
+            <SidebarQuickActions
+              onNewSession={handleOpenProject}
+              onRoutines={handleViewMore}
+              onCustomize={handleSettings}
+            />
+
+            <View style={styles.searchContainer}>
+              <Search size={14} color={theme.colors.foregroundMuted} />
+              <TextInput
+                style={searchInputStyle}
+                placeholder="Search sessions…"
+                placeholderTextColor={theme.colors.foregroundMuted}
+                value={searchQuery}
+                onChangeText={setSearchQuery}
+                autoCapitalize="none"
+                autoCorrect={false}
+              />
+            </View>
+
+            {agentHistoryIsLoading && agentHistoryAgents.length === 0 ? (
+              <SidebarAgentListSkeleton />
+            ) : (
+              <SidebarSessionList
+                agents={agentHistoryAgents}
+                selectedAgentKey={selectedAgentKey}
+                isRefreshing={isManualRefresh && isRevalidating}
+                onRefresh={handleRefresh}
+                onSessionPress={handleSessionPress}
+                onEndReached={agentHistoryLoadMore}
+                searchQuery={searchQuery}
+              />
+            )}
+
+            <SidebarUserFooter userName="Avi" modelLabel="Max" onPress={handleSettings} />
+          </>
         ) : (
-          <SidebarWorkspaceList
-            serverId={activeServerId}
-            collapsedProjectKeys={collapsedProjectKeys}
-            onToggleProjectCollapsed={toggleProjectCollapsed}
-            shortcutIndexByWorkspaceKey={shortcutIndexByWorkspaceKey}
-            projects={projects}
-            isRefreshing={isManualRefresh && isRevalidating}
-            onRefresh={handleRefresh}
-            onAddProject={handleOpenProject}
-          />
+          <>
+            <SidebarHeaderRow
+              icon={MessagesSquare}
+              label="Sessions"
+              onPress={handleViewMore}
+              isActive={isSessionsActive}
+              testID="sidebar-sessions"
+            />
+            {isInitialLoad ? (
+              <SidebarAgentListSkeleton />
+            ) : (
+              <SidebarWorkspaceList
+                serverId={activeServerId}
+                collapsedProjectKeys={collapsedProjectKeys}
+                onToggleProjectCollapsed={toggleProjectCollapsed}
+                shortcutIndexByWorkspaceKey={shortcutIndexByWorkspaceKey}
+                projects={projects}
+                isRefreshing={isManualRefresh && isRevalidating}
+                onRefresh={handleRefresh}
+                onAddProject={handleOpenProject}
+              />
+            )}
+            <SidebarFooter
+              theme={theme}
+              activeServerId={activeServerId}
+              activeHostLabel={activeHostLabel}
+              hostStatusDotStyle={hostStatusDotStyle}
+              hostOptions={hostOptions}
+              hostTriggerRef={hostTriggerRef}
+              isHostPickerOpen={isHostPickerOpen}
+              setIsHostPickerOpen={setIsHostPickerOpen}
+              handleHostSelect={handleHostSelect}
+              renderHostOption={renderHostOption}
+              handleOpenProject={handleOpenProject}
+              handleSettings={handleSettings}
+            />
+          </>
         )}
 
-        <SidebarCalloutSlot />
-
-        <SidebarFooter
-          theme={theme}
-          activeServerId={activeServerId}
-          activeHostLabel={activeHostLabel}
-          hostStatusDotStyle={hostStatusDotStyle}
-          hostOptions={hostOptions}
-          hostTriggerRef={hostTriggerRef}
-          isHostPickerOpen={isHostPickerOpen}
-          setIsHostPickerOpen={setIsHostPickerOpen}
-          handleHostSelect={handleHostSelect}
-          renderHostOption={renderHostOption}
-          handleOpenProject={handleOpenProject}
-          handleSettings={handleSettings}
-        />
-
-        {/* Resize handle - absolutely positioned over right border */}
         <GestureDetector gesture={resizeGesture}>
           <View style={resizeHandleStyle} />
         </GestureDetector>
@@ -890,6 +1070,38 @@ const styles = StyleSheet.create((theme) => ({
     borderRightColor: theme.colors.border,
     backgroundColor: theme.colors.surfaceSidebar,
   },
+  iconRail: {
+    width: 48,
+    backgroundColor: theme.colors.surfaceSidebar,
+    borderRightWidth: 1,
+    borderRightColor: theme.colors.border,
+    alignItems: "center",
+    paddingVertical: theme.spacing[3],
+    gap: theme.spacing[2],
+  },
+  iconRailButton: {
+    width: 36,
+    height: 36,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: theme.borderRadius.lg,
+  },
+  newChatButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: theme.spacing[2],
+    marginHorizontal: theme.spacing[3],
+    marginBottom: theme.spacing[2],
+    paddingVertical: theme.spacing[2],
+    paddingHorizontal: theme.spacing[3],
+    borderRadius: theme.borderRadius.lg,
+    backgroundColor: theme.colors.surface2,
+  },
+  newChatText: {
+    fontSize: theme.fontSize.sm,
+    fontWeight: theme.fontWeight.medium,
+    color: theme.colors.foreground,
+  },
   resizeHandle: {
     position: "absolute",
     right: -5,
@@ -900,6 +1112,41 @@ const styles = StyleSheet.create((theme) => ({
   },
   sidebarDragArea: {
     position: "relative",
+  },
+  claudeDesktopHeaderActions: {
+    position: "absolute",
+    right: theme.spacing[3],
+    top: 0,
+    bottom: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: theme.spacing[1],
+  },
+  claudeDesktopHeaderIcon: {
+    width: 24,
+    height: 24,
+    borderRadius: theme.borderRadius.md,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  searchContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: theme.spacing[2],
+    marginHorizontal: theme.spacing[3],
+    marginBottom: theme.spacing[2],
+    paddingHorizontal: theme.spacing[3],
+    paddingVertical: theme.spacing[1.5],
+    borderRadius: theme.borderRadius.lg,
+    backgroundColor: theme.colors.surface1,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+  },
+  searchInput: {
+    flex: 1,
+    fontSize: theme.fontSize.sm,
+    color: theme.colors.foreground,
+    padding: 0,
   },
   hostTrigger: {
     flexDirection: "row",

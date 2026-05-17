@@ -1,6 +1,7 @@
 import {
   View,
   Text,
+  TextInput,
   Pressable,
   Image,
   Platform,
@@ -10,6 +11,8 @@ import {
   type GestureResponderEvent,
   type PressableStateCallbackType,
   type ViewStyle,
+  type NativeSyntheticEvent,
+  type TextInputKeyPressEventData,
 } from "react-native";
 import * as Haptics from "expo-haptics";
 import { useQueries } from "@tanstack/react-query";
@@ -41,10 +44,13 @@ import {
   FolderGit2,
   GitPullRequest,
   Globe,
+  Pin,
+  PinOff,
   Settings,
   SquareTerminal,
   Monitor,
   MoreVertical,
+  Pencil,
   Plus,
   Trash2,
 } from "lucide-react-native";
@@ -64,6 +70,7 @@ import {
   type SidebarProjectEntry,
   type SidebarWorkspaceEntry,
 } from "@/hooks/use-sidebar-workspaces-list";
+import { usePinnedWorkspacesStore } from "@/stores/pinned-workspaces-store";
 import { useSidebarOrderStore } from "@/stores/sidebar-order-store";
 import { useShowShortcutBadges } from "@/hooks/use-show-shortcut-badges";
 import {
@@ -97,10 +104,7 @@ import { useShortcutKeys } from "@/hooks/use-shortcut-keys";
 import { useKeyboardActionHandler } from "@/hooks/use-keyboard-action-handler";
 import { type PrHint, useWorkspacePrHint } from "@/hooks/use-checkout-pr-status-query";
 import { buildSidebarProjectRowModel } from "@/utils/sidebar-project-row-model";
-import {
-  useIsNavigationProjectActive,
-  useIsNavigationWorkspaceSelected,
-} from "@/stores/navigation-active-workspace-store";
+import { useActiveWorkspaceSelection } from "@/stores/navigation-active-workspace-store";
 import { useSessionStore, type WorkspaceDescriptor } from "@/stores/session-store";
 import { useWorkspaceFields } from "@/stores/session-store-hooks";
 import { redirectIfArchivingActiveWorkspace } from "@/utils/sidebar-workspace-archive-redirect";
@@ -109,6 +113,7 @@ import {
   markWorkspaceArchivePending,
 } from "@/contexts/session-workspace-upserts";
 import { openExternalUrl } from "@/utils/open-external-url";
+import { useAppSettings } from "@/hooks/use-settings";
 import {
   requireWorkspaceExecutionDirectory,
   resolveWorkspaceMapKeyByIdentity,
@@ -175,10 +180,13 @@ const ThemedFolderPlus = withUnistyles(FolderPlus);
 const ThemedGlobe = withUnistyles(Globe);
 const ThemedSquareTerminal = withUnistyles(SquareTerminal);
 const ThemedMoreVertical = withUnistyles(MoreVertical);
+const ThemedPencil = withUnistyles(Pencil);
 const ThemedTrash2 = withUnistyles(Trash2);
 const ThemedSettings = withUnistyles(Settings);
 const ThemedCopy = withUnistyles(Copy);
 const ThemedArchive = withUnistyles(Archive);
+const ThemedPin = withUnistyles(Pin);
+const ThemedPinOff = withUnistyles(PinOff);
 
 const foregroundColorMapping = (theme: Theme) => ({ color: theme.colors.foreground });
 const foregroundMutedColorMapping = (theme: Theme) => ({
@@ -258,6 +266,8 @@ interface WorkspaceRowInnerProps {
   isCreating?: boolean;
   dragHandleProps?: DraggableListDragHandleProps;
   menuController: ReturnType<typeof useContextMenu> | null;
+  isPinned: boolean;
+  onTogglePin: () => void;
   archiveLabel?: string;
   archiveStatus?: "idle" | "pending" | "success";
   archivePendingLabel?: string;
@@ -265,6 +275,8 @@ interface WorkspaceRowInnerProps {
   onCopyBranchName?: () => void;
   onCopyPath?: () => void;
   archiveShortcutKeys?: ShortcutKey[][] | null;
+  onRename?: (newName: string) => void;
+  onDelete?: () => void;
 }
 
 function getWorkspaceArchiveStatus(
@@ -596,7 +608,11 @@ function ProjectRowTrailingActions({
 const trash2LeadingIcon = <ThemedTrash2 size={14} uniProps={foregroundMutedColorMapping} />;
 const settingsLeadingIcon = <ThemedSettings size={14} uniProps={foregroundMutedColorMapping} />;
 const copyLeadingIcon = <ThemedCopy size={14} uniProps={foregroundMutedColorMapping} />;
+const pinLeadingIcon = <ThemedPin size={14} uniProps={foregroundMutedColorMapping} />;
+const unpinLeadingIcon = <ThemedPinOff size={14} uniProps={foregroundMutedColorMapping} />;
 const archiveLeadingIcon = <ThemedArchive size={14} uniProps={foregroundMutedColorMapping} />;
+const pencilLeadingIcon = <ThemedPencil size={14} uniProps={foregroundMutedColorMapping} />;
+const deleteLeadingIcon = <ThemedTrash2 size={14} uniProps={redColorMapping} />;
 
 function renderKebabTriggerIcon({ hovered }: { hovered?: boolean }) {
   return (
@@ -665,13 +681,18 @@ function WorkspaceRowRightGroup({
   isCreating,
   showShortcutBadge,
   shortcutNumber,
+  isPinned,
+  onTogglePin,
   archiveLabel,
   archiveStatus,
   archivePendingLabel,
   archiveShortcutKeys,
   onArchive,
+  onRename,
+  onDelete,
   onCopyBranchName,
   onCopyPath,
+  isClaudeDesktopLayout = false,
 }: {
   workspace: SidebarWorkspaceEntry;
   isHovered: boolean;
@@ -681,18 +702,23 @@ function WorkspaceRowRightGroup({
   isCreating: boolean;
   showShortcutBadge: boolean;
   shortcutNumber: number | null;
+  isPinned: boolean;
+  onTogglePin: () => void;
   archiveLabel?: string;
   archiveStatus?: "idle" | "pending" | "success";
   archivePendingLabel?: string;
   archiveShortcutKeys?: ShortcutKey[][] | null;
   onArchive?: () => void;
+  onRename?: () => void;
+  onDelete?: () => void;
   onCopyBranchName?: () => void;
   onCopyPath?: () => void;
+  isClaudeDesktopLayout?: boolean;
 }) {
   const showKebab = Boolean(onArchive && (isHovered || isTouchPlatform));
   return (
     <View style={styles.workspaceRowRight}>
-      {showScriptsIcon ? (
+      {showScriptsIcon && !isClaudeDesktopLayout ? (
         <View testID="workspace-globe-icon" accessibilityLabel="Scripts available">
           {hasRunningService ? (
             <ThemedGlobe size={12} uniProps={blueColorMapping} />
@@ -705,8 +731,12 @@ function WorkspaceRowRightGroup({
       {showKebab && onArchive ? (
         <WorkspaceKebabMenu
           workspaceKey={workspace.workspaceKey}
+          isPinned={isPinned}
+          onTogglePin={onTogglePin}
           onCopyPath={onCopyPath}
           onCopyBranchName={onCopyBranchName}
+          onRename={onRename}
+          onDelete={onDelete}
           onArchive={onArchive}
           archiveLabel={archiveLabel}
           archiveStatus={archiveStatus}
@@ -714,7 +744,7 @@ function WorkspaceRowRightGroup({
           archiveShortcutKeys={archiveShortcutKeys}
         />
       ) : null}
-      {!showKebab && workspace.diffStat ? (
+      {!showKebab && workspace.diffStat && !isClaudeDesktopLayout ? (
         <DiffStat
           additions={workspace.diffStat.additions}
           deletions={workspace.diffStat.deletions}
@@ -731,8 +761,12 @@ function WorkspaceRowRightGroup({
 
 function WorkspaceKebabMenu({
   workspaceKey,
+  isPinned,
+  onTogglePin,
   onCopyPath,
   onCopyBranchName,
+  onRename,
+  onDelete,
   onArchive,
   archiveLabel,
   archiveStatus,
@@ -740,8 +774,12 @@ function WorkspaceKebabMenu({
   archiveShortcutKeys,
 }: {
   workspaceKey: string;
+  isPinned: boolean;
+  onTogglePin: () => void;
   onCopyPath?: () => void;
   onCopyBranchName?: () => void;
+  onRename?: () => void;
+  onDelete?: () => void;
   onArchive: () => void;
   archiveLabel?: string;
   archiveStatus?: "idle" | "pending" | "success";
@@ -783,6 +821,22 @@ function WorkspaceKebabMenu({
           </DropdownMenuItem>
         ) : null}
         <DropdownMenuItem
+          testID={`sidebar-workspace-menu-pin-${workspaceKey}`}
+          leading={isPinned ? unpinLeadingIcon : pinLeadingIcon}
+          onSelect={onTogglePin}
+        >
+          {isPinned ? "Unpin" : "Pin"}
+        </DropdownMenuItem>
+        {onRename ? (
+          <DropdownMenuItem
+            testID={`sidebar-workspace-menu-rename-${workspaceKey}`}
+            leading={pencilLeadingIcon}
+            onSelect={onRename}
+          >
+            Rename
+          </DropdownMenuItem>
+        ) : null}
+        <DropdownMenuItem
           testID={`sidebar-workspace-menu-archive-${workspaceKey}`}
           leading={archiveLeadingIcon}
           trailing={archiveTrailing}
@@ -792,6 +846,16 @@ function WorkspaceKebabMenu({
         >
           {archiveLabel ?? "Archive"}
         </DropdownMenuItem>
+        {onDelete ? (
+          <DropdownMenuItem
+            testID={`sidebar-workspace-menu-delete-${workspaceKey}`}
+            leading={deleteLeadingIcon}
+            onSelect={onDelete}
+            destructive
+          >
+            Delete
+          </DropdownMenuItem>
+        ) : null}
       </DropdownMenuContent>
     </DropdownMenu>
   );
@@ -1198,6 +1262,8 @@ function ProjectHeaderRow({
   removeProjectStatus = "idle",
   dragHandleProps,
 }: ProjectHeaderRowProps) {
+  const { settings: appSettings } = useAppSettings();
+  const isClaudeDesktop = appSettings.layoutMode === "claude-desktop";
   const [isHovered, setIsHovered] = useState(false);
   const isMobileBreakpoint = useIsCompactFormFactor();
   const handleBeginWorkspaceSetup = useCallback(() => {
@@ -1233,10 +1299,11 @@ function ProjectHeaderRow({
       styles.projectRow,
       isDragging && styles.projectRowDragging,
       selected && styles.sidebarRowSelected,
+      selected && isClaudeDesktop && styles.sidebarRowSelectedAccent,
       isHovered && styles.projectRowHovered,
       pressed && styles.projectRowPressed,
     ],
-    [isDragging, selected, isHovered],
+    [isDragging, selected, isHovered, isClaudeDesktop],
   );
 
   const rowChildren = (
@@ -1334,6 +1401,8 @@ function WorkspaceRowInner({
   isCreating = false,
   dragHandleProps,
   menuController,
+  isPinned,
+  onTogglePin,
   archiveLabel,
   archiveStatus = "idle",
   archivePendingLabel,
@@ -1341,9 +1410,16 @@ function WorkspaceRowInner({
   onCopyBranchName,
   onCopyPath,
   archiveShortcutKeys,
+  onRename,
+  onDelete,
 }: WorkspaceRowInnerProps) {
   const _isCompact = useIsCompactFormFactor();
+  const { settings: appSettings } = useAppSettings();
+  const isClaudeDesktop = appSettings.layoutMode === "claude-desktop";
   const [isHovered, setIsHovered] = useState(false);
+  const [isRenaming, setIsRenaming] = useState(false);
+  const [renameText, setRenameText] = useState("");
+  const renameInputRef = useRef<TextInput>(null);
   const isTouchPlatform = platformIsNative;
   const workspaceDirectory = resolveWorkspaceExecutionDirectory({
     workspaceDirectory: workspace.workspaceDirectory,
@@ -1366,6 +1442,43 @@ function WorkspaceRowInner({
     onPress();
   }, [interaction.didLongPressRef, onPress]);
 
+  const handleDoubleClick = useCallback(() => {
+    if (!onRename || platformIsNative) return;
+    setRenameText(workspace.name);
+    setIsRenaming(true);
+    setTimeout(() => renameInputRef.current?.focus(), 0);
+  }, [onRename, workspace.name]);
+
+  const handleMenuRename = useCallback(() => {
+    if (!onRename) return;
+    setRenameText(workspace.name);
+    setIsRenaming(true);
+    setTimeout(() => renameInputRef.current?.focus(), 0);
+  }, [onRename, workspace.name]);
+
+  const commitRename = useCallback(() => {
+    const trimmed = renameText.trim();
+    setIsRenaming(false);
+    if (trimmed && trimmed !== workspace.name && onRename) {
+      onRename(trimmed);
+    }
+  }, [renameText, workspace.name, onRename]);
+
+  const cancelRename = useCallback(() => {
+    setIsRenaming(false);
+  }, []);
+
+  const handleRenameKeyPress = useCallback(
+    (e: NativeSyntheticEvent<TextInputKeyPressEventData>) => {
+      if (e.nativeEvent.key === "Enter") {
+        commitRename();
+      } else if (e.nativeEvent.key === "Escape") {
+        cancelRename();
+      }
+    },
+    [commitRename, cancelRename],
+  );
+
   const handlePointerEnter = useCallback(() => setIsHovered(true), []);
   const handlePointerLeave = useCallback(() => setIsHovered(false), []);
 
@@ -1374,10 +1487,11 @@ function WorkspaceRowInner({
       styles.workspaceRow,
       isDragging && styles.workspaceRowDragging,
       selected && styles.sidebarRowSelected,
+      selected && isClaudeDesktop && styles.sidebarRowSelectedAccent,
       isHovered && styles.workspaceRowHovered,
       pressed && styles.workspaceRowPressed,
     ],
-    [isDragging, selected, isHovered],
+    [isDragging, selected, isHovered, isClaudeDesktop],
   );
 
   const isDesktop = !isTouchPlatform;
@@ -1419,14 +1533,34 @@ function WorkspaceRowInner({
         >
           <View style={styles.workspaceRowMain}>
             <View style={styles.workspaceRowLeft}>
-              <WorkspaceStatusIndicator
-                bucket={workspace.statusBucket}
-                workspaceKind={workspace.workspaceKind}
-                loading={isArchiving || isCreating}
-              />
-              <Text style={workspaceBranchTextStyle} numberOfLines={1}>
-                {workspace.name}
-              </Text>
+              {isClaudeDesktop ? null : (
+                <WorkspaceStatusIndicator
+                  bucket={workspace.statusBucket}
+                  workspaceKind={workspace.workspaceKind}
+                  loading={isArchiving || isCreating}
+                />
+              )}
+              {isRenaming ? (
+                <TextInput
+                  ref={renameInputRef}
+                  style={workspaceBranchTextStyle}
+                  value={renameText}
+                  onChangeText={setRenameText}
+                  onBlur={commitRename}
+                  onKeyPress={handleRenameKeyPress}
+                  autoFocus
+                  selectTextOnFocus
+                />
+              ) : (
+                <Text
+                  style={workspaceBranchTextStyle}
+                  numberOfLines={1}
+                  // @ts-expect-error -- web-only double-click for inline rename
+                  onDoubleClick={handleDoubleClick}
+                >
+                  {workspace.name}
+                </Text>
+              )}
             </View>
             <WorkspaceRowRightGroup
               workspace={workspace}
@@ -1437,16 +1571,21 @@ function WorkspaceRowInner({
               isCreating={isCreating}
               showShortcutBadge={showShortcutBadge}
               shortcutNumber={shortcutNumber}
+              isPinned={isPinned}
+              onTogglePin={onTogglePin}
               archiveLabel={archiveLabel}
               archiveStatus={archiveStatus}
               archivePendingLabel={archivePendingLabel}
               archiveShortcutKeys={archiveShortcutKeys}
               onArchive={onArchive}
+              onRename={onRename ? handleMenuRename : undefined}
+              onDelete={onDelete}
               onCopyBranchName={onCopyBranchName}
               onCopyPath={onCopyPath}
+              isClaudeDesktopLayout={isClaudeDesktop}
             />
           </View>
-          {prHint ? (
+          {prHint && !isClaudeDesktop ? (
             <View style={styles.workspacePrBadgeRow}>
               <PrBadge hint={prHint} />
               <ChecksBadge checks={prHint.checks} />
@@ -1482,8 +1621,14 @@ function WorkspaceRowWithMenu({
   isCreating?: boolean;
 }) {
   const toast = useToast();
+  const activeWorkspaceSelection = useActiveWorkspaceSelection();
   const archiveWorktree = useCheckoutGitActionsStore((state) => state.archiveWorktree);
   const [isArchivingWorkspace, setIsArchivingWorkspace] = useState(false);
+  const isPinned = usePinnedWorkspacesStore((state) => state.isPinned(workspace.workspaceKey));
+  const togglePin = usePinnedWorkspacesStore((state) => state.togglePin);
+  const handleTogglePin = useCallback(() => {
+    togglePin(workspace.workspaceKey);
+  }, [togglePin, workspace.workspaceKey]);
   const workspaceDirectory = resolveWorkspaceExecutionDirectory({
     workspaceDirectory: workspace.workspaceDirectory,
   });
@@ -1502,8 +1647,9 @@ function WorkspaceRowWithMenu({
     redirectIfArchivingActiveWorkspace({
       serverId: workspace.serverId,
       workspaceId: workspace.workspaceId,
+      activeWorkspaceSelection,
     });
-  }, [workspace.serverId, workspace.workspaceId]);
+  }, [activeWorkspaceSelection, workspace.serverId, workspace.workspaceId]);
 
   const handleArchiveWorktree = useCallback(() => {
     if (isArchiving) {
@@ -1618,6 +1764,37 @@ function WorkspaceRowWithMenu({
     toast.copied("Branch name copied");
   }, [toast, workspace.name]);
 
+  const handleRename = useCallback(
+    (newName: string) => {
+      const client = getHostRuntimeStore().getClient(workspace.serverId);
+      if (!client) {
+        toast.error("Host is not connected");
+        return;
+      }
+      void client.renameWorkspace(workspace.workspaceId, newName);
+    },
+    [toast, workspace.serverId, workspace.workspaceId],
+  );
+
+  const handleDelete = useCallback(() => {
+    void (async () => {
+      const confirmed = await confirmDialog({
+        title: "Delete chat?",
+        message: `Delete "${workspace.name}"? This cannot be undone.`,
+        confirmLabel: "Delete",
+        cancelLabel: "Cancel",
+        destructive: true,
+      });
+      if (!confirmed) return;
+
+      if (isWorktree) {
+        handleArchiveWorktree();
+      } else {
+        handleArchiveWorkspace();
+      }
+    })();
+  }, [handleArchiveWorktree, handleArchiveWorkspace, isWorktree, workspace.name]);
+
   const archiveShortcutKeys = useShortcutKeys("archive-worktree");
 
   useKeyboardActionHandler({
@@ -1655,6 +1832,10 @@ function WorkspaceRowWithMenu({
       onCopyBranchName={canCopyBranchName ? handleCopyBranchName : undefined}
       onCopyPath={handleCopyPath}
       archiveShortcutKeys={selected ? archiveShortcutKeys : null}
+      isPinned={isPinned}
+      onTogglePin={handleTogglePin}
+      onRename={handleRename}
+      onDelete={handleDelete}
     />
   );
 }
@@ -1686,13 +1867,15 @@ function NonGitProjectRowWithMenuContent({
 }) {
   const toast = useToast();
   const contextMenu = useContextMenu();
+  const activeWorkspaceSelection = useActiveWorkspaceSelection();
   const [isArchivingWorkspace, setIsArchivingWorkspace] = useState(false);
   const redirectAfterArchive = useCallback(() => {
     redirectIfArchivingActiveWorkspace({
       serverId: workspace.serverId,
       workspaceId: workspace.workspaceId,
+      activeWorkspaceSelection,
     });
-  }, [workspace.serverId, workspace.workspaceId]);
+  }, [activeWorkspaceSelection, workspace.serverId, workspace.workspaceId]);
 
   const handleArchiveWorkspace = useCallback(() => {
     if (isArchivingWorkspace) {
@@ -1839,11 +2022,11 @@ function FlattenedProjectRow({
   selectionEnabled: boolean;
 }) {
   const workspace = useSidebarWorkspaceEntry(serverId, rowModel.workspace.workspaceId);
-  const selected = useIsNavigationWorkspaceSelected({
-    serverId,
-    workspaceId: rowModel.workspace.workspaceId,
-    enabled: selectionEnabled,
-  });
+  const activeWorkspaceSelection = useActiveWorkspaceSelection();
+  const selected =
+    selectionEnabled &&
+    activeWorkspaceSelection?.serverId === serverId &&
+    activeWorkspaceSelection.workspaceId === rowModel.workspace.workspaceId;
 
   if (!workspace) {
     return null;
@@ -1970,11 +2153,11 @@ function WorkspaceRow({
   selectionEnabled: boolean;
 }) {
   const hydratedWorkspace = useSidebarWorkspaceEntry(workspace.serverId, workspace.workspaceId);
-  const selected = useIsNavigationWorkspaceSelected({
-    serverId: workspace.serverId,
-    workspaceId: workspace.workspaceId,
-    enabled: selectionEnabled,
-  });
+  const activeWorkspaceSelection = useActiveWorkspaceSelection();
+  const selected =
+    selectionEnabled &&
+    activeWorkspaceSelection?.serverId === workspace.serverId &&
+    activeWorkspaceSelection.workspaceId === workspace.workspaceId;
 
   if (!hydratedWorkspace) {
     return null;
@@ -2050,11 +2233,11 @@ function ProjectBlock({
     () => project.workspaces.map((workspace) => workspace.workspaceId),
     [project.workspaces],
   );
-  const isProjectActive = useIsNavigationProjectActive({
-    serverId,
-    workspaceIds: projectWorkspaceIds,
-    enabled: selectionEnabled,
-  });
+  const activeWorkspaceSelection = useActiveWorkspaceSelection();
+  const isProjectActive =
+    selectionEnabled &&
+    activeWorkspaceSelection?.serverId === serverId &&
+    projectWorkspaceIds.includes(activeWorkspaceSelection.workspaceId);
 
   const renderWorkspaceRow = useCallback(
     (
@@ -2813,6 +2996,10 @@ const styles = StyleSheet.create((theme) => ({
   },
   sidebarRowSelected: {
     backgroundColor: theme.colors.surfaceSidebarHover,
+  },
+  sidebarRowSelectedAccent: {
+    borderLeftWidth: 3,
+    borderLeftColor: theme.colors.accent,
   },
   workspaceRowContainer: {
     position: "relative",

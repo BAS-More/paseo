@@ -1,0 +1,21 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: paseo-daemon
+  namespace: paseo
+  labels:
+    app.kubernetes.io/name: paseo-daemon
+spec:
+  type: ClusterIP
+  ports:
+    - port: 6767
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/name: paseo-daemon
+  # WebSocket connections need session affinity
+  sessionAffinity: ClientIP
+  sessionAffinityConfig:
+    clientIP:
+      timeoutSeconds: 3600

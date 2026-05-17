@@ -601,8 +601,8 @@ export interface WaitForFinishResult {
 
 interface Waiter<T> {
   predicate: (msg: SessionOutboundMessage) => T | null;
-  resolve: (value: T) => void;
-  reject: (error: Error) => void;
+  resolve(value: T): void;
+  reject(error: Error): void;
   timeoutHandle: ReturnType<typeof setTimeout> | null;
 }
 
@@ -1160,7 +1160,7 @@ export class DaemonClient {
     }
 
     const type = arg1;
-    const handler = arg2 as (message: SessionOutboundMessage) => void;
+    const handler = arg2!;
 
     if (!this.messageHandlers.has(type)) {
       this.messageHandlers.set(type, new Set());
@@ -1633,6 +1633,16 @@ export class DaemonClient {
       },
       responseType: "open_in_editor_response",
       timeout: 10000,
+    });
+  }
+
+  async renameWorkspace(workspaceId: string, displayName: string): Promise<void> {
+    const requestId = crypto.randomUUID();
+    this.sendSessionMessage({
+      type: "rename_workspace_request",
+      workspaceId,
+      displayName,
+      requestId,
     });
   }
 
@@ -3144,6 +3154,191 @@ export class DaemonClient {
     });
   }
 
+  async getNineRouterStatus(requestId?: string): Promise<{
+    requestId: string;
+    reachable: boolean;
+    accounts: Array<{ id: string; name: string; provider: string; status: string }>;
+    usage: {
+      totalRequests: number;
+      totalTokens: number;
+      totalCost: number;
+      byAccount: Array<{ id: string; requests: number; tokens: number; cost: number }>;
+    };
+  }> {
+    return this.sendCorrelatedSessionRequest({
+      requestId,
+      message: {
+        type: "nine_router_status_request",
+      },
+      responseType: "nine_router_status_response",
+      timeout: 10000,
+    });
+  }
+
+  async getNineRouterKeys(requestId?: string): Promise<{
+    requestId: string;
+    keys: Array<{
+      id: string;
+      name: string;
+      key: string;
+      machineId: string;
+      isActive: boolean;
+      createdAt: string;
+    }>;
+  }> {
+    return this.sendCorrelatedSessionRequest({
+      requestId,
+      message: { type: "nine_router_keys_request" },
+      responseType: "nine_router_keys_response",
+      timeout: 10000,
+    });
+  }
+
+  async createNineRouterKey(
+    name: string,
+    requestId?: string,
+  ): Promise<{
+    requestId: string;
+    keys: Array<{
+      id: string;
+      name: string;
+      key: string;
+      machineId: string;
+      isActive: boolean;
+      createdAt: string;
+    }>;
+  }> {
+    return this.sendCorrelatedSessionRequest({
+      requestId,
+      message: { type: "nine_router_create_key_request", name },
+      responseType: "nine_router_keys_response",
+      timeout: 10000,
+    });
+  }
+
+  async deleteNineRouterKey(
+    keyId: string,
+    requestId?: string,
+  ): Promise<{
+    requestId: string;
+    keys: Array<{
+      id: string;
+      name: string;
+      key: string;
+      machineId: string;
+      isActive: boolean;
+      createdAt: string;
+    }>;
+  }> {
+    return this.sendCorrelatedSessionRequest({
+      requestId,
+      message: { type: "nine_router_delete_key_request", keyId },
+      responseType: "nine_router_keys_response",
+      timeout: 10000,
+    });
+  }
+
+  async getNineRouterModels(requestId?: string): Promise<{
+    requestId: string;
+    models: Array<{
+      provider: string;
+      model: string;
+      name: string;
+      fullModel: string;
+      alias: string;
+    }>;
+  }> {
+    return this.sendCorrelatedSessionRequest({
+      requestId,
+      message: { type: "nine_router_models_request" },
+      responseType: "nine_router_models_response",
+      timeout: 15000,
+    });
+  }
+
+  async getNineRouterProviders(requestId?: string): Promise<{
+    requestId: string;
+    providers: Array<{
+      id: string;
+      provider: string;
+      authType: string;
+      name: string;
+      priority: number;
+      isActive: boolean;
+      testStatus?: string;
+      email?: string;
+      expiresAt?: string;
+      lastUsedAt?: string;
+      lastError?: string;
+    }>;
+  }> {
+    return this.sendCorrelatedSessionRequest({
+      requestId,
+      message: { type: "nine_router_providers_request" },
+      responseType: "nine_router_providers_response",
+      timeout: 10000,
+    });
+  }
+
+  async getNineRouterUsage(
+    period?: string,
+    requestId?: string,
+  ): Promise<{
+    requestId: string;
+    period: string;
+    totalRequests: number;
+    totalTokens: number;
+    totalCost: number;
+    byProvider: Array<{ provider: string; requests: number; tokens: number; cost: number }>;
+    byModel: Array<{ model: string; requests: number; tokens: number; cost: number }>;
+  }> {
+    return this.sendCorrelatedSessionRequest({
+      requestId,
+      message: { type: "nine_router_usage_request", period },
+      responseType: "nine_router_usage_response",
+      timeout: 10000,
+    });
+  }
+
+  async importNineRouterOAuth(
+    provider: string,
+    requestId?: string,
+  ): Promise<{
+    requestId: string;
+    success: boolean;
+    provider: string;
+    email?: string;
+    error?: string;
+  }> {
+    return this.sendCorrelatedSessionRequest({
+      requestId,
+      message: { type: "nine_router_oauth_import_request", provider },
+      responseType: "nine_router_oauth_import_response",
+      timeout: 15000,
+    });
+  }
+
+  async getSoiferBackendStatus(requestId?: string): Promise<{
+    requestId: string;
+    reachable: boolean;
+    health: { status: string; services: Record<string, { status: string }> };
+    skills: string[];
+    agents: Array<{ name: string; content: string }>;
+    rules: Array<{ name: string; content: string }>;
+    mcpServers: { mcpServers: Record<string, unknown> };
+    hooks: Record<string, unknown[]>;
+    permissions: { allow: string[]; deny: string[] };
+  }> {
+    return this.sendCorrelatedSessionRequest({
+      requestId,
+      message: {
+        type: "soifer_backend_status_request",
+      },
+      responseType: "soifer_backend_status_response",
+      timeout: 15000,
+    });
+  }
+
   async getDaemonConfig(
     requestId?: string,
   ): Promise<{ requestId: string; config: MutableDaemonConfig }> {
@@ -3226,6 +3421,145 @@ export class DaemonClient {
         provider,
       },
       responseType: "provider_diagnostic_response",
+      timeout: 30000,
+    });
+  }
+
+  async testProviderConnection(
+    provider: AgentProvider,
+    options?: { requestId?: string },
+  ): Promise<{
+    requestId: string;
+    provider: string;
+    available: boolean;
+    latencyMs?: number;
+    error?: string;
+  }> {
+    return this.sendCorrelatedSessionRequest({
+      requestId: options?.requestId,
+      message: {
+        type: "provider_connection_test_request",
+        provider,
+      },
+      responseType: "provider_connection_test_response",
+      timeout: 30000,
+    });
+  }
+
+  async getStackServices(options?: { requestId?: string }): Promise<{
+    requestId: string;
+    services: Array<{
+      id: string;
+      name: string;
+      port: number;
+      status: "running" | "stopped" | "error";
+      latencyMs?: number;
+      error?: string;
+    }>;
+  }> {
+    return this.sendCorrelatedSessionRequest({
+      requestId: options?.requestId,
+      message: { type: "stack_services_request" },
+      responseType: "stack_services_response",
+      timeout: 15000,
+    });
+  }
+
+  async getCliToolSettings(
+    tool: string,
+    options?: { requestId?: string },
+  ): Promise<{
+    requestId: string;
+    tool: string;
+    installed: boolean;
+    has9Router: boolean;
+    settings: Record<string, unknown>;
+    settingsPath?: string;
+  }> {
+    return this.sendCorrelatedSessionRequest({
+      requestId: options?.requestId,
+      message: { type: "nine_router_cli_tool_settings_request", tool },
+      responseType: "nine_router_cli_tool_settings_response",
+      timeout: 10000,
+    });
+  }
+
+  async updateCliToolSettings(
+    tool: string,
+    settings: Record<string, unknown>,
+    options?: { requestId?: string },
+  ): Promise<{
+    requestId: string;
+    tool: string;
+    success: boolean;
+    error?: string;
+  }> {
+    return this.sendCorrelatedSessionRequest({
+      requestId: options?.requestId,
+      message: { type: "nine_router_cli_tool_settings_update_request", tool, settings },
+      responseType: "nine_router_cli_tool_settings_update_response",
+      timeout: 10000,
+    });
+  }
+
+  async getModelAliases(options?: { requestId?: string }): Promise<{
+    requestId: string;
+    aliases: Record<string, string>;
+  }> {
+    return this.sendCorrelatedSessionRequest({
+      requestId: options?.requestId,
+      message: { type: "nine_router_model_aliases_request" as const },
+      responseType: "nine_router_model_aliases_response",
+      timeout: 10000,
+    });
+  }
+
+  async setModelAlias(
+    alias: string,
+    target: string,
+    options?: { requestId?: string },
+  ): Promise<{
+    requestId: string;
+    success: boolean;
+    error?: string;
+  }> {
+    return this.sendCorrelatedSessionRequest({
+      requestId: options?.requestId,
+      message: { type: "nine_router_set_model_alias_request" as const, alias, target },
+      responseType: "nine_router_set_model_alias_response",
+      timeout: 10000,
+    });
+  }
+
+  async deleteModelAlias(
+    alias: string,
+    options?: { requestId?: string },
+  ): Promise<{
+    requestId: string;
+    success: boolean;
+    error?: string;
+  }> {
+    return this.sendCorrelatedSessionRequest({
+      requestId: options?.requestId,
+      message: { type: "nine_router_delete_model_alias_request" as const, alias },
+      responseType: "nine_router_delete_model_alias_response",
+      timeout: 10000,
+    });
+  }
+
+  async testModel(
+    model: string,
+    options?: { requestId?: string },
+  ): Promise<{
+    requestId: string;
+    success: boolean;
+    latencyMs: number;
+    provider: string;
+  }> {
+    return this.sendCorrelatedSessionRequest({
+      requestId: options?.requestId,
+      message: { type: "nine_router_test_model_request" as const, model },
+      responseType: "nine_router_test_model_response",
       timeout: 30000,
     });
   }
@@ -4043,7 +4377,13 @@ export class DaemonClient {
 
     const parsed = WSOutboundMessageSchema.safeParse(parsedJson);
     if (!parsed.success) {
-      const msgType = (parsedJson as { type?: string })?.type ?? "unknown";
+      const msgType =
+        parsedJson != null &&
+        typeof parsedJson === "object" &&
+        "type" in parsedJson &&
+        typeof parsedJson.type === "string"
+          ? parsedJson.type
+          : "unknown";
       this.logger.warn({ msgType, error: parsed.error.message }, "Message validation failed");
       return;
     }
@@ -4405,7 +4745,7 @@ export class DaemonClient {
         timeout > 0
           ? setTimeout(() => {
               if (waiter) {
-                this.waiters.delete(waiter as Waiter<unknown>);
+                this.waiters.delete(waiter);
               }
               wrappedReject(timeoutError);
             }, timeout)
@@ -4417,7 +4757,7 @@ export class DaemonClient {
         reject: wrappedReject,
         timeoutHandle,
       };
-      this.waiters.add(waiter as Waiter<unknown>);
+      this.waiters.add(waiter);
     });
 
     const cancel = (error: Error) => {
@@ -4426,7 +4766,7 @@ export class DaemonClient {
       }
 
       if (waiter) {
-        this.waiters.delete(waiter as Waiter<unknown>);
+        this.waiters.delete(waiter);
         if (waiter.timeoutHandle) {
           clearTimeout(waiter.timeoutHandle);
         }

@@ -1,7 +1,8 @@
 import { execSync } from "node:child_process";
 import { describe, expect, it, vi } from "vitest";
+import { realpathSync } from "node:fs";
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { join, resolve as resolvePath } from "node:path";
 import { tmpdir } from "node:os";
 import { z } from "zod";
 
@@ -14,7 +15,6 @@ import { AgentListItemPayloadSchema, AgentSnapshotPayloadSchema } from "../../sh
 import type { PersistedProjectRecord, PersistedWorkspaceRecord } from "../workspace-registry.js";
 import type { CreateScheduleInput, StoredSchedule } from "../schedule/types.js";
 import type { ScheduleService } from "../schedule/service.js";
-import type { AgentProvider } from "./agent-sdk-types.js";
 import type { WorkspaceGitService } from "../workspace-git-service.js";
 import {
   createPaseoWorktree as createPaseoWorktreeService,
@@ -23,6 +23,7 @@ import {
 import type { CreatePaseoWorktreeWorkflowFn } from "../worktree-session.js";
 import { WorkspaceGitServiceImpl } from "../workspace-git-service.js";
 import type { GitHubService } from "../../services/github-service.js";
+import type { TerminalManager } from "../../terminal/terminal-manager.js";
 
 interface LooseSafeParseResult {
   success: boolean;
@@ -46,17 +47,27 @@ interface RegisteredMcpTool {
     structuredContent: LooseStructuredContent;
     content?: Array<{ type: string; text?: string }>;
   }>;
-}
-
-interface McpServerInternals {
-  _registeredTools: Record<string, RegisteredMcpTool>;
+  handler: (...args: unknown[]) => unknown;
 }
 
 function lookupTool(
   server: Awaited<ReturnType<typeof createAgentMcpServer>>,
   name: string,
 ): RegisteredMcpTool | undefined {
-  return (server as unknown as McpServerInternals)._registeredTools[name];
+  // Access private _registeredTools map — SDK internals, no public API
+  const tools = Reflect.get(server, "_registeredTools") as
+    | Record<string, Record<string, unknown>>
+    | undefined;
+  if (!tools) return undefined;
+  const raw = tools[name];
+  if (!raw) return undefined;
+  const handler = (raw.handler ?? raw.callback) as ((...args: unknown[]) => unknown) | undefined;
+  if (!handler) return undefined;
+  return {
+    ...raw,
+    callback: (input: unknown) => handler(input, {}),
+    handler,
+  } as unknown as RegisteredMcpTool;
 }
 
 function registeredTool(
@@ -73,7 +84,7 @@ function registeredTool(
 function agentsOf(response: {
   structuredContent: LooseStructuredContent;
 }): Array<Record<string, unknown>> {
-  return response.structuredContent.agents as Array<Record<string, unknown>>;
+  return z.array(z.record(z.unknown())).parse(response.structuredContent.agents);
 }
 
 type AgentManagerSpies = ReturnType<typeof buildAgentManagerSpies>;
@@ -138,6 +149,23 @@ function createTestDeps(): TestDeps {
       agentStorage: agentStorageSpies,
     },
   };
+}
+
+function createTerminalManagerStub(overrides: Partial<TerminalManager> = {}): TerminalManager {
+  return {
+    getTerminals: vi.fn().mockResolvedValue([]),
+    createTerminal: vi.fn(),
+    registerCwdEnv: vi.fn(),
+    getTerminal: vi.fn(),
+    getTerminalState: vi.fn().mockResolvedValue(null),
+    killTerminal: vi.fn(),
+    killTerminalAndWait: vi.fn().mockResolvedValue(undefined),
+    captureTerminal: vi.fn().mockResolvedValue({ lines: [], totalLines: 0 }),
+    listDirectories: vi.fn().mockReturnValue([]),
+    killAll: vi.fn(),
+    subscribeTerminalsChanged: vi.fn().mockReturnValue(() => {}),
+    ...overrides,
+  } as unknown as TerminalManager;
 }
 
 function createProviderDefinition(overrides: Partial<ProviderDefinition>): ProviderDefinition {
@@ -255,13 +283,22 @@ function createGitHubServiceStub(): GitHubService {
       body: null,
       baseRefName: "main",
       headRefName: `pr-${number}`,
-      labels: [],
+      labels: [] as string[],
+      updatedAt: "",
     }),
     getPullRequestHeadRef: async ({ number }) => `pr-${number}`,
     getCurrentPullRequestStatus: async () => null,
     createPullRequest: async () => ({
       number: 1,
       url: "https://github.com/acme/repo/pull/1",
+    }),
+    getPullRequestTimeline: async () => ({
+      prNumber: 1,
+      repoOwner: "acme",
+      repoName: "repo",
+      items: [] as unknown[],
+      truncated: false,
+      error: null,
     }),
     isAuthenticated: async () => true,
     invalidate: () => {},
@@ -342,6 +379,53 @@ function createPaseoWorktreeForMcpTest(options: {
     return result;
   };
 }
+
+describe("terminal MCP tools", () => {
+  const logger = createTestLogger();
+
+  it("captures terminal output through the terminal manager authority", async () => {
+    const { agentManager, agentStorage } = createTestDeps();
+    const captureTerminal = vi.fn().mockResolvedValue({
+      lines: ["from worker scrollback"],
+      totalLines: 42,
+    });
+    const terminalManager = createTerminalManagerStub({
+      getTerminal: vi.fn().mockReturnValue({
+        id: "term-1",
+        name: "daemon",
+        cwd: process.cwd(),
+        getState: vi.fn().mockReturnValue({ scrollback: [], grid: [[]] }),
+      }),
+      captureTerminal,
+    });
+    const server = await createAgentMcpServer({
+      agentManager,
+      agentStorage,
+      terminalManager,
+      logger,
+    });
+    const tool = registeredTool(server, "capture_terminal");
+
+    const response = await tool.callback({
+      terminalId: "term-1",
+      scrollback: true,
+      stripAnsi: false,
+      start: -10,
+      end: -1,
+    });
+
+    expect(captureTerminal).toHaveBeenCalledWith("term-1", {
+      start: 0,
+      end: -1,
+      stripAnsi: false,
+    });
+    expect(response.structuredContent).toEqual({
+      terminalId: "term-1",
+      lines: ["from worker scrollback"],
+      totalLines: 42,
+    });
+  });
+});
 
 describe("create_agent MCP tool", () => {
   const logger = createTestLogger();
@@ -527,7 +611,7 @@ describe("create_agent MCP tool", () => {
       currentModeId: null,
       availableModes: [],
       config: { title: "Fix auth bug" },
-    } as ManagedAgent);
+    } as unknown as ManagedAgent);
 
     const server = await createAgentMcpServer({ agentManager, agentStorage, logger });
     const tool = registeredTool(server, "create_agent");
@@ -557,7 +641,7 @@ describe("create_agent MCP tool", () => {
       currentModeId: null,
       availableModes: [],
       config: { title: "Fix auth" },
-    } as ManagedAgent);
+    } as unknown as ManagedAgent);
 
     const server = await createAgentMcpServer({ agentManager, agentStorage, logger });
     const tool = registeredTool(server, "create_agent");
@@ -586,7 +670,7 @@ describe("create_agent MCP tool", () => {
       currentModeId: null,
       availableModes: [],
       config: { title: "Config test", model: "claude-sonnet-4-20250514" },
-    } as ManagedAgent);
+    } as unknown as ManagedAgent);
 
     const server = await createAgentMcpServer({ agentManager, agentStorage, logger });
     const tool = registeredTool(server, "create_agent");
@@ -736,7 +820,7 @@ describe("create_agent MCP tool", () => {
         background: true,
       });
 
-      const agentCwd = spies.agentManager.createAgent.mock.calls[0]?.[0].cwd as string;
+      const agentCwd = z.string().parse(spies.agentManager.createAgent.mock.calls[0]?.[0].cwd);
       const initialBranch = execSync("git branch --show-current", { cwd: agentCwd, stdio: "pipe" })
         .toString()
         .trim();
@@ -808,7 +892,7 @@ describe("create_agent MCP tool", () => {
         background: true,
       });
 
-      const agentCwd = spies.agentManager.createAgent.mock.calls[0]?.[0].cwd as string;
+      const agentCwd = z.string().parse(spies.agentManager.createAgent.mock.calls[0]?.[0].cwd);
       expect(
         execSync("git branch --show-current", { cwd: agentCwd, stdio: "pipe" }).toString().trim(),
       ).toBe("existing-feature");
@@ -970,7 +1054,7 @@ describe("create_agent MCP tool", () => {
 
   it("forces a workspace git snapshot refresh when archive_worktree deletes a worktree", async () => {
     const { agentManager, agentStorage } = createTestDeps();
-    const tempDir = await mkdtemp(join(tmpdir(), "paseo-mcp-archive-worktree-"));
+    const tempDir = realpathSync(await mkdtemp(join(tmpdir(), "paseo-mcp-archive-worktree-")));
     const repoDir = join(tempDir, "repo");
     const paseoHome = join(tempDir, ".paseo");
 
@@ -1034,9 +1118,13 @@ describe("create_agent MCP tool", () => {
       expect(clearWorkspaceArchiving).toHaveBeenCalledWith([
         created.structuredContent.worktreePath,
       ]);
-      expect(Array.from(emitWorkspaceUpdatesForWorkspaceIds.mock.calls[0]?.[0] ?? [])).toEqual([
-        created.structuredContent.worktreePath,
-      ]);
+      expect(
+        Array.from(
+          ((
+            emitWorkspaceUpdatesForWorkspaceIds.mock.calls as unknown[][]
+          )[0]?.[0] as Iterable<unknown>) ?? [],
+        ),
+      ).toEqual([created.structuredContent.worktreePath]);
     } finally {
       await rm(tempDir, { recursive: true, force: true });
     }
@@ -1067,7 +1155,7 @@ describe("create_agent MCP tool", () => {
 
     const response = await tool.callback({ cwd: "/tmp/repo" });
 
-    expect(workspaceGitService.listWorktrees).toHaveBeenCalledWith("/tmp/repo", {
+    expect(workspaceGitService.listWorktrees).toHaveBeenCalledWith(resolvePath("/tmp/repo"), {
       reason: "mcp:list-worktrees",
     });
     expect(response.structuredContent.worktrees).toEqual([
@@ -1105,7 +1193,7 @@ describe("create_agent MCP tool", () => {
       cwd: baseDir,
       provider: "codex",
       currentModeId: "full-access",
-    } as ManagedAgent);
+    } as unknown as ManagedAgent);
     spies.agentManager.createAgent.mockResolvedValue({
       id: "child-agent",
       cwd: subdir,
@@ -1113,7 +1201,7 @@ describe("create_agent MCP tool", () => {
       currentModeId: null,
       availableModes: [],
       config: { title: "Child" },
-    } as ManagedAgent);
+    } as unknown as ManagedAgent);
 
     const server = await createAgentMcpServer({
       agentManager,
@@ -1158,7 +1246,7 @@ describe("create_agent MCP tool", () => {
       currentModeId: null,
       availableModes: [],
       config: { title: "Injected config test" },
-    } as ManagedAgent);
+    } as unknown as ManagedAgent);
 
     const server = await createAgentMcpServer({
       agentManager,
@@ -1210,7 +1298,7 @@ describe("create_agent MCP tool", () => {
       cwd: existingCwd,
       provider: "claude",
       currentModeId: "bypassPermissions",
-    } as ManagedAgent);
+    } as unknown as ManagedAgent);
     spies.agentManager.createAgent.mockResolvedValue({
       id: "child-agent",
       cwd: existingCwd,
@@ -1218,7 +1306,7 @@ describe("create_agent MCP tool", () => {
       currentModeId: "bypassPermissions",
       availableModes: [],
       config: { title: "Child" },
-    } as ManagedAgent);
+    } as unknown as ManagedAgent);
 
     const server = await createAgentMcpServer({
       agentManager,
@@ -1247,7 +1335,7 @@ describe("create_agent MCP tool", () => {
       cwd: existingCwd,
       provider: "claude",
       currentModeId: "bypassPermissions",
-    } as ManagedAgent);
+    } as unknown as ManagedAgent);
 
     const server = await createAgentMcpServer({
       agentManager,
@@ -1276,7 +1364,7 @@ describe("create_agent MCP tool", () => {
       cwd: existingCwd,
       provider: "claude",
       currentModeId: "bypassPermissions",
-    } as ManagedAgent);
+    } as unknown as ManagedAgent);
     spies.agentManager.createAgent.mockResolvedValue({
       id: "child-agent",
       cwd: existingCwd,
@@ -1284,7 +1372,7 @@ describe("create_agent MCP tool", () => {
       currentModeId: "build",
       availableModes: [],
       config: { title: "Child" },
-    } as ManagedAgent);
+    } as unknown as ManagedAgent);
 
     const server = await createAgentMcpServer({
       agentManager,
@@ -1391,14 +1479,30 @@ describe("provider listing MCP tool", () => {
       claude: createProviderDefinition({
         id: "claude",
         label: "Claude",
-        modes: [{ id: "default", label: "Default", description: "Built-in mode" }],
+        modes: [
+          {
+            id: "default",
+            label: "Default",
+            description: "Built-in mode",
+            icon: "ShieldCheck" as const,
+            colorTier: "safe" as const,
+          },
+        ],
       }),
       zai: createProviderDefinition({
         id: "zai",
         label: "ZAI",
         description: "Custom Claude profile",
         defaultModeId: "default",
-        modes: [{ id: "default", label: "Default", description: "Custom mode" }],
+        modes: [
+          {
+            id: "default",
+            label: "Default",
+            description: "Custom mode",
+            icon: "ShieldCheck" as const,
+            colorTier: "safe" as const,
+          },
+        ],
       }),
     };
 
@@ -1419,7 +1523,15 @@ describe("provider listing MCP tool", () => {
           description: "Test provider",
           enabled: true,
           status: "available",
-          modes: [{ id: "default", label: "Default", description: "Built-in mode" }],
+          modes: [
+            {
+              id: "default",
+              label: "Default",
+              description: "Built-in mode",
+              icon: "ShieldCheck" as const,
+              colorTier: "safe" as const,
+            },
+          ],
         },
         {
           id: "zai",
@@ -1427,7 +1539,15 @@ describe("provider listing MCP tool", () => {
           status: "available",
           description: "Custom Claude profile",
           enabled: true,
-          modes: [{ id: "default", label: "Default", description: "Custom mode" }],
+          modes: [
+            {
+              id: "default",
+              label: "Default",
+              description: "Custom mode",
+              icon: "ShieldCheck" as const,
+              colorTier: "safe" as const,
+            },
+          ],
         },
       ],
     });
@@ -1445,7 +1565,15 @@ describe("provider listing MCP tool", () => {
         label: "Codex",
         description: "OpenAI coding agent",
         enabled: false,
-        modes: [{ id: "read-only", label: "Read Only", description: "No edits" }],
+        modes: [
+          {
+            id: "read-only",
+            label: "Read Only",
+            description: "No edits",
+            icon: "ShieldCheck" as const,
+            colorTier: "safe" as const,
+          },
+        ],
         createClient,
       }),
     };
@@ -1467,7 +1595,15 @@ describe("provider listing MCP tool", () => {
           description: "OpenAI coding agent",
           enabled: false,
           status: "unavailable",
-          modes: [{ id: "read-only", label: "Read Only", description: "No edits" }],
+          modes: [
+            {
+              id: "read-only",
+              label: "Read Only",
+              description: "No edits",
+              icon: "ShieldCheck" as const,
+              colorTier: "safe" as const,
+            },
+          ],
         },
       ],
     });
@@ -1602,7 +1738,12 @@ describe("agent snapshot MCP serialization", () => {
         id: "agent-compact",
         provider: "codex",
         cwd: "/tmp/repo",
-        config: { model: "gpt-5.4", thinkingOptionId: "high" },
+        config: {
+          provider: "codex" as const,
+          cwd: "/tmp/repo",
+          model: "gpt-5.4",
+          thinkingOptionId: "high",
+        },
         runtimeInfo: { provider: "codex", sessionId: "session-123", model: "gpt-5.4" },
         labels: { role: "researcher" },
       }),
@@ -1611,7 +1752,9 @@ describe("agent snapshot MCP serialization", () => {
     const server = await createAgentMcpServer({ agentManager, agentStorage, logger });
     const tool = registeredTool(server, "list_agents");
     const response = await tool.callback({});
-    const structured = response.structuredContent as { agents: Array<Record<string, unknown>> };
+    const structured = z
+      .object({ agents: z.array(z.record(z.unknown())) })
+      .parse(response.structuredContent);
 
     expect(structured).toEqual({
       agents: [
@@ -1659,7 +1802,7 @@ describe("agent snapshot MCP serialization", () => {
       logger,
       providerRegistry: {
         claude: createProviderDefinition({}),
-      } as unknown as Record<AgentProvider, ProviderDefinition>,
+      },
     });
     const tool = registeredTool(server, "get_agent_status");
     const response = await tool.callback({ agentId: "archived-agent" });
@@ -1684,7 +1827,12 @@ describe("agent snapshot MCP serialization", () => {
         id: "full-detail-agent",
         provider: "codex",
         cwd: "/tmp/full-detail",
-        config: { model: "gpt-5.4", thinkingOptionId: "high" },
+        config: {
+          provider: "codex" as const,
+          cwd: "/tmp/repo",
+          model: "gpt-5.4",
+          thinkingOptionId: "high",
+        },
         runtimeInfo: {
           provider: "codex",
           sessionId: "session-full",
@@ -1719,7 +1867,7 @@ describe("agent snapshot MCP serialization", () => {
     const server = await createAgentMcpServer({ agentManager, agentStorage, logger });
     const tool = registeredTool(server, "get_agent_status");
     const response = await tool.callback({ agentId: "full-detail-agent" });
-    const snapshot = response.structuredContent.snapshot as Record<string, unknown>;
+    const snapshot = z.record(z.unknown()).parse(response.structuredContent.snapshot);
 
     const parsed = AgentSnapshotPayloadSchema.safeParse(snapshot);
     if (!parsed.success) {
@@ -1790,7 +1938,7 @@ describe("agent snapshot MCP serialization", () => {
       logger,
       providerRegistry: {
         claude: createProviderDefinition({}),
-      } as unknown as Record<AgentProvider, ProviderDefinition>,
+      },
     });
     const tool = registeredTool(server, "get_agent_status");
 
@@ -1834,7 +1982,7 @@ describe("agent snapshot MCP serialization", () => {
       logger,
       providerRegistry: {
         claude: createProviderDefinition({}),
-      } as unknown as Record<AgentProvider, ProviderDefinition>,
+      },
       callerAgentId: "caller-agent",
     });
     const tool = registeredTool(server, "list_agents");
@@ -1850,31 +1998,33 @@ describe("agent snapshot MCP serialization", () => {
     const now = Date.now();
     const recent = new Date(now - 60 * 60 * 1000).toISOString();
     const old = new Date(now - 72 * 60 * 60 * 1000).toISOString();
+    const targetCwd = resolvePath("/tmp/target");
+    const otherCwd = resolvePath("/tmp/other");
     spies.agentManager.listAgents.mockReturnValue([
       createManagedAgent({
         id: "running-target",
-        cwd: "/tmp/target",
+        cwd: targetCwd,
         lifecycle: "running",
         updatedAt: new Date(recent),
       }),
       createManagedAgent({
         id: "idle-target",
-        cwd: "/tmp/target",
+        cwd: targetCwd,
         lifecycle: "idle",
         updatedAt: new Date(recent),
       }),
       createManagedAgent({
         id: "old-running-target",
-        cwd: "/tmp/target",
+        cwd: targetCwd,
         lifecycle: "running",
         createdAt: new Date(old),
         updatedAt: new Date(old),
       }),
     ]);
     spies.agentStorage.list.mockResolvedValue([
-      createStoredRecord({ id: "recent-archived", cwd: "/tmp/target", archivedAt: recent }),
-      createStoredRecord({ id: "old-archived", cwd: "/tmp/target", archivedAt: old }),
-      createStoredRecord({ id: "recent-other-cwd", cwd: "/tmp/other", archivedAt: recent }),
+      createStoredRecord({ id: "recent-archived", cwd: targetCwd, archivedAt: recent }),
+      createStoredRecord({ id: "old-archived", cwd: targetCwd, archivedAt: old }),
+      createStoredRecord({ id: "recent-other-cwd", cwd: otherCwd, archivedAt: recent }),
     ]);
 
     const server = await createAgentMcpServer({
@@ -1883,7 +2033,7 @@ describe("agent snapshot MCP serialization", () => {
       logger,
       providerRegistry: {
         claude: createProviderDefinition({}),
-      } as unknown as Record<AgentProvider, ProviderDefinition>,
+      },
     });
     const tool = registeredTool(server, "list_agents");
     const response = await tool.callback({
@@ -1924,7 +2074,7 @@ describe("agent snapshot MCP serialization", () => {
       logger,
       providerRegistry: {
         claude: createProviderDefinition({}),
-      } as unknown as Record<AgentProvider, ProviderDefinition>,
+      },
     });
     const tool = registeredTool(server, "list_agents");
     const response = await tool.callback({ includeArchived: true });
@@ -1943,10 +2093,11 @@ describe("agent snapshot MCP serialization", () => {
   it("returns compact list items for stored archived agents", async () => {
     const { agentManager, agentStorage, spies } = createTestDeps();
     const now = new Date().toISOString();
+    const repoCwd = resolvePath("/tmp/repo");
     spies.agentStorage.list.mockResolvedValue([
       createStoredRecord({
         id: "stored-archived-compact",
-        cwd: "/tmp/repo",
+        cwd: repoCwd,
         updatedAt: now,
         lastActivityAt: now,
         archivedAt: now,
@@ -1967,7 +2118,7 @@ describe("agent snapshot MCP serialization", () => {
       logger,
       providerRegistry: {
         claude: createProviderDefinition({}),
-      } as unknown as Record<AgentProvider, ProviderDefinition>,
+      },
     });
     const tool = registeredTool(server, "list_agents");
     const response = await tool.callback({ cwd: "/tmp/repo", includeArchived: true });
@@ -1982,7 +2133,7 @@ describe("agent snapshot MCP serialization", () => {
       thinkingOptionId: null,
       effectiveThinkingOptionId: null,
       status: "closed",
-      cwd: "/tmp/repo",
+      cwd: repoCwd,
       createdAt: "2026-04-11T00:00:00.000Z",
       updatedAt: now,
       lastUserMessageAt: null,
@@ -2075,7 +2226,7 @@ describe("agent snapshot MCP serialization", () => {
       logger,
       providerRegistry: {
         claude: createProviderDefinition({}),
-      } as unknown as Record<AgentProvider, ProviderDefinition>,
+      },
     });
     const tool = registeredTool(server, "list_agents");
     const response = await tool.callback({ includeArchived: true });
@@ -2115,7 +2266,7 @@ describe("agent snapshot MCP serialization", () => {
       logger,
       providerRegistry: {
         claude: createProviderDefinition({}),
-      } as unknown as Record<AgentProvider, ProviderDefinition>,
+      },
     });
     const tool = registeredTool(server, "get_agent_activity");
     const response = await tool.callback({ agentId: "archived-activity-agent" });
@@ -2153,7 +2304,7 @@ describe("agent snapshot MCP serialization", () => {
       logger: createTestLogger(),
       providerRegistry: {
         claude: createProviderDefinition({}),
-      } as unknown as Record<AgentProvider, ProviderDefinition>,
+      },
     });
     const tool = registeredTool(server, "get_agent_activity");
     const response = await tool.callback({ agentId: "live-activity-agent", limit: 1 });
@@ -2184,7 +2335,7 @@ describe("agent snapshot MCP serialization", () => {
       logger: createTestLogger(),
       providerRegistry: {
         claude: createProviderDefinition({}),
-      } as unknown as Record<AgentProvider, ProviderDefinition>,
+      },
     });
     const tool = registeredTool(server, "get_agent_activity");
     const response = await tool.callback({ agentId: "live-activity-agent-2", limit: 2 });

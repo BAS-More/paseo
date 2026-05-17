@@ -1,6 +1,6 @@
 {
-  "name": "@getpaseo/website",
-  "version": "0.1.67",
+  "name": "@bas-more/website",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -17,8 +17,8 @@
     "@tanstack/react-start": "^1.120.3",
     "framer-motion": "^12.35.2",
     "lucide-react": "^1.7.0",
-    "react": "^19.1.4",
-    "react-dom": "^19.1.4",
+    "react": "19.1.0",
+    "react-dom": "19.1.0",
     "react-markdown": "^10.1.0",
     "rehype-autolink-headings": "^7.1.0",
     "rehype-slug": "^6.0.0",
@@ -31,7 +31,7 @@
     "@types/react-dom": "^19.1.5",
     "@vitejs/plugin-react": "^4.5.1",
     "typescript": "^5.9.3",
-    "vite": "^7.0.0",
+    "vite": "^7.3.2",
     "vite-tsconfig-paths": "^5.1.4"
   }
 }

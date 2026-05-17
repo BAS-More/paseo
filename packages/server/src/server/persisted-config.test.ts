@@ -1,6 +1,14 @@
-import { describe, expect, test } from "vitest";
+import { existsSync, mkdirSync, readdirSync } from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { afterEach, beforeEach, describe, expect, test } from "vitest";
 
-import { PersistedConfigSchema } from "./persisted-config.js";
+import {
+  PersistedConfigSchema,
+  loadPersistedConfig,
+  savePersistedConfig,
+  writeConfigAtomically,
+} from "./persisted-config.js";
 
 describe("PersistedConfigSchema daemon auth config", () => {
   test("accepts optional daemon password hash", () => {
@@ -12,6 +20,23 @@ describe("PersistedConfigSchema daemon auth config", () => {
     });
 
     expect(parsed.daemon?.auth?.password).toBe(hash);
+  });
+});
+
+describe("PersistedConfigSchema daemon relay config", () => {
+  test("accepts optional relay TLS setting", () => {
+    const parsed = PersistedConfigSchema.parse({
+      daemon: {
+        relay: {
+          enabled: true,
+          endpoint: "relay.example.com:443",
+          publicEndpoint: "public.example.com:443",
+          useTls: true,
+        },
+      },
+    });
+
+    expect(parsed.daemon?.relay?.useTls).toBe(true);
   });
 });
 
@@ -446,5 +471,87 @@ describe("PersistedConfigSchema voice mode config", () => {
     });
 
     expect(parsed.features?.voiceMode?.turnDetection?.provider).toBe("local");
+  });
+});
+
+describe("savePersistedConfig — atomic writes", () => {
+  let tmpDir: string;
+
+  beforeEach(() => {
+    tmpDir = path.join(os.tmpdir(), `paseo-config-test-${Date.now()}-${Math.random()}`);
+    mkdirSync(tmpDir, { recursive: true });
+  });
+
+  afterEach(() => {
+    try {
+      const { rmSync } = require("node:fs");
+      rmSync(tmpDir, { recursive: true, force: true });
+    } catch {
+      // ignore cleanup errors
+    }
+  });
+
+  test("writeConfigAtomically writes correct content to the target file", () => {
+    const targetPath = path.join(tmpDir, "config.json");
+    writeConfigAtomically(targetPath, '{"version":1}\n');
+
+    expect(existsSync(targetPath)).toBe(true);
+    const content = require("node:fs").readFileSync(targetPath, "utf-8");
+    expect(JSON.parse(content)).toEqual({ version: 1 });
+  });
+
+  test("writeConfigAtomically leaves no .tmp files after success", () => {
+    const targetPath = path.join(tmpDir, "config.json");
+    writeConfigAtomically(targetPath, '{"version":1}\n');
+
+    const entries = readdirSync(tmpDir);
+    expect(entries.filter((f) => f.includes(".tmp"))).toHaveLength(0);
+  });
+
+  test("writeConfigAtomically preserves prior content if write fails", () => {
+    // Pre-write a valid config
+    const targetPath = path.join(tmpDir, "config.json");
+    writeConfigAtomically(targetPath, '{"version":1,"prior":true}\n');
+
+    // Attempt an atomic write to a non-writable directory (simulate failure)
+    // by using an invalid target path; the original file must remain intact.
+    expect(() => {
+      writeConfigAtomically(
+        path.join(tmpDir, "nonexistent", "config.json"),
+        '{"version":1,"corrupt":true}\n',
+      );
+    }).toThrow();
+
+    // Original file is still intact
+    const content = require("node:fs").readFileSync(targetPath, "utf-8");
+    expect(JSON.parse(content)).toMatchObject({ prior: true });
+  });
+
+  test("leaves no .tmp file after a successful write", () => {
+    const config = loadPersistedConfig(tmpDir);
+    savePersistedConfig(tmpDir, config);
+
+    const entries = readdirSync(tmpDir);
+    const tmpFiles = entries.filter((f) => f.includes(".tmp"));
+    expect(tmpFiles).toHaveLength(0);
+  });
+
+  test("written file contains valid JSON matching the saved config", () => {
+    const config = loadPersistedConfig(tmpDir);
+    savePersistedConfig(tmpDir, config);
+
+    const content = require("node:fs").readFileSync(path.join(tmpDir, "config.json"), "utf-8");
+    const parsed = JSON.parse(content);
+    expect(parsed).toMatchObject({ version: 1 });
+  });
+
+  test("config round-trips through save and load", () => {
+    const config = loadPersistedConfig(tmpDir);
+    if (!config.daemon) config.daemon = {};
+    config.daemon.listen = "127.0.0.1:9999";
+    savePersistedConfig(tmpDir, config);
+
+    const loaded = loadPersistedConfig(tmpDir);
+    expect(loaded.daemon?.listen).toBe("127.0.0.1:9999");
   });
 });

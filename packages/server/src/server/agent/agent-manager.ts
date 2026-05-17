@@ -791,10 +791,19 @@ export class AgentManager {
       provider: handle.provider,
     } as AgentSessionConfig;
     const normalizedConfig = await this.normalizeConfig(mergedConfig);
-    const resumeOverrides =
-      normalizedConfig.model !== mergedConfig.model
-        ? { ...overrides, model: normalizedConfig.model }
-        : overrides;
+    const resumeOverrides: Partial<AgentSessionConfig> = { ...overrides };
+    let hasResumeOverrides = overrides !== undefined;
+
+    if (normalizedConfig.model !== mergedConfig.model) {
+      resumeOverrides.model = normalizedConfig.model;
+      hasResumeOverrides = true;
+    }
+
+    if (normalizedConfig.modeId !== mergedConfig.modeId) {
+      resumeOverrides.modeId = normalizedConfig.modeId;
+      hasResumeOverrides = true;
+    }
+
     const launchContext = this.buildLaunchContext(resolvedAgentId);
     const client = this.requireClient(handle.provider);
     const available = await client.isAvailable();
@@ -803,7 +812,11 @@ export class AgentManager {
         `Provider '${handle.provider}' is not available. Please ensure the CLI is installed.`,
       );
     }
-    const session = await client.resumeSession(handle, resumeOverrides, launchContext);
+    const session = await client.resumeSession(
+      handle,
+      hasResumeOverrides ? resumeOverrides : undefined,
+      launchContext,
+    );
     return this.registerSession(session, normalizedConfig, resolvedAgentId, options);
   }
 
@@ -1209,6 +1222,48 @@ export class AgentManager {
       timeline,
       canceled,
     };
+  }
+
+  /**
+   * Try to run a prompt out-of-band — i.e. without allocating a foreground turn
+   * and without canceling any active turn. Returns true when the session
+   * accepted the prompt as a side-effect command (e.g. /goal pause). Events
+   * emitted by the handler flow through dispatchStream so they persist and
+   * broadcast like normal timeline events.
+   */
+  tryRunOutOfBand(agentId: string, prompt: AgentPromptInput): boolean {
+    const agent = this.requireSessionAgent(agentId);
+    const handler = agent.session.tryHandleOutOfBand?.(prompt);
+    if (!handler) {
+      return false;
+    }
+    const dispatch = (event: AgentStreamEvent): void => {
+      // Persist timeline items so they show up in fetchAgentTimeline; broadcast
+      // for live subscribers. Other event types are broadcast only.
+      if (event.type === "timeline") {
+        this.touchUpdatedAt(agent);
+        const row = this.recordTimeline(agent.id, event.item);
+        this.dispatchStream(agent.id, event, {
+          seq: row.seq,
+          epoch: this.timelineStore.getEpoch(agent.id),
+        });
+        return;
+      }
+      this.dispatchStream(agent.id, event);
+    };
+    void (async () => {
+      try {
+        await handler.run({ emit: dispatch });
+      } catch (error) {
+        const text = error instanceof Error ? error.message : "Out-of-band command failed";
+        dispatch({
+          type: "timeline",
+          provider: agent.provider,
+          item: { type: "assistant_message", text: `[Error] ${text}` },
+        });
+      }
+    })();
+    return true;
   }
 
   recordUserMessage(
@@ -1647,7 +1702,7 @@ export class AgentManager {
         { agentId, foregroundTurnId },
         "cancelAgentRun: foreground turn still active after timeout, force-canceling",
       );
-      this.dispatchSessionEvent(agent, {
+      void this.dispatchSessionEvent(agent, {
         type: "turn_canceled",
         provider: agent.provider,
         reason: "interrupted",

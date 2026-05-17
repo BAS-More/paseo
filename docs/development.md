@@ -106,20 +106,20 @@ Every `scripts` entry with `"type": "service"` receives these environment variab
 When changing `packages/relay/src/*`, rebuild before running the daemon:
 
 ```bash
-npm run build --workspace=@getpaseo/relay
+npm run build --workspace=@bas-more/relay
 ```
 
-The Node daemon imports `@getpaseo/relay` from `packages/relay/dist/*`, not `src/*`.
+The Node daemon imports `@bas-more/relay` from `packages/relay/dist/*`, not `src/*`.
 
 ### Server → CLI
 
 When changing `packages/server/src/client/*` (especially `daemon-client.ts`) or shared WS protocol types, rebuild before running CLI commands:
 
 ```bash
-npm run build --workspace=@getpaseo/server
+npm run build --workspace=@bas-more/server
 ```
 
-The CLI imports `@getpaseo/server` via package exports resolving to `dist/*`. Stale `dist` means the CLI speaks an old protocol and fails with handshake warnings or timeouts.
+The CLI imports `@bas-more/server` via package exports resolving to `dist/*`. Stale `dist` means the CLI speaks an old protocol and fails with handshake warnings or timeouts.
 
 ## CLI reference
 

@@ -299,8 +299,8 @@ function ensureRelayBuildArtifact(repoRoot: string): void {
     return;
   }
 
-  console.log("[e2e] Building @getpaseo/relay for daemon startup");
-  execSync("npm run build --workspace=@getpaseo/relay", {
+  console.log("[e2e] Building @bas-more/relay for daemon startup");
+  execSync("npm run build --workspace=@bas-more/relay", {
     cwd: repoRoot,
     stdio: "inherit",
   });
@@ -417,13 +417,15 @@ async function resolveDictationConfig(): Promise<DictationConfig> {
   const dictationProvider = openAiUsable ? "openai" : "local";
 
   if (dictationProvider === "local" && !hasDefaultLocalModelsDir) {
-    throw new Error(
-      "OpenAI key is not usable and local speech models are unavailable at ~/.paseo/models/local-speech. " +
-        "Either provide a valid OPENAI_API_KEY or install local speech models before running app e2e tests.",
+    console.warn(
+      "[e2e] WARNING: OpenAI key is not usable and local speech models are unavailable at ~/.paseo/models/local-speech. " +
+        "Speech-dependent tests will be skipped. Provide a valid OPENAI_API_KEY or install local speech models.",
     );
+    process.env.PASEO_E2E_SPEECH_UNAVAILABLE = "1";
   }
 
-  const localModelsDir = dictationProvider === "local" ? defaultLocalModelsDir : null;
+  const localModelsDir =
+    dictationProvider === "local" && hasDefaultLocalModelsDir ? defaultLocalModelsDir : null;
   console.log(
     `[e2e] Dictation STT provider: ${dictationProvider}${openAiUsable ? "" : " (OpenAI probe failed)"}`,
   );
@@ -605,7 +607,7 @@ function startDaemon(args: DaemonSpawnArgs): ChildProcess {
   const tsxBin = execSync("which tsx").toString().trim();
   const { openAiUsable, localModelsDir } = args.dictation;
 
-  const child = spawn(tsxBin, ["src/server/index.ts"], {
+  const child = spawn(tsxBin, ["scripts/supervisor-entrypoint.ts", "--dev"], {
     cwd: serverDir,
     env: {
       ...process.env,

@@ -1,4 +1,5 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { randomUUID } from "node:crypto";
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { z } from "zod";
 
@@ -9,8 +10,8 @@ import {
 } from "./agent/provider-launch-config.js";
 import type { AgentProviderRuntimeSettingsMap } from "./agent/provider-launch-config.js";
 
-const LogLevelSchema = z.enum(["trace", "debug", "info", "warn", "error", "fatal"]);
-const LogFormatSchema = z.enum(["pretty", "json"]);
+export const LogLevelSchema = z.enum(["trace", "debug", "info", "warn", "error", "fatal"]);
+export const LogFormatSchema = z.enum(["pretty", "json"]);
 
 const LogConfigSchema = z
   .object({
@@ -258,6 +259,7 @@ export const PersistedConfigSchema = z
             enabled: z.boolean().optional(),
             endpoint: z.string().optional(),
             publicEndpoint: z.string().optional(),
+            useTls: z.boolean().optional(),
           })
           .strict()
           .optional(),
@@ -406,6 +408,19 @@ export function loadPersistedConfig(paseoHome: string, logger?: LoggerLike): Per
   return result.data as PersistedConfig;
 }
 
+/**
+ * Writes `content` to `targetPath` atomically using a tmp file + rename.
+ * Exported for unit testing.
+ */
+export function writeConfigAtomically(targetPath: string, content: string): void {
+  const tmpPath = path.join(
+    path.dirname(targetPath),
+    `.config.tmp-${process.pid}-${Date.now()}-${randomUUID()}`,
+  );
+  writeFileSync(tmpPath, content);
+  renameSync(tmpPath, targetPath);
+}
+
 export function savePersistedConfig(
   paseoHome: string,
   config: PersistedConfig,
@@ -423,7 +438,7 @@ export function savePersistedConfig(
   }
 
   try {
-    writeFileSync(configPath, JSON.stringify(result.data, null, 2) + "\n");
+    writeConfigAtomically(configPath, JSON.stringify(result.data, null, 2) + "\n");
     log?.info(`Saved to ${configPath}`);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

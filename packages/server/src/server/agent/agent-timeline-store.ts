@@ -22,6 +22,17 @@ interface AgentTimelineState {
 
 const DEFAULT_TIMELINE_FETCH_LIMIT = 200;
 
+// M-03: cap rows per agent so a long-running session can't grow the timeline
+// without bound. Older rows are dropped from the head; minSeq advances so
+// cursors stay valid. Override via PASEO_TIMELINE_MAX_ROWS.
+const DEFAULT_TIMELINE_MAX_ROWS = 50_000;
+
+function resolveTimelineMaxRows(): number {
+  const raw = Number.parseInt(process.env.PASEO_TIMELINE_MAX_ROWS ?? "", 10);
+  if (Number.isFinite(raw) && raw > 0) return raw;
+  return DEFAULT_TIMELINE_MAX_ROWS;
+}
+
 function cloneRow(row: AgentTimelineRow): AgentTimelineRow {
   return { ...row };
 }
@@ -94,7 +105,7 @@ function fetchAfter(ctx: FetchContext): AgentTimelineFetchResult {
     gap: false,
     window,
     hasOlder: selected[0].seq > minSeq,
-    hasNewer: Boolean(lastSelected && lastSelected.seq < maxSeq),
+    hasNewer: lastSelected !== null && lastSelected !== undefined && lastSelected.seq < maxSeq,
     rows: selected.map(cloneRow),
   };
 }
@@ -143,8 +154,17 @@ function fetchReset(
   };
 }
 
+export interface InMemoryAgentTimelineStoreOptions {
+  maxRowsPerAgent?: number;
+}
+
 export class InMemoryAgentTimelineStore {
   private readonly states = new Map<string, AgentTimelineState>();
+  private readonly maxRowsPerAgent: number;
+
+  constructor(options?: InMemoryAgentTimelineStoreOptions) {
+    this.maxRowsPerAgent = options?.maxRowsPerAgent ?? resolveTimelineMaxRows();
+  }
 
   has(agentId: string): boolean {
     return this.states.has(agentId);
@@ -253,6 +273,11 @@ export class InMemoryAgentTimelineStore {
     };
     state.nextSeq += 1;
     state.rows.push(row);
+    // M-03: ring-buffer eviction. Drop oldest rows once the cap is exceeded.
+    // Cursors keyed by seq remain valid — they just resolve to a `gap` reset.
+    if (state.rows.length > this.maxRowsPerAgent) {
+      state.rows.splice(0, state.rows.length - this.maxRowsPerAgent);
+    }
     return cloneRow(row);
   }
 

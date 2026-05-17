@@ -130,6 +130,23 @@ const OPENCODE_MODES: AgentProviderModeDefinition[] = [
   },
 ];
 
+const OCC_MODES: AgentProviderModeDefinition[] = [
+  {
+    id: "default",
+    label: "Default",
+    description: "Standard interactive mode with permission prompts",
+    icon: "ShieldCheck",
+    colorTier: "safe",
+  },
+  {
+    id: "plan",
+    label: "Plan",
+    description: "Read-only planning mode for analysis without execution",
+    icon: "ShieldCheck",
+    colorTier: "planning",
+  },
+];
+
 const MOCK_LOAD_TEST_MODES: AgentProviderModeDefinition[] = [
   {
     id: "load-test",
@@ -187,6 +204,27 @@ export const AGENT_PROVIDER_DEFINITIONS: AgentProviderDefinition[] = [
     id: "pi",
     label: "Pi",
     description: "Minimal terminal-based coding agent with multi-provider LLM support",
+    defaultModeId: null,
+    modes: [],
+  },
+  {
+    id: "occ",
+    label: "OpenClaude",
+    description: "Open-source Claude Code fork with streaming JSON output and session persistence",
+    defaultModeId: "default",
+    modes: OCC_MODES,
+  },
+  {
+    id: "crewai",
+    label: "CrewAI",
+    description: "Multi-agent orchestration framework via Python bridge with SSE streaming",
+    defaultModeId: null,
+    modes: [],
+  },
+  {
+    id: "gemini",
+    label: "Gemini",
+    description: "Google Gemini CLI with NDJSON streaming, tool use, and session resume",
     defaultModeId: null,
     modes: [],
   },

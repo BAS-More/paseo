@@ -190,4 +190,27 @@ describe("shared tool-call display mapping", () => {
       displayName: "Plan",
     });
   });
+
+  it("shows 'Thinking' when no duration metadata", () => {
+    const display = buildToolCallDisplayModel({
+      name: "thinking",
+      status: "running",
+      error: null,
+      detail: { type: "unknown", input: null, output: null },
+    });
+
+    expect(display.displayName).toBe("Thinking");
+  });
+
+  it("shows 'Thought for Xs' when duration metadata present", () => {
+    const display = buildToolCallDisplayModel({
+      name: "thinking",
+      status: "completed",
+      error: null,
+      detail: { type: "unknown", input: null, output: null },
+      metadata: { thinkingDurationSeconds: 12 },
+    });
+
+    expect(display.displayName).toBe("Thought for 12s");
+  });
 });

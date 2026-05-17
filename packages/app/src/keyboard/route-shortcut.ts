@@ -1,10 +1,6 @@
 import type { KeyboardShortcutPayload, MessageInputKeyboardActionKind } from "@/keyboard/actions";
 import type { KeyboardActionDefinition } from "@/keyboard/keyboard-action-dispatcher";
-import {
-  buildHostWorkspaceRoute,
-  buildSettingsRoute,
-  parseHostWorkspaceRouteFromPathname,
-} from "@/utils/host-routes";
+import { buildSettingsRoute, parseHostWorkspaceRouteFromPathname } from "@/utils/host-routes";
 import {
   getRelativeSidebarShortcutTarget,
   type SidebarShortcutWorkspaceTarget,
@@ -15,7 +11,6 @@ export interface ShortcutRoutingContext {
   isMobile: boolean;
   sidebarShortcutTargets: ReadonlyArray<SidebarShortcutWorkspaceTarget>;
   navigationActiveWorkspace: SidebarShortcutWorkspaceTarget | null;
-  lastNavigationWorkspaceRoute: SidebarShortcutWorkspaceTarget | null;
   commandCenterOpen: boolean;
   shortcutsDialogOpen: boolean;
 }
@@ -35,6 +30,7 @@ export type ShortcutAction =
   | { kind: "none" }
   | { kind: "dispatch"; action: KeyboardActionDefinition }
   | { kind: "navigate-workspace"; serverId: string; workspaceId: string }
+  | { kind: "navigate-last-workspace" }
   | { kind: "router-replace"; route: string }
   | { kind: "router-back" }
   | { kind: "router-push"; route: string }
@@ -48,6 +44,7 @@ const NONE: ShortcutAction = { kind: "none" };
 // Action ids whose routing is a no-payload pass-through to the dispatcher.
 const PASSTHROUGH_DISPATCH: Record<string, KeyboardActionDefinition> = {
   "agent.interrupt": { id: "agent.interrupt", scope: "global" },
+  "agent.copy-last-response": { id: "agent.copy-last-response", scope: "global" },
   "workspace.tab.new": { id: "workspace.tab.new", scope: "workspace" },
   "worktree.archive": { id: "worktree.archive", scope: "sidebar" },
   "worktree.new": { id: "worktree.new", scope: "sidebar" },
@@ -166,14 +163,8 @@ function routeSettingsToggle(ctx: ShortcutRoutingContext): ShortcutAction {
   if (!ctx.pathname.startsWith("/settings")) {
     return { kind: "router-push", route: buildSettingsRoute() };
   }
-  if (!ctx.isMobile && ctx.lastNavigationWorkspaceRoute) {
-    return {
-      kind: "router-replace",
-      route: buildHostWorkspaceRoute(
-        ctx.lastNavigationWorkspaceRoute.serverId,
-        ctx.lastNavigationWorkspaceRoute.workspaceId,
-      ),
-    };
+  if (!ctx.isMobile) {
+    return { kind: "navigate-last-workspace" };
   }
   return { kind: "router-back" };
 }

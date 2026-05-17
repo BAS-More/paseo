@@ -36,6 +36,7 @@ import {
   workspaceDeckEntryLocator,
   expectWorkspaceDeckEntryCount,
 } from "./helpers/workspace-ui";
+import { clickSettingsBackToWorkspace } from "./helpers/settings";
 
 const LOADING_WORKSPACE_TEXT_PATTERN = /Loading workspace/i;
 
@@ -73,6 +74,18 @@ async function expectNoLoadingWorkspacePane(
 
 async function expectNoLoadingPane(page: Page): Promise<void> {
   await expect(page.getByText(LOADING_WORKSPACE_TEXT_PATTERN)).toHaveCount(0);
+}
+
+async function getVisibleDraftTabCount(page: Page): Promise<number> {
+  return page.locator('[data-testid^="workspace-tab-draft"]').filter({ visible: true }).count();
+}
+
+async function closeFirstVisibleDraftTab(page: Page): Promise<void> {
+  const closeButton = page.locator('[data-testid^="workspace-draft-close-"]').filter({
+    visible: true,
+  });
+  await expect(closeButton.first()).toBeVisible({ timeout: 30_000 });
+  await closeButton.first().click();
 }
 
 async function installDaemonWebSocketGate(page: Page, daemonPort: string) {
@@ -132,6 +145,25 @@ async function installDaemonWebSocketGate(page: Page, daemonPort: string) {
 
 test.describe("Workspace navigation regression", () => {
   test.describe.configure({ timeout: 240_000 });
+
+  test("keeps one replacement draft after returning from settings and closing the last tab", async ({
+    page,
+    withWorkspace,
+  }) => {
+    const workspace = await withWorkspace({ prefix: "workspace-settings-back-tab-" });
+
+    await workspace.navigateTo();
+    await expect.poll(() => getVisibleDraftTabCount(page), { timeout: 30_000 }).toBe(1);
+
+    await openSettings(page);
+    await clickSettingsBackToWorkspace(page);
+    await expect(page).toHaveURL(/\/workspace\//, { timeout: 30_000 });
+    await expect.poll(() => getVisibleDraftTabCount(page), { timeout: 30_000 }).toBe(1);
+
+    await closeFirstVisibleDraftTab(page);
+
+    await expect.poll(() => getVisibleDraftTabCount(page), { timeout: 30_000 }).toBe(1);
+  });
 
   test("keeps the workspace rendered while reconnecting to the host", async ({ page }) => {
     const serverId = process.env.E2E_SERVER_ID;
@@ -237,6 +269,48 @@ test.describe("Workspace navigation regression", () => {
     await expectWorkspaceTabsAbsent(page);
     await openSettings(page);
     await expect(page).toHaveURL(/\/settings\/general$/);
+  });
+
+  test("cold workspace URL keeps sidebar workspace navigation functional", async ({ page }) => {
+    const serverId = process.env.E2E_SERVER_ID;
+    if (!serverId) {
+      throw new Error("E2E_SERVER_ID is not set.");
+    }
+
+    const workspaceClient = await connectNewWorkspaceDaemonClient();
+    const workspaceIds = new Set<string>();
+    const firstRepo = await createTempGitRepo("workspace-cold-url-a-");
+    const secondRepo = await createTempGitRepo("workspace-cold-url-b-");
+
+    try {
+      const firstWorkspace = await openProjectViaDaemon(workspaceClient, firstRepo.path);
+      const secondWorkspace = await openProjectViaDaemon(workspaceClient, secondRepo.path);
+      workspaceIds.add(firstWorkspace.workspaceId);
+      workspaceIds.add(secondWorkspace.workspaceId);
+
+      await page.goto(buildHostWorkspaceRoute(serverId, firstWorkspace.workspaceId));
+      await waitForSidebarHydration(page);
+      await expect(page).toHaveURL(buildHostWorkspaceRoute(serverId, firstWorkspace.workspaceId), {
+        timeout: 30_000,
+      });
+
+      const secondRow = page.getByTestId(
+        `sidebar-workspace-row-${serverId}:${secondWorkspace.workspaceId}`,
+      );
+      await expect(secondRow).toBeVisible({ timeout: 30_000 });
+      await secondRow.click();
+
+      await expect(page).toHaveURL(buildHostWorkspaceRoute(serverId, secondWorkspace.workspaceId), {
+        timeout: 30_000,
+      });
+    } finally {
+      for (const workspaceId of workspaceIds) {
+        await archiveLocalWorkspaceFromDaemon(workspaceClient, workspaceId).catch(() => undefined);
+      }
+      await workspaceClient.close().catch(() => undefined);
+      await secondRepo.cleanup();
+      await firstRepo.cleanup();
+    }
   });
 
   test("sidebar navigation and reload keep workspace selection and tabs aligned", async ({

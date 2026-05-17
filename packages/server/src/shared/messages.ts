@@ -94,6 +94,12 @@ const MutableDaemonProviderConfigSchema = z
   })
   .passthrough();
 
+export const NineRouterConfigSchema = z
+  .object({
+    url: z.string().optional(),
+  })
+  .passthrough();
+
 export const MutableDaemonConfigSchema = z
   .object({
     mcp: z
@@ -102,6 +108,7 @@ export const MutableDaemonConfigSchema = z
       })
       .passthrough(),
     providers: z.record(z.string(), MutableDaemonProviderConfigSchema).default({}),
+    nineRouter: NineRouterConfigSchema.optional(),
   })
   .passthrough();
 
@@ -111,6 +118,7 @@ export const MutableDaemonConfigPatchSchema = z
     providers: z
       .record(z.string(), MutableDaemonProviderConfigSchema.partial().passthrough())
       .optional(),
+    nineRouter: NineRouterConfigSchema.partial().optional(),
   })
   .partial()
   .passthrough();
@@ -1051,6 +1059,17 @@ export const ProviderDiagnosticRequestMessageSchema = z.object({
   requestId: z.string(),
 });
 
+export const ProviderConnectionTestRequestSchema = z.object({
+  type: z.literal("provider_connection_test_request"),
+  provider: AgentProviderSchema,
+  requestId: z.string(),
+});
+
+export const StackServicesRequestSchema = z.object({
+  type: z.literal("stack_services_request"),
+  requestId: z.string(),
+});
+
 export const ResumeAgentRequestMessageSchema = z.object({
   type: z.literal("resume_agent_request"),
   handle: AgentPersistenceHandleSchema,
@@ -1456,6 +1475,13 @@ export const OpenProjectRequestSchema = z.object({
   requestId: z.string(),
 });
 
+export const RenameWorkspaceRequestSchema = z.object({
+  type: z.literal("rename_workspace_request"),
+  workspaceId: z.string(),
+  displayName: z.string(),
+  requestId: z.string(),
+});
+
 export const ArchiveWorkspaceRequestSchema = z.object({
   type: z.literal("archive_workspace_request"),
   workspaceId: z.string(),
@@ -1586,6 +1612,92 @@ export const RegisterPushTokenMessageSchema = z.object({
   token: z.string(),
 });
 
+export const NineRouterStatusRequestSchema = z.object({
+  type: z.literal("nine_router_status_request"),
+  requestId: z.string(),
+});
+
+export const NineRouterKeysRequestSchema = z.object({
+  type: z.literal("nine_router_keys_request"),
+  requestId: z.string(),
+});
+
+export const NineRouterCreateKeyRequestSchema = z.object({
+  type: z.literal("nine_router_create_key_request"),
+  requestId: z.string(),
+  name: z.string(),
+});
+
+export const NineRouterDeleteKeyRequestSchema = z.object({
+  type: z.literal("nine_router_delete_key_request"),
+  requestId: z.string(),
+  keyId: z.string(),
+});
+
+export const NineRouterModelsRequestSchema = z.object({
+  type: z.literal("nine_router_models_request"),
+  requestId: z.string(),
+});
+
+export const NineRouterProvidersRequestSchema = z.object({
+  type: z.literal("nine_router_providers_request"),
+  requestId: z.string(),
+});
+
+export const NineRouterUsageRequestSchema = z.object({
+  type: z.literal("nine_router_usage_request"),
+  requestId: z.string(),
+  period: z.string().optional(),
+});
+
+export const NineRouterOAuthImportRequestSchema = z.object({
+  type: z.literal("nine_router_oauth_import_request"),
+  requestId: z.string(),
+  provider: z.string(),
+});
+
+export const NineRouterCliToolSettingsRequestSchema = z.object({
+  type: z.literal("nine_router_cli_tool_settings_request"),
+  requestId: z.string(),
+  tool: z.string(),
+});
+
+export const NineRouterCliToolSettingsUpdateRequestSchema = z.object({
+  type: z.literal("nine_router_cli_tool_settings_update_request"),
+  requestId: z.string(),
+  tool: z.string(),
+  settings: z.record(z.unknown()),
+});
+
+export const NineRouterModelAliasesRequestSchema = z.object({
+  type: z.literal("nine_router_model_aliases_request"),
+  requestId: z.string(),
+});
+
+export const NineRouterSetModelAliasRequestSchema = z.object({
+  type: z.literal("nine_router_set_model_alias_request"),
+  requestId: z.string(),
+  alias: z.string(),
+  target: z.string(),
+});
+
+export const NineRouterDeleteModelAliasRequestSchema = z.object({
+  type: z.literal("nine_router_delete_model_alias_request"),
+  requestId: z.string(),
+  alias: z.string(),
+});
+
+export const NineRouterTestModelRequestSchema = z.object({
+  type: z.literal("nine_router_test_model_request"),
+  requestId: z.string(),
+  model: z.string(),
+});
+
+export const SoiferBackendStatusRequestSchema = z.object({
+  type: z.literal("soifer_backend_status_request"),
+  requestId: z.string(),
+});
+
 // ============================================================================
 // Terminal Messages
 // ============================================================================
@@ -1698,6 +1810,8 @@ export const SessionInboundMessageSchema = z.discriminatedUnion("type", [
   GetProvidersSnapshotRequestMessageSchema,
   RefreshProvidersSnapshotRequestMessageSchema,
   ProviderDiagnosticRequestMessageSchema,
+  ProviderConnectionTestRequestSchema,
+  StackServicesRequestSchema,
   ResumeAgentRequestMessageSchema,
   ImportAgentRequestMessageSchema,
   RefreshAgentRequestMessageSchema,
@@ -1736,6 +1850,7 @@ export const SessionInboundMessageSchema = z.discriminatedUnion("type", [
   ListAvailableEditorsRequestSchema,
   OpenInEditorRequestSchema,
   OpenProjectRequestSchema,
+  RenameWorkspaceRequestSchema,
   ArchiveWorkspaceRequestSchema,
   FileExplorerRequestSchema,
   ProjectIconRequestSchema,
@@ -1745,6 +1860,21 @@ export const SessionInboundMessageSchema = z.discriminatedUnion("type", [
   PingMessageSchema,
   ListCommandsRequestSchema,
   RegisterPushTokenMessageSchema,
+  NineRouterStatusRequestSchema,
+  NineRouterKeysRequestSchema,
+  NineRouterCreateKeyRequestSchema,
+  NineRouterDeleteKeyRequestSchema,
+  NineRouterModelsRequestSchema,
+  NineRouterProvidersRequestSchema,
+  NineRouterUsageRequestSchema,
+  NineRouterOAuthImportRequestSchema,
+  NineRouterCliToolSettingsRequestSchema,
+  NineRouterCliToolSettingsUpdateRequestSchema,
+  NineRouterModelAliasesRequestSchema,
+  NineRouterSetModelAliasRequestSchema,
+  NineRouterDeleteModelAliasRequestSchema,
+  NineRouterTestModelRequestSchema,
+  SoiferBackendStatusRequestSchema,
   ListTerminalsRequestSchema,
   SubscribeTerminalsRequestSchema,
   UnsubscribeTerminalsRequestSchema,
@@ -2373,6 +2503,16 @@ export const OpenInEditorResponseMessageSchema = z.object({
   type: z.literal("open_in_editor_response"),
   payload: z.object({
     requestId: z.string(),
+    error: z.string().nullable(),
+  }),
+});
+
+export const RenameWorkspaceResponseSchema = z.object({
+  type: z.literal("rename_workspace_response"),
+  payload: z.object({
+    requestId: z.string(),
+    workspaceId: z.string(),
+    displayName: z.string().nullable(),
     error: z.string().nullable(),
   }),
 });
@@ -3142,6 +3282,36 @@ export const ProviderDiagnosticResponseMessageSchema = z.object({
   }),
 });
 
+export const ProviderConnectionTestResponseSchema = z.object({
+  type: z.literal("provider_connection_test_response"),
+  payload: z.object({
+    requestId: z.string(),
+    provider: AgentProviderSchema,
+    available: z.boolean(),
+    latencyMs: z.number().optional(),
+    error: z.string().optional(),
+  }),
+});
+
+const StackServiceStatusSchema = z.enum(["running", "stopped", "error"]);
+
+export const StackServicesResponseSchema = z.object({
+  type: z.literal("stack_services_response"),
+  payload: z.object({
+    requestId: z.string(),
+    services: z.array(
+      z.object({
+        id: z.string(),
+        name: z.string(),
+        port: z.number(),
+        status: StackServiceStatusSchema,
+        latencyMs: z.number().optional(),
+        error: z.string().optional(),
+      }),
+    ),
+  }),
+});
+
 const AgentSlashCommandSchema = z.object({
   name: z.string(),
   description: z.string(),
@@ -3155,6 +3325,221 @@ export const ListCommandsResponseSchema = z.object({
     commands: z.array(AgentSlashCommandSchema),
     error: z.string().nullable(),
     requestId: z.string(),
+  }),
+});
+
+export const NineRouterStatusResponseSchema = z.object({
+  type: z.literal("nine_router_status_response"),
+  payload: z.object({
+    requestId: z.string(),
+    reachable: z.boolean(),
+    accounts: z.array(
+      z.object({
+        id: z.string(),
+        name: z.string(),
+        provider: z.string(),
+        status: z.string(),
+      }),
+    ),
+    usage: z.object({
+      totalRequests: z.number(),
+      totalTokens: z.number(),
+      totalCost: z.number(),
+      byAccount: z.array(
+        z.object({
+          id: z.string(),
+          requests: z.number(),
+          tokens: z.number(),
+          cost: z.number(),
+        }),
+      ),
+    }),
+  }),
+});
+
+export const NineRouterKeysResponseSchema = z.object({
+  type: z.literal("nine_router_keys_response"),
+  payload: z.object({
+    requestId: z.string(),
+    keys: z.array(
+      z.object({
+        id: z.string(),
+        name: z.string(),
+        key: z.string(),
+        machineId: z.string(),
+        isActive: z.boolean(),
+        createdAt: z.string(),
+      }),
+    ),
+  }),
+});
+
+export const NineRouterModelsResponseSchema = z.object({
+  type: z.literal("nine_router_models_response"),
+  payload: z.object({
+    requestId: z.string(),
+    models: z.array(
+      z.object({
+        provider: z.string(),
+        model: z.string(),
+        name: z.string(),
+        fullModel: z.string(),
+        alias: z.string(),
+      }),
+    ),
+  }),
+});
+
+export const NineRouterProvidersResponseSchema = z.object({
+  type: z.literal("nine_router_providers_response"),
+  payload: z.object({
+    requestId: z.string(),
+    providers: z.array(
+      z.object({
+        id: z.string(),
+        provider: z.string(),
+        authType: z.string(),
+        name: z.string(),
+        priority: z.number(),
+        isActive: z.boolean(),
+        testStatus: z.string().optional(),
+        email: z.string().optional(),
+        expiresAt: z.string().optional(),
+        lastUsedAt: z.string().optional(),
+        lastError: z.string().optional(),
+      }),
+    ),
+  }),
+});
+
+export const NineRouterUsageResponseSchema = z.object({
+  type: z.literal("nine_router_usage_response"),
+  payload: z.object({
+    requestId: z.string(),
+    period: z.string(),
+    totalRequests: z.number(),
+    totalTokens: z.number(),
+    totalCost: z.number(),
+    byProvider: z.array(
+      z.object({
+        provider: z.string(),
+        requests: z.number(),
+        tokens: z.number(),
+        cost: z.number(),
+      }),
+    ),
+    byModel: z.array(
+      z.object({
+        model: z.string(),
+        requests: z.number(),
+        tokens: z.number(),
+        cost: z.number(),
+      }),
+    ),
+  }),
+});
+
+export const NineRouterOAuthImportResponseSchema = z.object({
+  type: z.literal("nine_router_oauth_import_response"),
+  payload: z.object({
+    requestId: z.string(),
+    success: z.boolean(),
+    provider: z.string(),
+    email: z.string().optional(),
+    error: z.string().optional(),
+  }),
+});
+
+export const NineRouterCliToolSettingsResponseSchema = z.object({
+  type: z.literal("nine_router_cli_tool_settings_response"),
+  payload: z.object({
+    requestId: z.string(),
+    tool: z.string(),
+    installed: z.boolean(),
+    has9Router: z.boolean(),
+    settings: z.record(z.unknown()),
+    settingsPath: z.string().optional(),
+  }),
+});
+
+export const NineRouterCliToolSettingsUpdateResponseSchema = z.object({
+  type: z.literal("nine_router_cli_tool_settings_update_response"),
+  payload: z.object({
+    requestId: z.string(),
+    tool: z.string(),
+    success: z.boolean(),
+    error: z.string().optional(),
+  }),
+});
+
+export const NineRouterModelAliasesResponseSchema = z.object({
+  type: z.literal("nine_router_model_aliases_response"),
+  payload: z.object({
+    requestId: z.string(),
+    aliases: z.record(z.string()),
+  }),
+});
+
+export const NineRouterSetModelAliasResponseSchema = z.object({
+  type: z.literal("nine_router_set_model_alias_response"),
+  payload: z.object({
+    requestId: z.string(),
+    success: z.boolean(),
+    error: z.string().optional(),
+  }),
+});
+
+export const NineRouterDeleteModelAliasResponseSchema = z.object({
+  type: z.literal("nine_router_delete_model_alias_response"),
+  payload: z.object({
+    requestId: z.string(),
+    success: z.boolean(),
+    error: z.string().optional(),
+  }),
+});
+
+export const NineRouterTestModelResponseSchema = z.object({
+  type: z.literal("nine_router_test_model_response"),
+  payload: z.object({
+    requestId: z.string(),
+    success: z.boolean(),
+    latencyMs: z.number(),
+    provider: z.string(),
+  }),
+});
+
+export const SoiferBackendStatusResponseSchema = z.object({
+  type: z.literal("soifer_backend_status_response"),
+  payload: z.object({
+    requestId: z.string(),
+    reachable: z.boolean(),
+    health: z.object({
+      status: z.enum(["ok", "degraded"]),
+      services: z.record(
+        z.object({
+          status: z.string(),
+          port: z.number().optional(),
+          version: z.string().optional(),
+        }),
+      ),
+    }),
+    skills: z.array(z.string()),
+    agents: z.array(z.object({ name: z.string(), content: z.string() })),
+    rules: z.array(z.object({ name: z.string(), content: z.string() })),
+    mcpServers: z.object({
+      mcpServers: z.record(
+        z.object({
+          command: z.string(),
+          args: z.array(z.string()).optional(),
+          env: z.record(z.string()).optional(),
+        }),
+      ),
+    }),
+    hooks: z.record(z.unknown()),
+    permissions: z.object({
+      allow: z.array(z.string()),
+      deny: z.array(z.string()),
+    }),
   }),
 });
 
@@ -3306,6 +3691,7 @@ export const SessionOutboundMessageSchema = z.discriminatedUnion("type", [
   StartWorkspaceScriptResponseMessageSchema,
   ListAvailableEditorsResponseMessageSchema,
   OpenInEditorResponseMessageSchema,
+  RenameWorkspaceResponseSchema,
   ArchiveWorkspaceResponseMessageSchema,
   FetchAgentResponseMessageSchema,
   FetchAgentTimelineResponseMessageSchema,
@@ -3362,7 +3748,22 @@ export const SessionOutboundMessageSchema = z.discriminatedUnion("type", [
   ProvidersSnapshotUpdateMessageSchema,
   RefreshProvidersSnapshotResponseMessageSchema,
   ProviderDiagnosticResponseMessageSchema,
+  ProviderConnectionTestResponseSchema,
+  StackServicesResponseSchema,
   ListCommandsResponseSchema,
+  NineRouterStatusResponseSchema,
+  NineRouterKeysResponseSchema,
+  NineRouterModelsResponseSchema,
+  NineRouterProvidersResponseSchema,
+  NineRouterUsageResponseSchema,
+  NineRouterOAuthImportResponseSchema,
+  NineRouterCliToolSettingsResponseSchema,
+  NineRouterCliToolSettingsUpdateResponseSchema,
+  NineRouterModelAliasesResponseSchema,
+  NineRouterSetModelAliasResponseSchema,
+  NineRouterDeleteModelAliasResponseSchema,
+  NineRouterTestModelResponseSchema,
+  SoiferBackendStatusResponseSchema,
   ListTerminalsResponseSchema,
   TerminalsChangedSchema,
   CreateTerminalResponseSchema,
