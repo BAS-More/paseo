@@ -32,13 +32,12 @@ export async function loadRealDaemonState(): Promise<RealDaemonState> {
   if (!paseoHome) throw new Error("E2E_PASEO_HOME not set — globalSetup must run first");
 
   const resp = await fetch(`http://127.0.0.1:${port}/api/status`);
-  const data: DaemonApiStatus = await resp.json();
+  const data = (await resp.json()) as DaemonApiStatus;
 
   let pid: number | null = null;
   try {
     const raw = readFileSync(`${paseoHome}/paseo.pid`, "utf8");
-    const pidContent: PidFileContent = JSON.parse(raw);
-    pid = pidContent.pid ?? null;
+    pid = (JSON.parse(raw) as PidFileContent).pid ?? null;
   } catch (err) {
     // PID file may not be present yet on a very fresh daemon start
     console.warn("[desktop-updates] paseo.pid not found:", err);
@@ -69,12 +68,6 @@ export interface DesktopBridgeConfig {
 export interface ConfirmDialogCall {
   message: string;
   title: string | undefined;
-}
-
-declare global {
-  interface Window {
-    __capturedDialogCall: ConfirmDialogCall | undefined;
-  }
 }
 
 /**
@@ -158,14 +151,12 @@ export async function injectDesktopBridge(page: Page, config: DesktopBridgeConfi
         }
 
         if (command === "patch_desktop_settings") {
-          const daemon = args?.daemon;
-          if (
-            daemon !== null &&
-            typeof daemon === "object" &&
-            "manageBuiltInDaemon" in daemon &&
-            typeof daemon.manageBuiltInDaemon === "boolean"
-          ) {
-            manageDaemon = daemon.manageBuiltInDaemon;
+          const patchDaemon =
+            args?.daemon && typeof args.daemon === "object"
+              ? (args.daemon as Record<string, unknown>)
+              : {};
+          if (typeof patchDaemon.manageBuiltInDaemon === "boolean") {
+            manageDaemon = patchDaemon.manageBuiltInDaemon;
           }
           return {
             releaseChannel: "stable",
@@ -192,9 +183,9 @@ export async function injectDesktopBridge(page: Page, config: DesktopBridgeConfi
       },
       dialog: {
         ask: async (message: string, options?: Record<string, unknown>) => {
-          window.__capturedDialogCall = {
+          (window as unknown as Record<string, unknown>).__capturedDialogCall = {
             message,
-            title: typeof options?.title === "string" ? options.title : undefined,
+            title: options?.title,
           };
           return cfg.confirmShouldAccept ?? false;
         },
@@ -237,8 +228,13 @@ export async function interceptDaemonManagementConfirmDialog(
   page: Page,
 ): Promise<ConfirmDialogCall> {
   await page.getByRole("switch", { name: "Manage built-in daemon" }).click();
-  await page.waitForFunction(() => !!window.__capturedDialogCall, { timeout: 5_000 });
-  return page.evaluate(() => window.__capturedDialogCall!);
+  await page.waitForFunction(
+    () => !!(window as unknown as Record<string, unknown>).__capturedDialogCall,
+    { timeout: 5_000 },
+  );
+  return page.evaluate(
+    () => (window as unknown as Record<string, unknown>).__capturedDialogCall as ConfirmDialogCall,
+  );
 }
 
 export async function toggleDaemonManagement(
