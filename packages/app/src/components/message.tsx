@@ -49,11 +49,8 @@ import {
   FileSymlink,
 } from "lucide-react-native";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
-import type { Theme } from "@/styles/theme";
+import { SPACING, type Theme } from "@/styles/theme";
 import { useIsCompactFormFactor } from "@/constants/layout";
-import { useAppSettings } from "@/hooks/use-settings";
-import { Sparkles } from "lucide-react-native";
-import { getProviderIcon } from "@/components/provider-icons";
 import Animated, {
   Easing,
   cancelAnimation,
@@ -69,21 +66,14 @@ import * as Clipboard from "expo-clipboard";
 import type { TodoEntry, UserMessageImageAttachment } from "@/types/stream";
 import type { AgentAttachment } from "@server/shared/messages";
 import type { ToolCallDetail } from "@server/server/agent/agent-sdk-types";
-import { buildToolCallDisplayModel } from "@/utils/tool-call-display";
+import { buildToolCallPresentation } from "@/tool-calls/presentation";
 import { resolveToolCallIcon } from "@/utils/tool-call-icon";
-import { extractToolCallFilePath } from "@/utils/extract-tool-call-file-path";
-import {
-  hasMeaningfulToolCallDetail,
-  isPendingToolCallDetail,
-} from "@/utils/tool-call-detail-state";
-import {
-  parseAssistantFileLink,
-  parseInlinePathToken,
-  type InlinePathTarget,
-} from "@/utils/inline-path";
-import { getMarkdownListMarker } from "@/utils/markdown-list";
-import { openExternalUrl } from "@/utils/open-external-url";
+import type { OpenFileDisposition } from "@/workspace/file-open";
+import { getMarkdownListMarker, getMarkdownNextSiblingType } from "@/utils/markdown-list";
+import type { ToastApi } from "@/components/toast-host";
+import { HighlightedCodeBlock } from "@/components/highlighted-code-block";
 import { splitMarkdownBlocks } from "@/utils/split-markdown-blocks";
+import { formatDuration, formatMessageTimestamp } from "@/utils/time";
 import {
   getAssistantImageLoadStateFromMetadata,
   getAssistantImageMetadata,
@@ -100,11 +90,21 @@ import {
 import { PlanCard } from "./plan-card";
 import { useToolCallSheet } from "./tool-call-sheet";
 import { ToolCallDetailsContent } from "./tool-call-details";
+import {
+  AssistantInlineCodePathLink,
+  classifyAssistantFileLink,
+  type AssistantFileLinkSource,
+  AssistantMarkdownCodeLink,
+  AssistantMarkdownLink,
+  type InlinePathTarget,
+  useAssistantFileLinkResolver,
+} from "@/assistant-file-links";
+import { getCompactionMarkerLabel } from "./message-compaction-label";
 import { useAttachmentPreviewUrl } from "@/attachments/use-attachment-preview-url";
 import { persistAttachmentFromBytes, persistAttachmentFromDataUrl } from "@/attachments/service";
 import type { DaemonClient } from "@server/client/daemon-client";
 import { isWeb, isNative } from "@/constants/platform";
-export type { InlinePathTarget } from "@/utils/inline-path";
+export type { InlinePathTarget } from "@/assistant-file-links";
 
 type MarkdownStyles = Record<string, TextStyle & ViewStyle & { [key: string]: unknown }>;
 
@@ -195,6 +195,10 @@ const WEB_TOOLCALL_SHIMMER_KEYFRAME_CSS = `
 `;
 let webToolCallShimmerRegistered = false;
 const SCROLL_EDGE_EPSILON = 0.5;
+
+// Font size for stream metadata (timestamps, durations, live elapsed timer).
+// Lives between theme.fontSize.xs (12) and theme.fontSize.sm (14); no token.
+export const STREAM_METADATA_FONT_SIZE = 13;
 type ScrollAxis = "x" | "y";
 
 function ensureWebToolCallShimmerKeyframes() {
@@ -326,7 +330,6 @@ const userMessageStylesheet = StyleSheet.create((theme) => ({
   container: {
     flexDirection: "row",
     justifyContent: "flex-end",
-    paddingHorizontal: theme.spacing[2],
     ...(isWeb ? { userSelect: "text" as const } : {}),
   },
   content: {
@@ -344,17 +347,13 @@ const userMessageStylesheet = StyleSheet.create((theme) => ({
     marginBottom: theme.spacing[4],
   },
   bubble: {
-    backgroundColor: theme.colors.surface2,
+    backgroundColor: theme.colors.surface3,
     borderRadius: theme.borderRadius["2xl"],
     borderTopRightRadius: theme.borderRadius.sm,
     paddingHorizontal: theme.spacing[4],
     paddingVertical: theme.spacing[4],
     minWidth: 0,
     flexShrink: 1,
-  },
-  bubbleClaudeDesktop: {
-    backgroundColor: theme.colors.userBubble,
-    borderTopRightRadius: theme.borderRadius["2xl"],
   },
   text: {
     color: theme.colors.foreground,
@@ -404,15 +403,25 @@ const userMessageStylesheet = StyleSheet.create((theme) => ({
     fontSize: theme.fontSize.sm,
   },
   copyButton: {
-    alignSelf: "flex-end",
     padding: theme.spacing[1],
+    marginRight: -theme.spacing[1],
+  },
+  trailingRow: {
+    alignSelf: "flex-end",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: theme.spacing[2],
     marginTop: theme.spacing[2],
   },
-  copyButtonHidden: {
+  trailingRowHidden: {
     opacity: 0,
   },
-  copyButtonVisible: {
+  trailingRowVisible: {
     opacity: 1,
+  },
+  timestampText: {
+    color: theme.colors.foregroundMuted,
+    fontSize: STREAM_METADATA_FONT_SIZE,
   },
 }));
 
@@ -446,24 +455,25 @@ export const UserMessage = memo(function UserMessage({
   message,
   images = [],
   attachments = [],
-  timestamp: _timestamp,
+  timestamp,
   isFirstInGroup = true,
   isLastInGroup = true,
   disableOuterSpacing,
 }: UserMessageProps) {
   const isCompact = useIsCompactFormFactor();
-  const { settings: appSettings } = useAppSettings();
-  const isClaudeDesktop = appSettings.layoutMode === "claude-desktop";
-  const [messageHovered, setMessageHovered] = useState(false);
-  const [copyButtonHovered, setCopyButtonHovered] = useState(false);
+  const [isHovered, setIsHovered] = useState(false);
   const resolvedDisableOuterSpacing = useDisableOuterSpacing(disableOuterSpacing);
   const hasText = message.trim().length > 0;
   const hasImages = images.length > 0;
   const hasAttachments = attachments.length > 0;
-  const showCopyButton = hasText && (isCompact || messageHovered || copyButtonHovered);
+  const showTrailingRow = hasText && (isCompact || isNative || isHovered);
+  const formattedTimestamp = useMemo(
+    () => formatMessageTimestamp(new Date(timestamp)),
+    [timestamp],
+  );
 
-  const handleHoverIn = useCallback(() => setMessageHovered(true), []);
-  const handleHoverOut = useCallback(() => setMessageHovered(false), []);
+  const handlePointerEnter = useCallback(() => setIsHovered(true), []);
+  const handlePointerLeave = useCallback(() => setIsHovered(false), []);
   const getMessageContent = useCallback(() => message, [message]);
 
   const containerStyle = useMemo(
@@ -491,31 +501,24 @@ export const UserMessage = memo(function UserMessage({
     ],
     [hasText],
   );
-  const copyButtonStyle = useMemo(
+  const trailingRowStyle = useMemo(
     () => [
-      userMessageStylesheet.copyButton,
-      showCopyButton
-        ? userMessageStylesheet.copyButtonVisible
-        : userMessageStylesheet.copyButtonHidden,
+      userMessageStylesheet.trailingRow,
+      showTrailingRow
+        ? userMessageStylesheet.trailingRowVisible
+        : userMessageStylesheet.trailingRowHidden,
     ],
-    [showCopyButton],
-  );
-  const bubbleStyle = useMemo(
-    () => [
-      userMessageStylesheet.bubble,
-      isClaudeDesktop && userMessageStylesheet.bubbleClaudeDesktop,
-    ],
-    [isClaudeDesktop],
+    [showTrailingRow],
   );
 
   return (
     <View style={containerStyle}>
-      <Pressable
+      <View
         style={userMessageStylesheet.content}
-        onHoverIn={handleHoverIn}
-        onHoverOut={handleHoverOut}
+        onPointerEnter={handlePointerEnter}
+        onPointerLeave={handlePointerLeave}
       >
-        <View style={bubbleStyle}>
+        <View style={userMessageStylesheet.bubble}>
           {hasImages ? (
             <View style={imagePreviewContainerStyle}>
               {images.map((image) => (
@@ -546,94 +549,192 @@ export const UserMessage = memo(function UserMessage({
           ) : null}
         </View>
         {hasText ? (
-          <TurnCopyButton
-            getContent={getMessageContent}
-            containerStyle={copyButtonStyle}
-            accessibilityLabel="Copy message"
-            onHoverChange={setCopyButtonHovered}
-          />
+          <View style={trailingRowStyle} pointerEvents={showTrailingRow ? "auto" : "none"}>
+            <Text style={userMessageStylesheet.timestampText}>{formattedTimestamp}</Text>
+            <TurnCopyButton
+              getContent={getMessageContent}
+              containerStyle={userMessageStylesheet.copyButton}
+              accessibilityLabel="Copy message"
+            />
+          </View>
         ) : null}
-      </Pressable>
+      </View>
     </View>
+  );
+});
+
+interface AssistantTurnFooterProps {
+  getContent: () => string;
+  completedAt?: Date;
+  durationMs?: number;
+}
+
+const assistantTurnFooterStylesheet = StyleSheet.create((theme) => ({
+  container: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: theme.spacing[2],
+  },
+  copyButton: {
+    alignSelf: "center",
+    padding: theme.spacing[1],
+    paddingTop: theme.spacing[1],
+    marginTop: 0,
+    marginLeft: -theme.spacing[1],
+  },
+  labelWrapper: {
+    position: "relative",
+  },
+  labelSizer: {
+    color: theme.colors.foregroundMuted,
+    fontSize: STREAM_METADATA_FONT_SIZE,
+    opacity: 0,
+  },
+  labelOverlay: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    color: theme.colors.foregroundMuted,
+    fontSize: STREAM_METADATA_FONT_SIZE,
+  },
+}));
+
+const TIMESTAMP_REVEAL_MS = 3000;
+
+/**
+ * Footer rendered next to the copy button at the end of an assistant turn.
+ * Always shows the turn duration; swaps to the end timestamp on hover (web)
+ * or tap (native). The hidden sizer keeps the label width stable while the
+ * visible text swaps.
+ */
+export const AssistantTurnFooter = memo(function AssistantTurnFooter({
+  getContent,
+  completedAt,
+  durationMs,
+}: AssistantTurnFooterProps) {
+  const [hovered, setHovered] = useState(false);
+  const [pressedReveal, setPressedReveal] = useState(false);
+  const revealTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (revealTimerRef.current) {
+        clearTimeout(revealTimerRef.current);
+        revealTimerRef.current = null;
+      }
+    };
+  }, []);
+
+  const durationLabel = useMemo(
+    () => (durationMs !== undefined ? `Worked for ${formatDuration(durationMs)}` : ""),
+    [durationMs],
+  );
+  const timestampLabel = useMemo(
+    () => (completedAt ? formatMessageTimestamp(completedAt) : ""),
+    [completedAt],
+  );
+
+  const canSwap = Boolean(timestampLabel);
+  const showTimestamp = canSwap && (isWeb ? hovered : pressedReveal);
+
+  const handleHoverIn = useCallback(() => setHovered(true), []);
+  const handleHoverOut = useCallback(() => setHovered(false), []);
+  const handlePress = useCallback(() => {
+    if (isWeb || !canSwap) return;
+    if (revealTimerRef.current) {
+      clearTimeout(revealTimerRef.current);
+    }
+    setPressedReveal((prev) => !prev);
+    revealTimerRef.current = setTimeout(() => {
+      setPressedReveal(false);
+      revealTimerRef.current = null;
+    }, TIMESTAMP_REVEAL_MS);
+  }, [canSwap]);
+
+  return (
+    <View style={assistantTurnFooterStylesheet.container}>
+      <TurnCopyButton
+        getContent={getContent}
+        containerStyle={assistantTurnFooterStylesheet.copyButton}
+      />
+      {durationLabel ? (
+        <Pressable
+          onPress={handlePress}
+          onHoverIn={handleHoverIn}
+          onHoverOut={handleHoverOut}
+          accessibilityRole={canSwap ? "button" : undefined}
+          accessibilityLabel={canSwap ? `${durationLabel}, ended ${timestampLabel}` : durationLabel}
+        >
+          <View style={assistantTurnFooterStylesheet.labelWrapper}>
+            {/* Sizer reserves space for whichever label is longer so the
+                container width is stable across hover transitions. */}
+            <Text style={assistantTurnFooterStylesheet.labelSizer} aria-hidden>
+              {durationLabel.length >= timestampLabel.length ? durationLabel : timestampLabel}
+            </Text>
+            <Text style={assistantTurnFooterStylesheet.labelOverlay}>
+              {showTimestamp ? timestampLabel : durationLabel}
+            </Text>
+          </View>
+        </Pressable>
+      ) : null}
+    </View>
+  );
+});
+
+interface LiveElapsedProps {
+  startedAt: Date;
+  style?: StyleProp<TextStyle>;
+  testID?: string;
+}
+
+/**
+ * Ticks every 100ms to render an elapsed duration. Isolated from parents so
+ * only this component re-renders on each tick.
+ */
+export const LiveElapsed = memo(function LiveElapsed({
+  startedAt,
+  style,
+  testID,
+}: LiveElapsedProps) {
+  const startedAtMs = startedAt.getTime();
+  const [elapsedMs, setElapsedMs] = useState(() => Math.max(0, Date.now() - startedAtMs));
+
+  useEffect(() => {
+    setElapsedMs(Math.max(0, Date.now() - startedAtMs));
+    const handle = setInterval(() => {
+      setElapsedMs(Math.max(0, Date.now() - startedAtMs));
+    }, 100);
+    return () => clearInterval(handle);
+  }, [startedAtMs]);
+
+  return (
+    <Text style={style} testID={testID}>
+      {formatDuration(elapsedMs)}
+    </Text>
   );
 });
 
 interface AssistantMessageProps {
   message: string;
   timestamp: number;
-  onInlinePathPress?: (target: InlinePathTarget) => void;
+  onInlinePathPress?: (target: InlinePathTarget, disposition: OpenFileDisposition) => void;
   workspaceRoot?: string;
   serverId?: string;
   client?: DaemonClient | null;
-  disableOuterSpacing?: boolean;
+  toast?: ToastApi | null;
   spacing?: "default" | "compactTop" | "compactBottom" | "compactBoth";
-  provider?: string;
 }
 
 export const assistantMessageStylesheet = StyleSheet.create((theme) => ({
   container: {
-    paddingHorizontal: theme.spacing[2],
     paddingVertical: theme.spacing[3],
     ...(isWeb ? { userSelect: "text" as const } : {}),
-  },
-  containerClaudeDesktop: {
-    flexDirection: "row",
-    gap: theme.spacing[3],
-  },
-  avatar: {
-    width: 28,
-    height: 28,
-    borderRadius: theme.borderRadius.full,
-    backgroundColor: theme.colors.accent,
-    alignItems: "center",
-    justifyContent: "center",
-    marginTop: 2,
-    flexShrink: 0,
-  },
-  avatarContent: {
-    flex: 1,
-    minWidth: 0,
-  },
-  hoverWrapper: {
-    position: "relative",
-  },
-  hoverActions: {
-    position: "absolute",
-    top: 0,
-    right: 0,
-    flexDirection: "row",
-    zIndex: 10,
-  },
-  hoverActionsHidden: {
-    opacity: 0,
-    pointerEvents: "none",
-  },
-  hoverActionsVisible: {
-    opacity: 1,
   },
   containerCompactTop: {
     paddingTop: 0,
   },
   containerCompactBottom: {
     paddingBottom: 0,
-  },
-  containerSpacing: {
-    marginBottom: theme.spacing[4],
-  },
-  // Used in custom markdownRules for path chip styling
-  pathChip: {
-    backgroundColor: theme.colors.surface2,
-    borderRadius: theme.borderRadius.full,
-    paddingHorizontal: theme.spacing[2],
-    paddingVertical: 2,
-    marginRight: theme.spacing[1],
-    marginVertical: 2,
-  },
-  pathChipText: {
-    color: theme.colors.foreground,
-    fontFamily: Fonts.mono,
-    fontSize: 13,
-    userSelect: isWeb ? "text" : "auto",
   },
   imageFrame: {
     width: "100%",
@@ -908,69 +1009,6 @@ function resolveAssistantImageErrorText(fileError: unknown, dataError: unknown):
   return "Unable to load image preview.";
 }
 
-interface InlinePathChipProps {
-  content: string;
-  parsed: InlinePathTarget;
-  onPress: (target: InlinePathTarget) => void;
-}
-
-const INLINE_PATH_CHIP_STYLE = [
-  assistantMessageStylesheet.pathChip,
-  assistantMessageStylesheet.pathChipText,
-];
-
-function InlinePathChip({ content, parsed, onPress }: InlinePathChipProps) {
-  const handlePress = useCallback(() => onPress(parsed), [onPress, parsed]);
-  return (
-    <Text
-      onPress={handlePress}
-      selectable={isWeb ? undefined : false}
-      style={INLINE_PATH_CHIP_STYLE}
-    >
-      {content}
-    </Text>
-  );
-}
-
-function MarkdownLink({
-  href,
-  style,
-  onPress,
-  children,
-}: {
-  href: string;
-  style: StyleProp<TextStyle>;
-  onPress: (url: string) => void;
-  children: ReactNode;
-}) {
-  const [hovered, setHovered] = useState(false);
-  const handlePress = useCallback(() => onPress(href), [onPress, href]);
-  const handleHoverIn = useCallback(() => setHovered(true), []);
-  const handleHoverOut = useCallback(() => setHovered(false), []);
-  const hoveredTextStyle = useMemo<StyleProp<TextStyle>>(
-    () => [style, hovered && { textDecorationLine: "underline" as const }],
-    [style, hovered],
-  );
-  if (isNative) {
-    return (
-      <Text accessibilityRole="link" onPress={handlePress} style={style}>
-        {children}
-      </Text>
-    );
-  }
-
-  return (
-    <Pressable
-      accessibilityRole="link"
-      onPress={handlePress}
-      onHoverIn={handleHoverIn}
-      onHoverOut={handleHoverOut}
-    >
-      <Text style={hoveredTextStyle}>{children}</Text>
-    </Pressable>
-  );
-}
-
 function getInlineCodeAutoLinkUrl(
   markdownParser: ReturnType<typeof MarkdownIt>,
   content: string,
@@ -980,11 +1018,13 @@ function getInlineCodeAutoLinkUrl(
     return null;
   }
 
-  const matches: Array<{
-    index: number;
-    lastIndex: number;
-    url: string;
-  }> | null = markdownParser.linkify.match(trimmed);
+  const matches:
+    | {
+        index: number;
+        lastIndex: number;
+        url: string;
+      }[]
+    | null = markdownParser.linkify.match(trimmed);
   if (!matches || matches.length !== 1) {
     return null;
   }
@@ -995,6 +1035,40 @@ function getInlineCodeAutoLinkUrl(
   }
 
   return match.url;
+}
+
+function getInlineCodeAutoLinkSource(input: {
+  href: string;
+  content: string;
+}): AssistantFileLinkSource {
+  return {
+    href: input.href,
+    text: input.content,
+    markup: "linkify",
+    sourceInfo: "auto",
+  };
+}
+
+interface AssistantMarkdownAstNode extends ASTNode {
+  sourceInfo?: string;
+}
+
+function getMarkdownLinkSource(node: AssistantMarkdownAstNode): AssistantFileLinkSource {
+  return {
+    href: typeof node.attributes?.href === "string" ? node.attributes.href : "",
+    text: getMarkdownNodeText(node),
+    markup: node.markup,
+    sourceInfo: node.sourceInfo,
+    sourceType: node.sourceType === "inline-code" ? "inline-code" : undefined,
+  };
+}
+
+function getMarkdownNodeText(node: ASTNode): string {
+  if (!node.children.length) {
+    return node.content ?? "";
+  }
+
+  return node.children.map(getMarkdownNodeText).join("");
 }
 
 function nodeHasParentType(parent: unknown, type: string): boolean {
@@ -1030,7 +1104,6 @@ interface TurnCopyButtonProps {
   containerStyle?: StyleProp<ViewStyle>;
   accessibilityLabel?: string;
   copiedAccessibilityLabel?: string;
-  onHoverChange?: (hovered: boolean) => void;
 }
 
 export const TurnCopyButton = memo(function TurnCopyButton({
@@ -1038,7 +1111,6 @@ export const TurnCopyButton = memo(function TurnCopyButton({
   containerStyle,
   accessibilityLabel,
   copiedAccessibilityLabel,
-  onHoverChange,
 }: TurnCopyButtonProps) {
   const [copied, setCopied] = useState(false);
   const copyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -1070,8 +1142,6 @@ export const TurnCopyButton = memo(function TurnCopyButton({
     };
   }, []);
 
-  const handleHoverIn = useCallback(() => onHoverChange?.(true), [onHoverChange]);
-  const handleHoverOut = useCallback(() => onHoverChange?.(false), [onHoverChange]);
   const pressableStyle = useMemo(
     () => [turnCopyButtonStylesheet.container, containerStyle],
     [containerStyle],
@@ -1080,8 +1150,6 @@ export const TurnCopyButton = memo(function TurnCopyButton({
   return (
     <Pressable
       onPress={handleCopy}
-      onHoverIn={handleHoverIn}
-      onHoverOut={handleHoverOut}
       style={pressableStyle}
       accessibilityRole="button"
       accessibilityLabel={
@@ -1093,9 +1161,9 @@ export const TurnCopyButton = memo(function TurnCopyButton({
           ? turnCopyButtonStylesheet.iconHoveredColor.color
           : turnCopyButtonStylesheet.iconColor.color;
         return copied ? (
-          <Check size={18} color={iconColor} />
+          <Check size={16} color={iconColor} />
         ) : (
-          <Copy size={18} color={iconColor} />
+          <Copy size={16} color={iconColor} />
         );
       }}
     </Pressable>
@@ -1104,7 +1172,7 @@ export const TurnCopyButton = memo(function TurnCopyButton({
 
 const expandableBadgeStylesheet = StyleSheet.create((theme) => ({
   container: {
-    marginHorizontal: -6,
+    marginHorizontal: -13,
   },
   containerSpacing: {
     marginBottom: theme.spacing[1],
@@ -1175,8 +1243,8 @@ const expandableBadgeStylesheet = StyleSheet.create((theme) => ({
     flex: 1,
   },
   chevron: {
-    marginLeft: theme.spacing[1],
     flexShrink: 0,
+    transform: [{ scale: 1.3 }],
   },
   openFileButton: {
     marginLeft: theme.spacing[1],
@@ -1189,7 +1257,7 @@ const expandableBadgeStylesheet = StyleSheet.create((theme) => ({
     height: 14,
   },
   chevronExpanded: {
-    transform: [{ rotate: "90deg" }],
+    transform: [{ scale: 1.3 }, { rotate: "90deg" }],
   },
   detailWrapper: {
     borderBottomLeftRadius: theme.borderRadius.lg,
@@ -1432,34 +1500,6 @@ function MarkdownInheritedText({
   return <Text style={style}>{children}</Text>;
 }
 
-interface MarkdownInheritedCodeLinkProps {
-  href: string;
-  inheritedStyles: TextStyle;
-  codeInlineStyle: TextStyle;
-  linkStyle: TextStyle;
-  onPress: (url: string) => boolean;
-  children: ReactNode;
-}
-
-function MarkdownInheritedCodeLink({
-  href,
-  inheritedStyles,
-  codeInlineStyle,
-  linkStyle,
-  onPress,
-  children,
-}: MarkdownInheritedCodeLinkProps) {
-  const style = useMemo(
-    () => [inheritedStyles, codeInlineStyle, linkStyle],
-    [inheritedStyles, codeInlineStyle, linkStyle],
-  );
-  return (
-    <MarkdownLink href={href} style={style} onPress={onPress}>
-      {children}
-    </MarkdownLink>
-  );
-}
-
 interface MarkdownListItemContentProps {
   contentStyle: ViewStyle;
   children: ReactNode;
@@ -1484,6 +1524,42 @@ function MarkdownParagraphView({ paragraphStyle, children }: MarkdownParagraphVi
   return <View style={style}>{children}</View>;
 }
 
+// List spacing in markdown:
+//   - p -> list and list -> p use a slightly larger gap than p -> p, so lists
+//     read as their own section against surrounding prose.
+//   - list -> list keeps the normal p-to-p gap; back-to-back lists are
+//     continuous content, not section breaks.
+//
+// Paragraph's marginBottom is SPACING[3] = 12 (and marginTop is 0). To produce
+// 16px gaps on p<->list transitions and 12px on list<->list, we add a constant
+// marginTop on lists (4) and switch marginBottom by next-sibling type:
+//   p -> list      = p.marginBottom(12) + list.marginTop(4)        = 16
+//   list -> p      = list.marginBottom(16) + p.marginTop(0)        = 16
+//   list -> list   = list.marginBottom(8) + list.marginTop(4)      = 12
+const MARKDOWN_LIST_MARGIN_TOP = SPACING[1]; // 4
+const MARKDOWN_LIST_MARGIN_BOTTOM_TO_PROSE = SPACING[4]; // 16
+const MARKDOWN_LIST_MARGIN_BOTTOM_TO_LIST = SPACING[2]; // 8
+
+function getMarkdownListContextMarginBottom(node: ASTNode, parent: ASTNode[]): number {
+  const nextType = getMarkdownNextSiblingType(node, parent);
+  const nextIsList = nextType === "bullet_list" || nextType === "ordered_list";
+  return nextIsList ? MARKDOWN_LIST_MARGIN_BOTTOM_TO_LIST : MARKDOWN_LIST_MARGIN_BOTTOM_TO_PROSE;
+}
+
+interface MarkdownListViewProps {
+  baseStyle: ViewStyle;
+  marginBottom: number;
+  children: ReactNode;
+}
+
+function MarkdownListView({ baseStyle, marginBottom, children }: MarkdownListViewProps) {
+  const style = useMemo(
+    () => [baseStyle, { marginTop: MARKDOWN_LIST_MARGIN_TOP, marginBottom }],
+    [baseStyle, marginBottom],
+  );
+  return <View style={style}>{children}</View>;
+}
+
 export const AssistantMessage = memo(function AssistantMessage({
   message,
   timestamp: _timestamp,
@@ -1491,23 +1567,9 @@ export const AssistantMessage = memo(function AssistantMessage({
   workspaceRoot,
   serverId,
   client,
-  disableOuterSpacing,
+  toast,
   spacing = "default",
-  provider,
 }: AssistantMessageProps) {
-  const { settings: appSettings } = useAppSettings();
-  const isClaudeDesktop = appSettings.layoutMode === "claude-desktop";
-  const AvatarIcon = useMemo(() => (provider ? getProviderIcon(provider) : Sparkles), [provider]);
-  const [messageHovered, setMessageHovered] = useState(false);
-  const [copyHovered, setCopyHovered] = useState(false);
-  const resolvedDisableOuterSpacing = useDisableOuterSpacing(
-    disableOuterSpacing ?? spacing !== "default",
-  );
-  const handleHoverIn = useCallback(() => setMessageHovered(true), []);
-  const handleHoverOut = useCallback(() => setMessageHovered(false), []);
-  const getMessageContent = useCallback(() => message, [message]);
-  const showCopyButton = isWeb && (messageHovered || copyHovered);
-
   const markdownParser = useMemo(() => {
     const parser = MarkdownIt({ typographer: true, linkify: true });
     const defaultValidateLink = parser.validateLink.bind(parser);
@@ -1521,20 +1583,34 @@ export const AssistantMessage = memo(function AssistantMessage({
     return parser;
   }, []);
 
-  const handleLinkPress = useCallback(
-    (url: string) => {
-      const fileTarget = onInlinePathPress ? parseAssistantFileLink(url, { workspaceRoot }) : null;
-      if (fileTarget) {
-        onInlinePathPress?.(fileTarget);
-        return false;
-      }
+  const fileLinkResolver = useAssistantFileLinkResolver({
+    client,
+    serverId,
+    workspaceRoot,
+    onOpenWorkspaceFile: onInlinePathPress,
+    toast,
+  });
 
-      void openExternalUrl(url);
+  const handleLinkPress = useCallback(
+    (source: AssistantFileLinkSource, disposition: OpenFileDisposition) => {
+      fileLinkResolver.open({ source, disposition });
+    },
+    [fileLinkResolver],
+  );
+  const handleLinkPrefetch = useCallback(
+    (source: AssistantFileLinkSource) => {
+      fileLinkResolver.prefetch({ source });
+    },
+    [fileLinkResolver],
+  );
+  const handleMarkdownLinkPress = useCallback(
+    (url: string) => {
+      fileLinkResolver.open({ source: { href: url }, disposition: "main" });
       // react-native-markdown-display opens the link itself when this returns true.
       // We already handled it above, so return false to avoid duplicate opens.
       return false;
     },
-    [onInlinePathPress, workspaceRoot],
+    [fileLinkResolver],
   );
 
   const markdownRules = useMemo<RenderRules>(() => {
@@ -1576,13 +1652,13 @@ export const AssistantMessage = memo(function AssistantMessage({
         styles: MarkdownStyles,
         inheritedStyles: TextStyle = {},
       ) => (
-        <MarkdownInheritedText
+        <HighlightedCodeBlock
           key={node.key}
+          code={node.content}
+          language={null}
           inheritedStyles={inheritedStyles}
           textStyle={styles.code_block}
-        >
-          {node.content}
-        </MarkdownInheritedText>
+        />
       ),
       fence: (
         node: ASTNode,
@@ -1591,13 +1667,13 @@ export const AssistantMessage = memo(function AssistantMessage({
         styles: MarkdownStyles,
         inheritedStyles: TextStyle = {},
       ) => (
-        <MarkdownInheritedText
+        <HighlightedCodeBlock
           key={node.key}
+          code={node.content}
+          language={node.sourceInfo}
           inheritedStyles={inheritedStyles}
           textStyle={styles.fence}
-        >
-          {node.content}
-        </MarkdownInheritedText>
+        />
       ),
       code_inline: (
         node: ASTNode,
@@ -1608,33 +1684,47 @@ export const AssistantMessage = memo(function AssistantMessage({
       ) => {
         const content = node.content ?? "";
         const isLinkedInlineCode = nodeHasParentType(parent, "link");
-        const parsed =
-          onInlinePathPress && !isLinkedInlineCode ? parseInlinePathToken(content) : null;
+        const inlineCodeFileLink = classifyAssistantFileLink(content, { workspaceRoot });
+        const shouldResolveInlinePath =
+          onInlinePathPress &&
+          !isLinkedInlineCode &&
+          inlineCodeFileLink &&
+          inlineCodeFileLink.kind !== "external";
 
-        if (parsed && onInlinePathPress) {
+        if (shouldResolveInlinePath) {
           return (
-            <InlinePathChip
+            <AssistantInlineCodePathLink
               key={node.key}
               content={content}
-              parsed={parsed}
-              onPress={onInlinePathPress}
+              inheritedStyles={inheritedStyles}
+              codeInlineStyle={styles.code_inline}
+              linkStyle={styles.link}
+              onPress={handleLinkPress}
+              onPrefetch={handleLinkPrefetch}
+              workspaceRoot={workspaceRoot}
             />
           );
         }
 
         const inlineCodeLinkUrl = getInlineCodeAutoLinkUrl(markdownParser, content);
         if (inlineCodeLinkUrl) {
+          const source = getInlineCodeAutoLinkSource({
+            href: inlineCodeLinkUrl,
+            content,
+          });
           return (
-            <MarkdownInheritedCodeLink
+            <AssistantMarkdownCodeLink
               key={node.key}
-              href={inlineCodeLinkUrl}
+              source={source}
               inheritedStyles={inheritedStyles}
               codeInlineStyle={styles.code_inline}
               linkStyle={styles.link}
               onPress={handleLinkPress}
+              onPrefetch={handleLinkPrefetch}
+              workspaceRoot={workspaceRoot}
             >
               {content}
-            </MarkdownInheritedCodeLink>
+            </AssistantMarkdownCodeLink>
           );
         }
 
@@ -1651,22 +1741,30 @@ export const AssistantMessage = memo(function AssistantMessage({
       bullet_list: (
         node: ASTNode,
         children: ReactNode[],
-        _parent: ASTNode[],
+        parent: ASTNode[],
         styles: MarkdownStyles,
       ) => (
-        <View key={node.key} style={styles.bullet_list}>
+        <MarkdownListView
+          key={node.key}
+          baseStyle={styles.bullet_list}
+          marginBottom={getMarkdownListContextMarginBottom(node, parent)}
+        >
           {children}
-        </View>
+        </MarkdownListView>
       ),
       ordered_list: (
         node: ASTNode,
         children: ReactNode[],
-        _parent: ASTNode[],
+        parent: ASTNode[],
         styles: MarkdownStyles,
       ) => (
-        <View key={node.key} style={styles.ordered_list}>
+        <MarkdownListView
+          key={node.key}
+          baseStyle={styles.ordered_list}
+          marginBottom={getMarkdownListContextMarginBottom(node, parent)}
+        >
           {children}
-        </View>
+        </MarkdownListView>
       ),
       list_item: (
         node: ASTNode,
@@ -1698,11 +1796,13 @@ export const AssistantMessage = memo(function AssistantMessage({
         </MarkdownParagraphView>
       ),
       link: (node: ASTNode, children: ReactNode[], _parent: ASTNode[], styles: MarkdownStyles) => (
-        <MarkdownLink
+        <AssistantMarkdownLink
           key={node.key}
-          href={typeof node.attributes?.href === "string" ? node.attributes.href : ""}
+          source={getMarkdownLinkSource(node)}
           style={styles.link}
           onPress={handleLinkPress}
+          onPrefetch={handleLinkPrefetch}
+          workspaceRoot={workspaceRoot}
         >
           {Children.map(children, (child) => {
             if (!isValidElement(child)) return child;
@@ -1711,7 +1811,7 @@ export const AssistantMessage = memo(function AssistantMessage({
               style: [childProps.style, { color: styles.link.color }],
             } as Partial<{ style: StyleProp<TextStyle> }>);
           })}
-        </MarkdownLink>
+        </AssistantMarkdownLink>
       ),
       image: (
         node: ASTNode,
@@ -1741,7 +1841,15 @@ export const AssistantMessage = memo(function AssistantMessage({
         );
       },
     };
-  }, [client, handleLinkPress, markdownParser, onInlinePathPress, serverId, workspaceRoot]);
+  }, [
+    client,
+    handleLinkPrefetch,
+    handleLinkPress,
+    markdownParser,
+    onInlinePathPress,
+    serverId,
+    workspaceRoot,
+  ]);
 
   const blocks = useMemo(() => splitMarkdownBlocks(message), [message]);
   const keyedBlocks = useMemo(
@@ -1756,100 +1864,27 @@ export const AssistantMessage = memo(function AssistantMessage({
         assistantMessageStylesheet.containerCompactTop,
       (spacing === "compactBottom" || spacing === "compactBoth") &&
         assistantMessageStylesheet.containerCompactBottom,
-      !resolvedDisableOuterSpacing && assistantMessageStylesheet.containerSpacing,
     ],
-    [spacing, resolvedDisableOuterSpacing],
+    [spacing],
   );
-
-  const outerStyle = useMemo(
-    () => [
-      assistantContainerStyle,
-      isClaudeDesktop && assistantMessageStylesheet.containerClaudeDesktop,
-    ],
-    [assistantContainerStyle, isClaudeDesktop],
-  );
-
-  const hoverActionsStyle = useMemo(
-    () => [
-      assistantMessageStylesheet.hoverActions,
-      showCopyButton
-        ? assistantMessageStylesheet.hoverActionsVisible
-        : assistantMessageStylesheet.hoverActionsHidden,
-    ],
-    [showCopyButton],
-  );
-
-  const renderedBlocks = keyedBlocks.map(({ key, block }, index) => (
-    <AssistantMessageBlockContainer
-      key={key}
-      block={block}
-      marginBottom={index < keyedBlocks.length - 1 ? 12 : 0}
-    >
-      <MemoizedMarkdownBlock
-        text={block}
-        rules={markdownRules}
-        parser={markdownParser}
-        onLinkPress={handleLinkPress}
-      />
-    </AssistantMessageBlockContainer>
-  ));
-
-  if (!isWeb) {
-    // Native: no hover actions, no Pressable wrapper — preserves original behavior
-    return (
-      <View testID="assistant-message" style={outerStyle}>
-        {isClaudeDesktop ? (
-          <>
-            <View style={assistantMessageStylesheet.avatar}>
-              <AvatarIcon size={14} color="#fff" />
-            </View>
-            <View style={assistantMessageStylesheet.avatarContent}>{renderedBlocks}</View>
-          </>
-        ) : (
-          renderedBlocks
-        )}
-      </View>
-    );
-  }
 
   return (
-    <Pressable
-      testID="assistant-message"
-      style={outerStyle}
-      onHoverIn={handleHoverIn}
-      onHoverOut={handleHoverOut}
-    >
-      {isClaudeDesktop ? (
-        <>
-          <View style={assistantMessageStylesheet.avatar}>
-            <Sparkles size={14} color="#fff" />
-          </View>
-          <View style={assistantMessageStylesheet.avatarContent}>
-            <View style={assistantMessageStylesheet.hoverWrapper}>
-              <View style={hoverActionsStyle}>
-                <TurnCopyButton
-                  getContent={getMessageContent}
-                  accessibilityLabel="Copy message"
-                  onHoverChange={setCopyHovered}
-                />
-              </View>
-              {renderedBlocks}
-            </View>
-          </View>
-        </>
-      ) : (
-        <View style={assistantMessageStylesheet.hoverWrapper}>
-          <View style={hoverActionsStyle}>
-            <TurnCopyButton
-              getContent={getMessageContent}
-              accessibilityLabel="Copy message"
-              onHoverChange={setCopyHovered}
-            />
-          </View>
-          {renderedBlocks}
-        </View>
-      )}
-    </Pressable>
+    <View testID="assistant-message" style={assistantContainerStyle}>
+      {keyedBlocks.map(({ key, block }, index) => (
+        <AssistantMessageBlockContainer
+          key={key}
+          block={block}
+          marginBottom={index < keyedBlocks.length - 1 ? 12 : 0}
+        >
+          <MemoizedMarkdownBlock
+            text={block}
+            rules={markdownRules}
+            parser={markdownParser}
+            onLinkPress={handleMarkdownLinkPress}
+          />
+        </AssistantMessageBlockContainer>
+      ))}
+    </View>
   );
 });
 
@@ -1861,7 +1896,6 @@ interface SpeakMessageProps {
 
 const speakMessageStylesheet = StyleSheet.create((theme) => ({
   container: {
-    paddingHorizontal: theme.spacing[2],
     paddingVertical: theme.spacing[3],
   },
   containerSpacing: {
@@ -1926,7 +1960,6 @@ interface ActivityLogProps {
 
 const activityLogStylesheet = StyleSheet.create((theme) => ({
   pressable: {
-    marginHorizontal: theme.spacing[2],
     borderRadius: theme.borderRadius.md,
     overflow: "hidden",
   },
@@ -2100,6 +2133,7 @@ export const ActivityLog = memo(function ActivityLog({
 
 interface CompactionMarkerProps {
   status: "loading" | "completed";
+  trigger?: "auto" | "manual";
   preTokens?: number;
 }
 
@@ -2130,12 +2164,10 @@ const compactionStylesheet = StyleSheet.create((theme) => ({
 
 export const CompactionMarker = memo(function CompactionMarker({
   status,
+  trigger,
   preTokens,
 }: CompactionMarkerProps) {
-  let label: string;
-  if (status === "loading") label = "Compacting...";
-  else if (preTokens) label = `Context compacted (${Math.round(preTokens / 1000)}K tokens)`;
-  else label = "Context compacted";
+  const label = getCompactionMarkerLabel({ status, trigger, preTokens });
 
   return (
     <View style={compactionStylesheet.container}>
@@ -2462,6 +2494,26 @@ function ExpandableBadgeLabelRow({
   );
 }
 
+// HACK: lucide ships every icon inside a 24×24 viewBox where the path
+// doesn't touch the edges — there's per-icon internal padding. The layout
+// already places the SVG element's box on the rail, but the visible glyph
+// inside the SVG sits inset by a few pixels (and the inset amount differs
+// per icon — chevron-right paints only in the right half of its viewBox,
+// regular tool icons paint roughly the full viewBox minus ~1 unit margin).
+//
+// Lucide has no viewBox knob, so the only way to nudge the visible glyph
+// flush with the rail is a per-icon negative margin. Cosmetic; not exact —
+// every lucide icon has slightly different padding and we're not measuring
+// each one. Two buckets is the compromise:
+//   - LUCIDE_TOOL_ICON_NUDGE_LEFT: regular tool icons (path mostly fills
+//     the viewBox); needs ~1px left shift.
+//   - LUCIDE_CHEVRON_NUDGE_LEFT: chevron-right (path in right half of
+//     viewBox, and we scale it 1.3×); needs ~4px left shift.
+// If we ever want this exact, the principled fix is a custom <Svg> wrapper
+// with a tight viewBox per icon — see option (2) in the design discussion.
+const LUCIDE_TOOL_ICON_NUDGE_LEFT: ViewStyle = { marginLeft: -1 };
+const LUCIDE_CHEVRON_NUDGE_LEFT: ViewStyle = { marginLeft: -4 };
+
 function renderExpandableBadgeIcon({
   isError,
   isActive,
@@ -2472,14 +2524,20 @@ function renderExpandableBadgeIcon({
   ThemedIcon: ComponentType<{ size?: number; uniProps?: typeof foregroundColorMapping }> | null;
 }): ReactNode {
   if (isError) {
-    return <ThemedTriangleAlertIcon size={12} opacity={0.8} uniProps={destructiveColorMapping} />;
+    return (
+      <View style={LUCIDE_TOOL_ICON_NUDGE_LEFT}>
+        <ThemedTriangleAlertIcon size={12} opacity={0.8} uniProps={destructiveColorMapping} />
+      </View>
+    );
   }
   if (ThemedIcon) {
     return (
-      <ThemedIcon
-        size={12}
-        uniProps={isActive ? foregroundColorMapping : mutedForegroundColorMapping}
-      />
+      <View style={LUCIDE_TOOL_ICON_NUDGE_LEFT}>
+        <ThemedIcon
+          size={12}
+          uniProps={isActive ? foregroundColorMapping : mutedForegroundColorMapping}
+        />
+      </View>
     );
   }
   return null;
@@ -2496,7 +2554,7 @@ function renderExpandableBadgeIconSlot({
 }): ReactNode {
   if (showChevron) {
     return (
-      <ThemedChevronRightIcon size={14} style={chevronStyle} uniProps={foregroundColorMapping} />
+      <ThemedChevronRightIcon size={12} style={chevronStyle} uniProps={foregroundColorMapping} />
     );
   }
   return iconNode;
@@ -2621,7 +2679,6 @@ const ExpandableBadge = memo(function ExpandableBadge({
   const resolvedDisableOuterSpacing = useDisableOuterSpacing(disableOuterSpacing);
   const [isHovered, setIsHovered] = useState(false);
   const [isOpenFileHovered, setIsOpenFileHovered] = useState(false);
-  const [isIconHovered, setIsIconHovered] = useState(false);
   const [isPressed, setIsPressed] = useState(false);
   const isInteractive = Boolean(onToggle);
   const hasDetailContent = Boolean(renderDetails);
@@ -2649,8 +2706,6 @@ const ExpandableBadge = memo(function ExpandableBadge({
   );
   const handleOpenFileHoverIn = useCallback(() => setIsOpenFileHovered(true), []);
   const handleOpenFileHoverOut = useCallback(() => setIsOpenFileHovered(false), []);
-  const handleIconHoverIn = useCallback(() => setIsIconHovered(true), []);
-  const handleIconHoverOut = useCallback(() => setIsIconHovered(false), []);
 
   const nativeGradientIdRef = useRef(
     `shimmer-gradient-${Math.random().toString(36).substring(2, 9)}`,
@@ -2840,6 +2895,7 @@ const ExpandableBadge = memo(function ExpandableBadge({
     () => [
       expandableBadgeStylesheet.chevron,
       isExpanded && expandableBadgeStylesheet.chevronExpanded,
+      LUCIDE_CHEVRON_NUDGE_LEFT,
     ],
     [isExpanded],
   );
@@ -2847,7 +2903,7 @@ const ExpandableBadge = memo(function ExpandableBadge({
   const ThemedIcon = useMemo(() => (icon ? withUnistyles(icon) : null), [icon]);
   const iconNode = renderExpandableBadgeIcon({ isError, isActive, ThemedIcon });
   const iconSlotNode = renderExpandableBadgeIconSlot({
-    showChevron: isInteractive && isHovered && !isIconHovered,
+    showChevron: isInteractive && isHovered,
     chevronStyle,
     iconNode,
   });
@@ -2875,13 +2931,7 @@ const ExpandableBadge = memo(function ExpandableBadge({
         style={pressableStyle}
       >
         <View style={expandableBadgeStylesheet.headerRow}>
-          <View
-            style={expandableBadgeStylesheet.iconBadge}
-            onPointerEnter={isWeb ? handleIconHoverIn : undefined}
-            onPointerLeave={isWeb ? handleIconHoverOut : undefined}
-          >
-            {iconSlotNode}
-          </View>
+          <View style={expandableBadgeStylesheet.iconBadge}>{iconSlotNode}</View>
           <ExpandableBadgeLabelRow
             label={label}
             labelStyle={labelStyle}
@@ -2975,7 +3025,6 @@ export const ToolCall = memo(function ToolCall({
   const { openToolCall } = useToolCallSheet();
   const [isExpanded, setIsExpanded] = useState(false);
 
-  // Check if we're on mobile (use bottom sheet) or desktop (inline expand)
   const isMobile = useIsCompactFormFactor();
 
   const effectiveDetail = useMemo<ToolCallDetail | undefined>(() => {
@@ -2992,63 +3041,36 @@ export const ToolCall = memo(function ToolCall({
     return undefined;
   }, [detail, args, result]);
 
-  const displayDetail = useMemo<ToolCallDetail>(
+  const presentation = useMemo(
     () =>
-      effectiveDetail ?? {
-        type: "unknown",
-        input: null,
-        output: null,
-      },
-    [effectiveDetail],
-  );
-
-  const displayModel = useMemo(
-    () =>
-      buildToolCallDisplayModel({
-        name: toolName,
-        status: status === "executing" ? "running" : status,
+      buildToolCallPresentation({
+        toolName,
+        status,
         error: error ?? null,
-        detail: displayDetail,
+        detail: effectiveDetail,
         metadata,
         cwd,
+        resolveIcon: resolveToolCallIcon,
       }),
-    [toolName, status, error, displayDetail, metadata, cwd],
-  );
-  const displayName = displayModel.displayName;
-  const summary = displayModel.summary;
-  const errorText = displayModel.errorText;
-  const IconComponent = resolveToolCallIcon(toolName, effectiveDetail);
-  const isLoadingDetails = isPendingToolCallDetail({
-    detail: effectiveDetail,
-    status,
-    error,
-  });
-  const secondaryLabel = summary;
-
-  // Check if there's any content to display
-  const hasDetails = Boolean(error) || hasMeaningfulToolCallDetail(effectiveDetail);
-  const canOpenDetails = hasDetails || isLoadingDetails;
-
-  const extractedFilePath = useMemo(
-    () => extractToolCallFilePath(effectiveDetail),
-    [effectiveDetail],
+    [toolName, status, error, effectiveDetail, metadata, cwd],
   );
   const handleOpenFile = useMemo(() => {
-    if (!extractedFilePath || !onOpenFilePath) {
+    const openFilePath = presentation.openFilePath;
+    if (!openFilePath || !onOpenFilePath) {
       return undefined;
     }
-    return () => onOpenFilePath(extractedFilePath);
-  }, [extractedFilePath, onOpenFilePath]);
+    return () => onOpenFilePath(openFilePath);
+  }, [presentation.openFilePath, onOpenFilePath]);
 
   const handleToggle = useCallback(() => {
     if (isMobile) {
       openToolCall({
-        toolName,
-        displayName,
-        summary: secondaryLabel,
+        displayName: presentation.displayName,
+        summary: presentation.summary,
         detail: effectiveDetail,
-        errorText,
-        showLoadingSkeleton: isLoadingDetails,
+        errorText: presentation.errorText,
+        icon: presentation.icon,
+        showLoadingSkeleton: presentation.isLoadingDetails,
       });
     } else {
       setIsExpanded((prev) => !prev);
@@ -3056,12 +3078,12 @@ export const ToolCall = memo(function ToolCall({
   }, [
     isMobile,
     openToolCall,
-    toolName,
-    displayName,
-    secondaryLabel,
+    presentation.displayName,
+    presentation.summary,
+    presentation.errorText,
+    presentation.icon,
+    presentation.isLoadingDetails,
     effectiveDetail,
-    errorText,
-    isLoadingDetails,
   ]);
 
   useEffect(() => {
@@ -3097,14 +3119,14 @@ export const ToolCall = memo(function ToolCall({
     return (
       <ToolCallDetailsContent
         detail={effectiveDetail}
-        errorText={errorText}
+        errorText={presentation.errorText}
         maxHeight={400}
-        showLoadingSkeleton={isLoadingDetails}
+        showLoadingSkeleton={presentation.isLoadingDetails}
       />
     );
-  }, [isMobile, effectiveDetail, errorText, isLoadingDetails]);
+  }, [isMobile, effectiveDetail, presentation.errorText, presentation.isLoadingDetails]);
 
-  if (effectiveDetail?.type === "plan") {
+  if (presentation.isPlan && effectiveDetail?.type === "plan") {
     return (
       <PlanCard
         title="Plan"
@@ -3118,13 +3140,13 @@ export const ToolCall = memo(function ToolCall({
   return (
     <ExpandableBadge
       testID="tool-call-badge"
-      label={displayName}
-      secondaryLabel={secondaryLabel}
-      icon={IconComponent}
+      label={presentation.displayName}
+      secondaryLabel={presentation.summary}
+      icon={presentation.icon}
       isExpanded={!isMobile && isExpanded}
-      onToggle={canOpenDetails ? handleToggle : undefined}
+      onToggle={presentation.canOpenDetails ? handleToggle : undefined}
       onOpenFile={handleOpenFile}
-      renderDetails={canOpenDetails && !isMobile ? renderDetails : undefined}
+      renderDetails={presentation.canOpenDetails && !isMobile ? renderDetails : undefined}
       isLoading={status === "running" || status === "executing"}
       isError={status === "failed"}
       isLastInSequence={isLastInSequence}

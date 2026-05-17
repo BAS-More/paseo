@@ -1,10 +1,12 @@
 import invariant from "tiny-invariant";
 import type { WorkspaceTab, WorkspaceTabTarget } from "@/stores/workspace-tabs-store";
+import { defaultWorkspaceLayoutIds } from "@/stores/workspace-layout-ids";
+import type { WorkspaceLayoutNodeIdPrefix } from "@/stores/workspace-layout-ids";
 import {
   buildDeterministicWorkspaceTabId,
   normalizeWorkspaceTabTarget,
   workspaceTabTargetsEqual,
-} from "@/utils/workspace-tab-identity";
+} from "@/workspace-tabs/identity";
 
 export interface SplitPane {
   id: string;
@@ -86,7 +88,7 @@ interface InsertSplitInternalInput {
   targetPaneId: string;
   tabId: string;
   position: "left" | "right" | "top" | "bottom";
-  createNodeId: (prefix: "pane" | "group") => string;
+  createNodeId: (prefix: WorkspaceLayoutNodeIdPrefix) => string;
 }
 
 interface InsertSplitInternalResult {
@@ -142,7 +144,7 @@ interface SplitPaneInLayoutInput {
   tabId: string;
   targetPaneId: string;
   position: "left" | "right" | "top" | "bottom";
-  createNodeId: (prefix: "pane" | "group") => string;
+  createNodeId: (prefix: WorkspaceLayoutNodeIdPrefix) => string;
   maxTreeDepth: number;
 }
 
@@ -155,7 +157,7 @@ interface SplitPaneEmptyInLayoutInput {
   layout: WorkspaceLayout;
   targetPaneId: string;
   position: "left" | "right" | "top" | "bottom";
-  createNodeId: (prefix: "pane" | "group") => string;
+  createNodeId: (prefix: WorkspaceLayoutNodeIdPrefix) => string;
   maxTreeDepth: number;
 }
 
@@ -197,6 +199,7 @@ export interface WorkspaceTabSnapshot {
   agentsHydrated: boolean;
   terminalsHydrated: boolean;
   activeAgentIds: Iterable<string>;
+  autoOpenAgentIds: Iterable<string>;
   knownAgentIds: Iterable<string>;
   knownTerminalIds?: Iterable<string>;
   standaloneTerminalIds: Iterable<string>;
@@ -229,14 +232,6 @@ function normalizeTabIds(list: unknown): string[] {
     next.push(tabId);
   }
   return next;
-}
-
-function generateNodeId(prefix: "pane" | "group"): string {
-  const randomValue =
-    typeof globalThis.crypto?.randomUUID === "function"
-      ? globalThis.crypto.randomUUID()
-      : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-  return `${prefix}_${randomValue}`;
 }
 
 function createPaneNode(input: {
@@ -995,13 +990,16 @@ export function insertSplit(
   targetPaneId: string,
   tabId: string,
   position: "left" | "right" | "top" | "bottom",
+  createNodeId: (
+    prefix: WorkspaceLayoutNodeIdPrefix,
+  ) => string = defaultWorkspaceLayoutIds.createNodeId,
 ): SplitNode {
   return insertSplitInternal({
     root: asInternalNode(root),
     targetPaneId,
     tabId,
     position,
-    createNodeId: generateNodeId,
+    createNodeId,
   }).root;
 }
 
@@ -1053,19 +1051,45 @@ function insertNewTabIntoFocusedPane(input: {
   };
 }
 
+function findExistingTabForTarget(root: SplitNodeInternal, target: WorkspaceTabTarget) {
+  const targetTabId = buildDeterministicWorkspaceTabId(target);
+  return (
+    collectAllTabs(root).find(
+      (tab) => tab.tabId === targetTabId || workspaceTabTargetsEqual(tab.target, target),
+    ) ?? null
+  );
+}
+
+function updateExistingTabTarget(
+  layout: { root: SplitNodeInternal; focusedPaneId: string | null },
+  tab: WorkspaceTab,
+  target: WorkspaceTabTarget,
+): { root: SplitNodeInternal; focusedPaneId: string | null } {
+  if (workspaceTabTargetsEqual(tab.target, target)) {
+    return layout;
+  }
+  return {
+    ...layout,
+    root: replaceTabInTree(layout.root, {
+      tabId: tab.tabId,
+      nextTabId: tab.tabId,
+      target,
+    }),
+  };
+}
+
 export function openTabInLayoutFocused(input: OpenTabInLayoutInput): OpenTabInLayoutResult {
   const layout = asInternalLayout(input.layout);
-  const existingTab = collectAllTabs(layout.root).find((tab) =>
-    workspaceTabTargetsEqual(tab.target, input.target),
-  );
+  const existingTab = findExistingTabForTarget(layout.root, input.target);
   if (existingTab) {
+    const nextLayout = updateExistingTabTarget(layout, existingTab, input.target);
     return {
       tabId: existingTab.tabId,
       layout:
         focusTabInLayout({
-          layout,
+          layout: nextLayout,
           tabId: existingTab.tabId,
-        }) ?? input.layout,
+        }) ?? nextLayout,
     };
   }
 
@@ -1074,11 +1098,12 @@ export function openTabInLayoutFocused(input: OpenTabInLayoutInput): OpenTabInLa
 
 export function openTabInLayoutBackground(input: OpenTabInLayoutInput): OpenTabInLayoutResult {
   const layout = asInternalLayout(input.layout);
-  const existingTab = collectAllTabs(layout.root).find((tab) =>
-    workspaceTabTargetsEqual(tab.target, input.target),
-  );
+  const existingTab = findExistingTabForTarget(layout.root, input.target);
   if (existingTab) {
-    return { tabId: existingTab.tabId, layout: input.layout };
+    return {
+      tabId: existingTab.tabId,
+      layout: updateExistingTabTarget(layout, existingTab, input.target),
+    };
   }
 
   return insertNewTabIntoFocusedPane({ ...input, focus: false });
@@ -1161,14 +1186,21 @@ export function retargetTabInLayout(
     };
   }
 
+  const nextTabId =
+    currentTab?.target.kind === "draft"
+      ? input.tabId
+      : buildDeterministicWorkspaceTabId(input.target);
+
   return {
-    // Preserve the existing tab id so draft->entity transitions keep the same
-    // React key during the first render. Reconciliation can canonicalize later.
-    tabId: input.tabId,
+    // Preserve draft-origin tab ids so draft->entity transitions keep the same
+    // React key during the first render. Non-draft retargets must take the new
+    // target identity immediately so local tab state cannot masquerade as the
+    // previous agent/terminal/file.
+    tabId: nextTabId,
     layout: {
       root: replaceTabInTree(layout.root, {
         tabId: input.tabId,
-        nextTabId: input.tabId,
+        nextTabId,
         target: input.target,
       }),
       focusedPaneId: layout.focusedPaneId,
@@ -1451,23 +1483,23 @@ interface EntityTabGroup {
   tabs: WorkspaceTab[];
 }
 
-function buildVisibleAgentIds(input: {
-  activeAgentIds: Set<string>;
+function applyPinnedAndHidden(input: {
+  baseAgentIds: Set<string>;
   pinnedAgentIds: Set<string>;
   hiddenAgentIds: Set<string>;
   knownAgentIds: Set<string>;
 }): Set<string> {
-  const { activeAgentIds, pinnedAgentIds, hiddenAgentIds, knownAgentIds } = input;
-  const visibleAgentIds = new Set(activeAgentIds);
+  const { baseAgentIds, pinnedAgentIds, hiddenAgentIds, knownAgentIds } = input;
+  const result = new Set(baseAgentIds);
   for (const agentId of pinnedAgentIds) {
     if (knownAgentIds.has(agentId)) {
-      visibleAgentIds.add(agentId);
+      result.add(agentId);
     }
   }
   for (const agentId of hiddenAgentIds) {
-    visibleAgentIds.delete(agentId);
+    result.delete(agentId);
   }
-  return visibleAgentIds;
+  return result;
 }
 
 function buildEntityTabGroups(initialTabs: WorkspaceTab[]): Map<string, EntityTabGroup> {
@@ -1527,13 +1559,13 @@ function collapseStaleEntityTabs(input: {
 
 function addMissingEntityTabs(input: {
   layout: WorkspaceLayout;
-  visibleAgentIds: Set<string>;
+  autoOpenAgentIds: Set<string>;
   representedAgentIds: Set<string>;
   standaloneTerminalIds: Set<string>;
   hasActivePendingDraftCreate: boolean;
 }): WorkspaceLayout {
   const {
-    visibleAgentIds,
+    autoOpenAgentIds,
     representedAgentIds,
     standaloneTerminalIds,
     hasActivePendingDraftCreate,
@@ -1547,8 +1579,8 @@ function addMissingEntityTabs(input: {
     currentEntityTabs.filter(isTerminalTab).map((tab) => tab.target.terminalId),
   );
 
-  const sortedVisibleAgentIds = [...visibleAgentIds].sort();
-  for (const agentId of sortedVisibleAgentIds) {
+  const sortedAutoOpenAgentIds = [...autoOpenAgentIds].sort();
+  for (const agentId of sortedAutoOpenAgentIds) {
     if (currentAgentIds.has(agentId)) {
       continue;
     }
@@ -1587,13 +1619,20 @@ export function reconcileWorkspaceTabs(
   const pinnedAgentIds = new Set(state.pinnedAgentIds ?? []);
   const hiddenAgentIds = new Set(state.hiddenAgentIds ?? []);
   const activeAgentIds = normalizeStringSet(snapshot.activeAgentIds);
+  const autoOpenAgentIds = normalizeStringSet(snapshot.autoOpenAgentIds);
   const knownAgentIds = normalizeStringSet(snapshot.knownAgentIds);
   const standaloneTerminalIds = normalizeStringSet(snapshot.standaloneTerminalIds);
   const knownTerminalIds = snapshot.knownTerminalIds
     ? normalizeStringSet(snapshot.knownTerminalIds)
     : standaloneTerminalIds;
-  const visibleAgentIds = buildVisibleAgentIds({
-    activeAgentIds,
+  const visibleAgentIds = applyPinnedAndHidden({
+    baseAgentIds: activeAgentIds,
+    pinnedAgentIds,
+    hiddenAgentIds,
+    knownAgentIds,
+  });
+  const autoOpenSet = applyPinnedAndHidden({
+    baseAgentIds: autoOpenAgentIds,
     pinnedAgentIds,
     hiddenAgentIds,
     knownAgentIds,
@@ -1645,7 +1684,7 @@ export function reconcileWorkspaceTabs(
 
   nextLayout = addMissingEntityTabs({
     layout: nextLayout,
-    visibleAgentIds,
+    autoOpenAgentIds: autoOpenSet,
     representedAgentIds,
     standaloneTerminalIds,
     hasActivePendingDraftCreate: snapshot.hasActivePendingDraftCreate ?? false,

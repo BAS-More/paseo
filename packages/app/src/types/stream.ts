@@ -66,6 +66,7 @@ export interface UserMessageItem {
 export interface AssistantMessageItem {
   kind: "assistant_message";
   id: string;
+  messageId?: string;
   text: string;
   timestamp: Date;
   blockGroupId?: string;
@@ -228,6 +229,7 @@ function appendAssistantMessage(
   text: string,
   timestamp: Date,
   source: StreamUpdateSource,
+  messageId?: string,
 ): StreamItem[] {
   const { chunk, hasContent } = normalizeChunk(text);
   if (!chunk) {
@@ -235,7 +237,11 @@ function appendAssistantMessage(
   }
 
   const last = state[state.length - 1];
-  if (last && last.kind === "assistant_message") {
+  const shouldAppendToLast =
+    last &&
+    last.kind === "assistant_message" &&
+    (messageId === undefined || last.messageId === messageId);
+  if (shouldAppendToLast) {
     const updated: AssistantMessageItem = {
       ...last,
       text: `${last.text}${chunk}`,
@@ -250,7 +256,8 @@ function appendAssistantMessage(
   if (
     source === "live" &&
     last?.kind === "user_message" &&
-    secondLast?.kind === "assistant_message"
+    secondLast?.kind === "assistant_message" &&
+    (messageId === undefined || secondLast.messageId === messageId)
   ) {
     const updated: AssistantMessageItem = {
       ...secondLast,
@@ -265,9 +272,11 @@ function appendAssistantMessage(
   }
 
   const idSeed = chunk.trim() || chunk;
+  const entryId = messageId ?? createUniqueTimelineId(state, "assistant", idSeed, timestamp);
   const item: AssistantMessageItem = {
     kind: "assistant_message",
-    id: createUniqueTimelineId(state, "assistant", idSeed, timestamp),
+    id: entryId,
+    ...(messageId ? { messageId } : {}),
     text: chunk,
     timestamp,
   };
@@ -431,6 +440,36 @@ function mergeAgentToolCallStatus(
   return "running";
 }
 
+export function mergeAgentToolCallItem(
+  existing: AgentToolCallItem,
+  data: AgentToolCallData,
+  timestamp: Date,
+): AgentToolCallItem {
+  const mergedStatus = mergeAgentToolCallStatus(existing.payload.data.status, data.status);
+  const mergedError =
+    mergedStatus === "failed"
+      ? (data.error ?? existing.payload.data.error ?? { message: "Tool call failed" })
+      : null;
+  const mergedMetadata = mergeToolCallMetadata(existing.payload.data.metadata, data.metadata);
+  const mergedDetail = mergeToolCallDetail(existing.payload.data.detail, data.detail);
+
+  return {
+    ...existing,
+    timestamp,
+    payload: {
+      source: "agent",
+      data: {
+        ...existing.payload.data,
+        ...data,
+        status: mergedStatus,
+        error: mergedError,
+        detail: mergedDetail,
+        metadata: mergedMetadata,
+      },
+    },
+  };
+}
+
 function appendAgentToolCall(
   state: StreamItem[],
   data: AgentToolCallData,
@@ -443,42 +482,22 @@ function appendAgentToolCall(
     if (!existing || !isAgentToolCallItem(existing)) {
       return state;
     }
-    const mergedStatus = mergeAgentToolCallStatus(existing.payload.data.status, data.status);
-    const mergedError =
-      mergedStatus === "failed"
-        ? (data.error ?? existing.payload.data.error ?? { message: "Tool call failed" })
-        : null;
-    const mergedMetadata = mergeToolCallMetadata(existing.payload.data.metadata, data.metadata);
-    const mergedDetail = mergeToolCallDetail(existing.payload.data.detail, data.detail);
+    const merged = mergeAgentToolCallItem(existing, data, timestamp);
 
     if (
-      data.provider === existing.payload.data.provider &&
-      data.callId === existing.payload.data.callId &&
-      data.name === existing.payload.data.name &&
-      mergedStatus === existing.payload.data.status &&
-      mergedError === existing.payload.data.error &&
-      mergedDetail === existing.payload.data.detail &&
-      mergedMetadata === existing.payload.data.metadata
+      merged.payload.data.provider === existing.payload.data.provider &&
+      merged.payload.data.callId === existing.payload.data.callId &&
+      merged.payload.data.name === existing.payload.data.name &&
+      merged.payload.data.status === existing.payload.data.status &&
+      merged.payload.data.error === existing.payload.data.error &&
+      merged.payload.data.detail === existing.payload.data.detail &&
+      merged.payload.data.metadata === existing.payload.data.metadata
     ) {
       return state;
     }
 
     const next = [...state];
-    next[existingIndex] = {
-      ...existing,
-      timestamp,
-      payload: {
-        source: "agent",
-        data: {
-          ...existing.payload.data,
-          ...data,
-          status: mergedStatus,
-          error: mergedError,
-          detail: mergedDetail,
-          metadata: mergedMetadata,
-        },
-      },
-    };
+    next[existingIndex] = merged;
     return next;
   }
 
@@ -649,7 +668,9 @@ function reduceTimelineEvent(
     case "user_message":
       return finalizeActiveThoughts(appendUserMessage(state, item.text, timestamp, item.messageId));
     case "assistant_message":
-      return finalizeActiveThoughts(appendAssistantMessage(state, item.text, timestamp, source));
+      return finalizeActiveThoughts(
+        appendAssistantMessage(state, item.text, timestamp, source, item.messageId),
+      );
     case "reasoning":
       return appendThought(state, item.text, timestamp);
     case "tool_call":
@@ -712,7 +733,10 @@ export function reduceStreamUpdate(
  * Hydrate stream state from a batch of AgentManager stream events
  */
 export function hydrateStreamState(
-  events: Array<{ event: AgentStreamEventPayload; timestamp: Date }>,
+  events: Array<{
+    event: AgentStreamEventPayload;
+    timestamp: Date;
+  }>,
   options?: { source?: StreamUpdateSource },
 ): StreamItem[] {
   const hydrated = events.reduce<StreamItem[]>((state, { event, timestamp }) => {
@@ -739,6 +763,16 @@ const STREAM_COMPLETION_EVENTS = new Set<AgentStreamEventPayload["type"]>([
   "turn_failed",
   "turn_canceled",
 ]);
+
+function applyCompletionToTail(
+  tail: StreamItem[],
+  event: AgentStreamEventPayload,
+  timestamp: Date,
+  source: StreamUpdateSource,
+): StreamItem[] {
+  const finalized = finalizeActiveThoughts(tail);
+  return reduceStreamUpdate(finalized, event, timestamp, { source });
+}
 
 /**
  * Determine what kind of StreamItem an event would produce
@@ -802,6 +836,28 @@ function getActiveAssistantHeadIndex(head: StreamItem[]): number {
     }
   }
   return -1;
+}
+
+function getTailAssistantToResume(params: {
+  incomingKind: StreamItem["kind"] | null;
+  event: AgentStreamEventPayload;
+  nextHead: StreamItem[];
+  tailAssistant: StreamItem | undefined;
+}): AssistantMessageItem | null {
+  if (params.incomingKind !== "assistant_message" || params.nextHead.length !== 0) {
+    return null;
+  }
+  if (params.tailAssistant?.kind !== "assistant_message") {
+    return null;
+  }
+  const incomingMessageId =
+    params.event.type === "timeline" && params.event.item.type === "assistant_message"
+      ? params.event.item.messageId
+      : undefined;
+  if (incomingMessageId !== undefined && params.tailAssistant.messageId !== incomingMessageId) {
+    return null;
+  }
+  return params.tailAssistant;
 }
 
 function promoteCompletedAssistantBlocks(params: { tail: StreamItem[]; head: StreamItem[] }): {
@@ -977,8 +1033,7 @@ export function applyStreamEvent(params: {
   // Handle turn completion events - flush everything
   if (STREAM_COMPLETION_EVENTS.has(event.type)) {
     flushHead();
-    // Also finalize any remaining thoughts in tail
-    const finalized = finalizeActiveThoughts(nextTail);
+    const finalized = applyCompletionToTail(nextTail, event, timestamp, source);
     if (finalized !== nextTail) {
       nextTail = finalized;
       changedTail = true;
@@ -993,14 +1048,17 @@ export function applyStreamEvent(params: {
     flushHead();
   }
 
-  if (incomingKind === "assistant_message" && nextHead.length === 0) {
-    const tailAssistant = nextTail.at(-1);
-    if (tailAssistant?.kind === "assistant_message") {
-      nextTail = nextTail.slice(0, -1);
-      nextHead = [tailAssistant];
-      changedTail = true;
-      changedHead = true;
-    }
+  const tailAssistant = getTailAssistantToResume({
+    incomingKind,
+    event,
+    nextHead,
+    tailAssistant: nextTail.at(-1),
+  });
+  if (tailAssistant) {
+    nextTail = nextTail.slice(0, -1);
+    nextHead = [tailAssistant];
+    changedTail = true;
+    changedHead = true;
   }
 
   // For streamable kinds, apply to head

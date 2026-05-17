@@ -1,5 +1,4 @@
-import { randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { z } from "zod";
 
@@ -9,6 +8,7 @@ import {
   ProviderOverrideSchema,
 } from "./agent/provider-launch-config.js";
 import type { AgentProviderRuntimeSettingsMap } from "./agent/provider-launch-config.js";
+import { ensurePrivateFile, writePrivateFileSync } from "./private-files.js";
 
 export const LogLevelSchema = z.enum(["trace", "debug", "info", "warn", "error", "fatal"]);
 export const LogFormatSchema = z.enum(["pretty", "json"]);
@@ -86,6 +86,7 @@ const FeatureDictationSchema = z
       .object({
         provider: SpeechProviderIdSchema.optional(),
         model: z.string().min(1).optional(),
+        language: z.string().trim().min(1).optional(),
         confidenceThreshold: z.number().optional(),
       })
       .strict()
@@ -107,6 +108,7 @@ const FeatureVoiceModeSchema = z
       .object({
         provider: SpeechProviderIdSchema.optional(),
         model: z.string().min(1).optional(),
+        language: z.string().trim().min(1).optional(),
       })
       .strict()
       .optional(),
@@ -248,6 +250,7 @@ export const PersistedConfigSchema = z
           })
           .passthrough()
           .optional(),
+        autoArchiveAfterMerge: z.boolean().optional(),
         cors: z
           .object({
             allowedOrigins: z.array(z.string()).optional(),
@@ -260,6 +263,7 @@ export const PersistedConfigSchema = z
             endpoint: z.string().optional(),
             publicEndpoint: z.string().optional(),
             useTls: z.boolean().optional(),
+            publicUseTls: z.boolean().optional(),
           })
           .strict()
           .optional(),
@@ -370,8 +374,7 @@ export function loadPersistedConfig(paseoHome: string, logger?: LoggerLike): Per
 
   if (!existsSync(configPath)) {
     try {
-      mkdirSync(path.dirname(configPath), { recursive: true });
-      writeFileSync(configPath, JSON.stringify(DEFAULT_PERSISTED_CONFIG, null, 2) + "\n");
+      writePrivateFileSync(configPath, JSON.stringify(DEFAULT_PERSISTED_CONFIG, null, 2) + "\n");
       log?.info(`Initialized config file at ${configPath}`);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -381,10 +384,13 @@ export function loadPersistedConfig(paseoHome: string, logger?: LoggerLike): Per
 
   let raw: string;
   try {
+    ensurePrivateFile(configPath);
     raw = readFileSync(configPath, "utf-8");
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    throw new Error(`[Config] Failed to read ${configPath}: ${message}`, { cause: err });
+    throw new Error(`[Config] Failed to read ${configPath}: ${message}`, {
+      cause: err,
+    });
   }
 
   let parsed: unknown;
@@ -392,7 +398,9 @@ export function loadPersistedConfig(paseoHome: string, logger?: LoggerLike): Per
     parsed = JSON.parse(raw);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    throw new Error(`[Config] Invalid JSON in ${configPath}: ${message}`, { cause: err });
+    throw new Error(`[Config] Invalid JSON in ${configPath}: ${message}`, {
+      cause: err,
+    });
   }
 
   const migrated = stripDeprecatedLocalSpeechConfigFields(parsed);
@@ -406,19 +414,6 @@ export function loadPersistedConfig(paseoHome: string, logger?: LoggerLike): Per
 
   log?.info(`Loaded from ${configPath}`);
   return result.data as PersistedConfig;
-}
-
-/**
- * Writes `content` to `targetPath` atomically using a tmp file + rename.
- * Exported for unit testing.
- */
-export function writeConfigAtomically(targetPath: string, content: string): void {
-  const tmpPath = path.join(
-    path.dirname(targetPath),
-    `.config.tmp-${process.pid}-${Date.now()}-${randomUUID()}`,
-  );
-  writeFileSync(tmpPath, content);
-  renameSync(tmpPath, targetPath);
 }
 
 export function savePersistedConfig(
@@ -438,10 +433,12 @@ export function savePersistedConfig(
   }
 
   try {
-    writeConfigAtomically(configPath, JSON.stringify(result.data, null, 2) + "\n");
+    writePrivateFileSync(configPath, JSON.stringify(result.data, null, 2) + "\n");
     log?.info(`Saved to ${configPath}`);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    throw new Error(`[Config] Failed to write ${configPath}: ${message}`, { cause: err });
+    throw new Error(`[Config] Failed to write ${configPath}: ${message}`, {
+      cause: err,
+    });
   }
 }

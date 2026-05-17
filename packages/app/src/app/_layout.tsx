@@ -56,10 +56,10 @@ import { useActiveWorktreeNewAction } from "@/hooks/use-active-worktree-new-acti
 import { useFaviconStatus } from "@/hooks/use-favicon-status";
 import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
 import { useLatchedBoolean } from "@/hooks/use-latched-boolean";
+import { useCompactWebViewportZoomLock } from "@/hooks/use-compact-web-viewport-zoom-lock";
 import { useOpenProject } from "@/hooks/use-open-project";
 import { useAppSettings } from "@/hooks/use-settings";
 import { useStableEvent } from "@/hooks/use-stable-event";
-import { navigateToWorkspace } from "@/hooks/use-workspace-navigation";
 import { keyboardActionDispatcher } from "@/keyboard/keyboard-action-dispatcher";
 import { polyfillCrypto } from "@/polyfills/crypto";
 import { queryClient } from "@/query/query-client";
@@ -72,7 +72,6 @@ import {
 } from "@/runtime/host-runtime";
 import { getDaemonStartService } from "@/runtime/daemon-start-service";
 import { usePanelStore } from "@/stores/panel-store";
-import { useSessionStore } from "@/stores/session-store";
 import { THEME_TO_UNISTYLES, type ThemeName } from "@/styles/theme";
 import type { HostProfile } from "@/types/host-connection";
 import { resolveActiveHost } from "@/utils/active-host";
@@ -85,13 +84,12 @@ import {
   parseWorkspaceOpenIntent,
 } from "@/utils/host-routes";
 import { buildNotificationRoute, resolveNotificationTarget } from "@/utils/notification-routing";
+import { navigateToAgent } from "@/utils/navigate-to-agent";
 import {
   ensureOsNotificationPermission,
   WEB_NOTIFICATION_CLICK_EVENT,
   type WebNotificationClickDetail,
 } from "@/utils/os-notifications";
-import { resolveWorkspaceIdByExecutionDirectory } from "@/utils/workspace-execution";
-import { prepareWorkspaceTab } from "@/utils/workspace-navigation";
 
 polyfillCrypto();
 
@@ -118,25 +116,8 @@ function PushNotificationRouter() {
     const serverId = target.serverId;
     const agentId = target.agentId;
     if (serverId && agentId) {
-      const session = useSessionStore.getState().sessions[serverId];
-      const agent = session?.agents.get(agentId);
-      const workspaceId =
-        target.workspaceId ??
-        resolveWorkspaceIdByExecutionDirectory({
-          workspaces: session?.workspaces.values(),
-          workspaceDirectory: agent?.cwd,
-        });
-
-      if (workspaceId) {
-        prepareWorkspaceTab({
-          serverId,
-          workspaceId,
-          target: { kind: "agent", agentId },
-          pin: true,
-        });
-        navigateToWorkspace(serverId, workspaceId, { currentPathname: pathname });
-        return;
-      }
+      navigateToAgent({ serverId, agentId, currentPathname: pathname, pin: true });
+      return;
     }
 
     router.navigate(buildNotificationRoute(data));
@@ -395,6 +376,8 @@ function QueryProvider({ children }: { children: ReactNode }) {
 
 const rowStyle = { flex: 1, flexDirection: "row" } as const;
 const flexStyle = { flex: 1 } as const;
+const MOBILE_WEB_EDGE_SWIPE_WIDTH = 32;
+const MOBILE_WEB_GESTURE_TOUCH_ACTION = isWeb ? "auto" : "pan-y";
 
 interface AppContainerProps {
   children: ReactNode;
@@ -426,6 +409,7 @@ function AppContainer({
   }, [settings.theme, updateSettings]);
 
   const isCompactLayout = useIsCompactFormFactor();
+  useCompactWebViewportZoomLock(isCompactLayout);
   const chromeEnabled = chromeEnabledOverride ?? daemons.length > 0;
   const pathname = usePathname();
   const activeServerId = useMemo(
@@ -518,6 +502,7 @@ function MobileGestureWrapper({
     openGestureRef,
   } = useSidebarAnimation();
   const touchStartX = useSharedValue(0);
+  const touchStartY = useSharedValue(0);
   const openGestureEnabled = chromeEnabled && mobileView === "agent";
 
   const handleGestureOpen = useCallback(() => {
@@ -536,6 +521,7 @@ function MobileGestureWrapper({
           const touch = event.changedTouches[0];
           if (touch) {
             touchStartX.value = touch.absoluteX;
+            touchStartY.value = touch.absoluteY;
           }
         })
         .onTouchesMove((event, stateManager) => {
@@ -543,13 +529,31 @@ function MobileGestureWrapper({
           if (!touch || event.numberOfTouches !== 1) return;
 
           const deltaX = touch.absoluteX - touchStartX.value;
+          const deltaY = touch.absoluteY - touchStartY.value;
+          const absDeltaX = Math.abs(deltaX);
+          const absDeltaY = Math.abs(deltaY);
 
           if (horizontalScroll?.isAnyScrolledRight.value) {
             stateManager.fail();
             return;
           }
 
-          if (deltaX > 15) {
+          if (isWeb && touchStartX.value > MOBILE_WEB_EDGE_SWIPE_WIDTH) {
+            stateManager.fail();
+            return;
+          }
+
+          if (deltaX <= -10) {
+            stateManager.fail();
+            return;
+          }
+
+          if (absDeltaY > 10 && absDeltaY > absDeltaX) {
+            stateManager.fail();
+            return;
+          }
+
+          if (deltaX > 15 && absDeltaX > absDeltaY) {
             stateManager.activate();
           }
         })
@@ -591,11 +595,12 @@ function MobileGestureWrapper({
       openGestureRef,
       horizontalScroll?.isAnyScrolledRight,
       touchStartX,
+      touchStartY,
     ],
   );
 
   return (
-    <GestureDetector gesture={openGesture} touchAction="pan-y">
+    <GestureDetector gesture={openGesture} touchAction={MOBILE_WEB_GESTURE_TOUCH_ACTION}>
       {children}
     </GestureDetector>
   );
@@ -889,15 +894,20 @@ function RuntimeProviders({ children }: { children: ReactNode }) {
   );
 }
 
+// PortalProvider must remain the innermost global provider here.
+// `@gorhom/portal` renders portaled children at the host's location in the
+// tree, so any context a portaled sheet might consume (QueryClient, theme,
+// auth, settings, …) must wrap PortalProvider — not be wrapped by it.
+// Adding a new global provider? Put it above PortalProvider.
 function RootProviders({ children }: { children: ReactNode }) {
   return (
-    <PortalProvider>
+    <QueryProvider>
       <SafeAreaProvider>
         <KeyboardProvider>
-          <QueryProvider>{children}</QueryProvider>
+          <PortalProvider>{children}</PortalProvider>
         </KeyboardProvider>
       </SafeAreaProvider>
-    </PortalProvider>
+    </QueryProvider>
   );
 }
 

@@ -1,9 +1,10 @@
+process.emitWarning = (() => {}) as typeof process.emitWarning;
+
 import log from "electron-log/main";
 log.transports.console.level = "info";
 log.initialize({ spyRendererConsole: true });
 
 import { inheritLoginShellEnv } from "./login-shell-env.js";
-inheritLoginShellEnv();
 
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -11,10 +12,7 @@ import { existsSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { app, BrowserWindow, Menu, ipcMain, nativeImage, net, protocol, session } from "electron";
 import { createDaemonCommandHandlers, registerDaemonManager } from "./daemon/daemon-manager.js";
-import {
-  parseCliPassthroughArgsFromArgv,
-  runCliPassthroughCommand,
-} from "./daemon/runtime-paths.js";
+import { parsePassthroughCliArgsFromArgv, runPassthroughCli } from "./daemon/cli/passthrough.js";
 import { closeAllTransportSessions } from "./daemon/local-transport.js";
 import {
   registerWindowManager,
@@ -25,6 +23,7 @@ import {
   setupWindowResizeEvents,
   setupDefaultContextMenu,
   setupDragDropPrevention,
+  buildStandardContextMenuItems,
 } from "./window/window-manager.js";
 import { registerDialogHandlers } from "./features/dialogs.js";
 import {
@@ -50,15 +49,11 @@ import {
   createBeforeQuitHandler,
   stopDesktopManagedDaemonOnQuitIfNeeded,
 } from "./daemon/quit-lifecycle.js";
-import { autoUpdateSkillsIfInstalled } from "./integrations/integrations-manager.js";
-import {
-  registerStackServiceManager,
-  startStackServices,
-  stopStackServices,
-} from "./daemon/stack-service-manager.js";
+import { runDesktopStartup } from "./desktop-startup.js";
 
 const DEV_SERVER_URL = process.env.EXPO_DEV_URL ?? "http://localhost:8081";
 const APP_SCHEME = "paseo";
+const PASEO_DEBUG = process.env.PASEO_DEBUG === "1";
 
 function isAllowedBrowserWebviewUrl(value: string | undefined): boolean {
   if (!value) {
@@ -156,10 +151,7 @@ function showBrowserWebviewContextMenu(
   params: Electron.ContextMenuParams,
 ): void {
   const menu = Menu.buildFromTemplate([
-    { role: "copy", enabled: params.selectionText.length > 0 },
-    { role: "paste" },
-    { type: "separator" },
-    { role: "selectAll" },
+    ...buildStandardContextMenuItems(contents, params),
     ...(app.isPackaged
       ? []
       : [
@@ -199,6 +191,7 @@ if (forcedUserDataDir) {
     const topLevel = execFileSync("git", ["rev-parse", "--show-toplevel"], {
       encoding: "utf-8",
       timeout: 3000,
+      windowsHide: true,
     }).trim();
     devWorktreeName = path.basename(topLevel);
     // Main checkout (e.g. "paseo") gets default userData — only worktrees diverge.
@@ -208,6 +201,7 @@ if (forcedUserDataDir) {
         cwd: topLevel,
         encoding: "utf-8",
         timeout: 3000,
+        windowsHide: true,
       }).trim(),
     );
     const isWorktree = path.resolve(topLevel, ".git") !== commonDir;
@@ -246,9 +240,11 @@ let pendingOpenProjectPath = parseOpenProjectPathFromArgv({
   isDefaultApp: process.defaultApp,
 });
 
-log.info("[open-project] argv:", process.argv);
-log.info("[open-project] isDefaultApp:", process.defaultApp);
-log.info("[open-project] pendingOpenProjectPath:", pendingOpenProjectPath);
+if (PASEO_DEBUG) {
+  log.info("[open-project] argv:", process.argv);
+  log.info("[open-project] isDefaultApp:", process.defaultApp);
+  log.info("[open-project] pendingOpenProjectPath:", pendingOpenProjectPath);
+}
 
 // The renderer pulls the pending path on mount via IPC — this avoids
 // a race where the push event arrives before React registers its listener.
@@ -554,18 +550,18 @@ function setupSingleInstanceLock(): boolean {
 }
 
 async function runCliPassthroughIfRequested(): Promise<boolean> {
-  const cliArgs = parseCliPassthroughArgsFromArgv(process.argv);
+  const cliArgs = parsePassthroughCliArgsFromArgv(process.argv);
   if (!cliArgs) {
     return false;
   }
 
   try {
-    const exitCode = runCliPassthroughCommand(cliArgs);
-    process.exit(exitCode);
+    const exitCode = await runPassthroughCli(cliArgs);
+    app.exit(exitCode);
   } catch (error) {
     const message = error instanceof Error ? (error.stack ?? error.message) : String(error);
     process.stderr.write(`${message}\n`);
-    process.exit(1);
+    app.exit(1);
   }
 
   return true;
@@ -619,10 +615,6 @@ function waitForDesktopSmokeStopRequest(): Promise<void> {
 }
 
 async function bootstrap(): Promise<void> {
-  if (!pendingOpenProjectPath && (await runCliPassthroughIfRequested())) {
-    return;
-  }
-
   if (!setupSingleInstanceLock()) {
     return;
   }
@@ -663,19 +655,10 @@ async function bootstrap(): Promise<void> {
     return;
   }
   registerDaemonManager();
-  registerStackServiceManager();
   registerWindowManager();
   registerDialogHandlers();
   registerNotificationHandlers();
   registerOpenerHandlers();
-
-  void autoUpdateSkillsIfInstalled().catch((error) => {
-    log.warn("[integrations] auto-update skills failed", error);
-  });
-
-  void startStackServices().catch((error) => {
-    log.error("[stack] failed to start stack services", error);
-  });
 
   await createMainWindow();
 
@@ -686,7 +669,12 @@ async function bootstrap(): Promise<void> {
   });
 }
 
-void bootstrap().catch((error) => {
+void runDesktopStartup({
+  hasPendingOpenProjectPath: Boolean(pendingOpenProjectPath),
+  runCliPassthroughIfRequested,
+  inheritLoginShellEnv,
+  bootstrapGui: bootstrap,
+}).catch((error) => {
   const message = error instanceof Error ? (error.stack ?? error.message) : String(error);
   process.stderr.write(`${message}\n`);
   process.exit(1);
@@ -703,15 +691,13 @@ app.on(
   createBeforeQuitHandler({
     app,
     closeTransportSessions: closeAllTransportSessions,
-    stopDesktopManagedDaemonIfNeeded: async () => {
-      stopStackServices();
-      return stopDesktopManagedDaemonOnQuitIfNeeded({
+    stopDesktopManagedDaemonIfNeeded: () =>
+      stopDesktopManagedDaemonOnQuitIfNeeded({
         settingsStore: getDesktopSettingsStore(),
         isDesktopManagedDaemonRunning: isDesktopManagedDaemonRunningSync,
         stopDaemon: stopDesktopDaemonViaCli,
         showShutdownFeedback: showDaemonShutdownDialog,
-      });
-    },
+      }),
     onStopError: (error) => {
       log.error("[desktop daemon] failed to stop managed daemon on quit", error);
     },

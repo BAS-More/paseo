@@ -14,6 +14,7 @@ import type {
   ListPersistedAgentsOptions,
   PersistedAgentDescriptor,
 } from "./agent-sdk-types.js";
+import { normalizeAgentModelDefinition } from "./agent-sdk-types.js";
 import type { WorkspaceGitService } from "../workspace-git-service.js";
 import type {
   AgentProviderRuntimeSettingsMap,
@@ -21,11 +22,13 @@ import type {
   ProviderProfileModel,
   ProviderRuntimeSettings,
 } from "./provider-launch-config.js";
-import { ClaudeAgentClient } from "./providers/claude-agent.js";
+import { ClaudeAgentClient } from "./providers/claude/agent.js";
 import { CodexAppServerAgentClient } from "./providers/codex-app-server-agent.js";
 import { CopilotACPAgentClient } from "./providers/copilot-acp-agent.js";
+import { CursorACPAgentClient } from "./providers/cursor-acp-agent.js";
 import { GenericACPAgentClient } from "./providers/generic-acp-agent.js";
-import { OpenCodeAgentClient, OpenCodeServerManager } from "./providers/opencode-agent.js";
+import { OpenCodeAgentClient } from "./providers/opencode-agent.js";
+import { OpenCodeServerManager } from "./providers/opencode/server-manager.js";
 import { PiDirectAgentClient } from "./providers/pi-direct-agent.js";
 import { MockLoadTestAgentClient } from "./providers/mock-load-test-agent.js";
 import { OccAgentClient } from "./providers/occ-agent.js";
@@ -49,10 +52,18 @@ export { AGENT_PROVIDER_DEFINITIONS, getAgentProviderDefinition };
 
 export interface ProviderDefinition extends AgentProviderDefinition {
   enabled: boolean;
+  /**
+   * The id of another *registered* provider this one extends (e.g. a Z.AI
+   * profile that extends "claude"). null for built-in providers and for
+   * generic ACP providers (which only extend the literal "acp" sentinel).
+   */
+  derivedFromProviderId: string | null;
   createClient: (logger: Logger) => AgentClient;
   fetchModels: (options: ListModelsOptions) => Promise<AgentModelDefinition[]>;
   fetchModes: (options: ListModesOptions) => Promise<AgentMode[]>;
 }
+
+export { IMPORTABLE_PROVIDERS } from "../../shared/importable-providers.js";
 
 export interface BuildProviderRegistryOptions {
   runtimeSettings?: AgentProviderRuntimeSettingsMap;
@@ -61,10 +72,21 @@ export interface BuildProviderRegistryOptions {
   isDev?: boolean;
 }
 
+interface ProviderClientFactoryOptions extends Pick<
+  BuildProviderRegistryOptions,
+  "workspaceGitService"
+> {
+  customProvider?: {
+    id: string;
+    label: string;
+    extends: string;
+  };
+}
+
 type ProviderClientFactory = (
   logger: Logger,
   runtimeSettings?: ProviderRuntimeSettings,
-  options?: Pick<BuildProviderRegistryOptions, "workspaceGitService">,
+  options?: ProviderClientFactoryOptions,
 ) => AgentClient;
 
 interface ResolvedProvider {
@@ -72,7 +94,9 @@ interface ResolvedProvider {
   runtimeSettings?: ProviderRuntimeSettings;
   profileModels: ProviderProfileModel[];
   additionalModels: ProviderProfileModel[];
+  profileModelsAreAdditive: boolean;
   enabled: boolean;
+  derivedFromProviderId: string | null;
   createBaseClient: (logger: Logger) => AgentClient;
 }
 
@@ -85,11 +109,18 @@ const PROVIDER_CLIENT_FACTORIES: Record<string, ProviderClientFactory> = {
   codex: (logger, runtimeSettings, options) =>
     new CodexAppServerAgentClient(logger, runtimeSettings, {
       workspaceGitService: options?.workspaceGitService,
+      customProvider: options?.customProvider,
     }),
   copilot: (logger, runtimeSettings) =>
     new CopilotACPAgentClient({
       logger,
       runtimeSettings,
+    }),
+  cursor: (logger, runtimeSettings) =>
+    new CursorACPAgentClient({
+      logger,
+      command: getCursorACPCommand(runtimeSettings),
+      env: runtimeSettings?.env,
     }),
   opencode: (logger, runtimeSettings) => new OpenCodeAgentClient(logger, runtimeSettings),
   pi: (logger, runtimeSettings) =>
@@ -103,6 +134,19 @@ const PROVIDER_CLIENT_FACTORIES: Record<string, ProviderClientFactory> = {
     new CrewAiAgentClient({ logger, bridgeUrl: runtimeSettings?.env?.CREWAI_BRIDGE_URL }),
   gemini: (logger, runtimeSettings) => new GeminiAgentClient({ logger, env: runtimeSettings?.env }),
 };
+
+function getCursorACPCommand(
+  runtimeSettings: ProviderRuntimeSettings | undefined,
+): [string, ...string[]] {
+  if (
+    runtimeSettings?.command?.mode === "replace" &&
+    isNonEmptyStringArray(runtimeSettings.command.argv)
+  ) {
+    return runtimeSettings.command.argv;
+  }
+
+  return ["cursor-agent", "acp"];
+}
 
 function getProviderClientFactory(provider: string): ProviderClientFactory {
   const factory = PROVIDER_CLIENT_FACTORIES[provider];
@@ -227,11 +271,11 @@ function mapPersistedAgentDescriptor(
   };
 }
 
-function mapModel(provider: AgentProvider, model: AgentModelDefinition): AgentModelDefinition {
-  return {
-    ...model,
-    provider,
-  };
+function mapModel(
+  provider: AgentProvider,
+  model: AgentModelDefinition | ProviderProfileModel,
+): AgentModelDefinition {
+  return normalizeAgentModelDefinition({ ...model, provider });
 }
 
 function mergeModels(
@@ -239,27 +283,34 @@ function mergeModels(
   profileModels: ProviderProfileModel[],
   additionalModels: ProviderProfileModel[],
   runtimeModels: AgentModelDefinition[],
+  options?: { profileModelsAreAdditive?: boolean },
 ): AgentModelDefinition[] {
-  const baseModels =
-    profileModels.length === 0
-      ? runtimeModels.map((model) => mapModel(provider, model))
-      : profileModels.map((model) => ({
-          ...model,
-          provider,
-        }));
+  const baseModels = runtimeModels.map((model) => mapModel(provider, model));
+  if (profileModels.length > 0 && options?.profileModelsAreAdditive !== true) {
+    return mergeModelAdditions(
+      provider,
+      profileModels.map((model) => mapModel(provider, model)),
+      additionalModels,
+    );
+  }
 
-  if (additionalModels.length === 0) {
+  return mergeModelAdditions(provider, baseModels, [...profileModels, ...additionalModels]);
+}
+
+function mergeModelAdditions(
+  provider: AgentProvider,
+  baseModels: AgentModelDefinition[],
+  modelAdditions: ProviderProfileModel[],
+): AgentModelDefinition[] {
+  if (modelAdditions.length === 0) {
     return baseModels;
   }
 
   const mergedModels = [...baseModels];
   let hasAdditionalDefault = false;
 
-  for (const model of additionalModels) {
-    const additionalModel = {
-      ...model,
-      provider,
-    };
+  for (const model of modelAdditions) {
+    const additionalModel = mapModel(provider, model);
     hasAdditionalDefault ||= additionalModel.isDefault === true;
 
     const existingIndex = mergedModels.findIndex((candidate) => candidate.id === model.id);
@@ -279,7 +330,7 @@ function mergeModels(
   }
 
   const additionalDefaultIds = new Set(
-    additionalModels.filter((model) => model.isDefault === true).map((model) => model.id),
+    modelAdditions.filter((model) => model.isDefault === true).map((model) => model.id),
   );
 
   return mergedModels.map((model) =>
@@ -324,6 +375,7 @@ function wrapClientProvider(
   inner: AgentClient,
   profileModels: ProviderProfileModel[],
   additionalModels: ProviderProfileModel[],
+  profileModelsAreAdditive: boolean,
 ): AgentClient {
   const listPersistedAgents = inner.listPersistedAgents?.bind(inner);
 
@@ -359,7 +411,9 @@ function wrapClientProvider(
         ),
       ),
     listModels: async (options) =>
-      mergeModels(provider, profileModels, additionalModels, await inner.listModels(options)),
+      mergeModels(provider, profileModels, additionalModels, await inner.listModels(options), {
+        profileModelsAreAdditive,
+      }),
     listModes: inner.listModes?.bind(inner),
     listPersistedAgents: listPersistedAgents
       ? async (options?: ListPersistedAgentsOptions) =>
@@ -382,6 +436,7 @@ function createRegistryEntry(
   return {
     ...resolved.definition,
     enabled: resolved.enabled,
+    derivedFromProviderId: resolved.derivedFromProviderId,
     createClient: (providerLogger: Logger) =>
       createResolvedProviderClient(providerLogger, provider, resolved),
     fetchModels: async (options: ListModelsOptions) =>
@@ -390,6 +445,9 @@ function createRegistryEntry(
         resolved.profileModels,
         resolved.additionalModels,
         await modelClient.listModels(options),
+        {
+          profileModelsAreAdditive: resolved.profileModelsAreAdditive,
+        },
       ),
     fetchModes: async (options: ListModesOptions) => {
       const modes = modelClient.listModes
@@ -419,7 +477,13 @@ function createResolvedProviderClient(
   if (inner.provider === provider && !hasModelOverrides) {
     return inner;
   }
-  return wrapClientProvider(provider, inner, resolved.profileModels, resolved.additionalModels);
+  return wrapClientProvider(
+    provider,
+    inner,
+    resolved.profileModels,
+    resolved.additionalModels,
+    resolved.profileModelsAreAdditive,
+  );
 }
 
 function buildResolvedBuiltinProviders(
@@ -447,7 +511,9 @@ function buildResolvedBuiltinProviders(
       runtimeSettings: mergedRuntimeSettings,
       profileModels: override?.models ?? [],
       additionalModels: override?.additionalModels ?? [],
+      profileModelsAreAdditive: definition.id === "claude",
       enabled: override?.enabled !== false,
+      derivedFromProviderId: null,
       createBaseClient: (logger) =>
         factory(logger, mergedRuntimeSettings, {
           workspaceGitService: options.workspaceGitService,
@@ -493,21 +559,34 @@ function addDerivedProviders(
         runtimeSettings: toRuntimeSettings(override),
         profileModels: override.models ?? [],
         additionalModels: override.additionalModels ?? [],
+        profileModelsAreAdditive: false,
         enabled: override.enabled !== false,
+        derivedFromProviderId: null,
         createBaseClient: (logger) =>
-          new GenericACPAgentClient({
-            logger,
-            command,
-            env: override.env,
-          }),
+          providerId === "cursor"
+            ? new CursorACPAgentClient({
+                logger,
+                command,
+                env: override.env,
+                providerId,
+                label: override.label ?? providerId,
+              })
+            : new GenericACPAgentClient({
+                logger,
+                command,
+                env: override.env,
+                providerId,
+                label: override.label ?? providerId,
+              }),
       });
       continue;
     }
 
-    const baseProvider = resolvedProviders.get(override.extends);
+    const baseProviderId = override.extends;
+    const baseProvider = resolvedProviders.get(baseProviderId);
     if (!baseProvider) {
       throw new Error(
-        `Custom provider '${providerId}' extends unknown provider '${override.extends}'`,
+        `Custom provider '${providerId}' extends unknown provider '${baseProviderId}'`,
       );
     }
 
@@ -516,15 +595,24 @@ function addDerivedProviders(
       toRuntimeSettings(override),
     );
     const baseDefinition = baseProvider.definition;
-    const baseFactory = getProviderClientFactory(override.extends);
+    const baseFactory = getProviderClientFactory(baseProviderId);
 
     resolvedProviders.set(providerId, {
       definition: createDerivedDefinition(providerId, baseDefinition, override),
       runtimeSettings: mergedRuntimeSettings,
       profileModels: override.models ?? [],
       additionalModels: override.additionalModels ?? [],
+      profileModelsAreAdditive: false,
       enabled: override.enabled !== false,
-      createBaseClient: (logger) => baseFactory(logger, mergedRuntimeSettings),
+      derivedFromProviderId: baseProviderId,
+      createBaseClient: (logger) =>
+        baseFactory(logger, mergedRuntimeSettings, {
+          customProvider: {
+            id: providerId,
+            label: override.label ?? providerId,
+            extends: baseProviderId,
+          },
+        }),
     });
   }
 }

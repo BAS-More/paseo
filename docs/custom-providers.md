@@ -59,6 +59,30 @@ Required fields for custom providers:
 - `extends` — which built-in provider to inherit from (or `"acp"`)
 - `label` — display name in the UI
 
+### Codex with an OpenAI-compatible endpoint
+
+Custom providers that extend `"codex"` can point Codex at an OpenAI-compatible API by setting `OPENAI_BASE_URL` and `OPENAI_API_KEY` in the provider `env`. Paseo still passes those variables through to the Codex app-server process, and also maps them into Codex's thread config (`model_provider` / `model_providers`) because Codex reads provider routing from config rather than from `OPENAI_BASE_URL`.
+
+```json
+{
+  "agents": {
+    "providers": {
+      "my-codex": {
+        "extends": "codex",
+        "label": "My Codex",
+        "env": {
+          "OPENAI_API_KEY": "sk-...",
+          "OPENAI_BASE_URL": "https://custom-relay.example.com"
+        },
+        "models": [{ "id": "custom-model", "label": "Custom Model", "isDefault": true }]
+      }
+    }
+  }
+}
+```
+
+If the base URL does not end in `/v1`, Paseo appends `/v1` for Codex's OpenAI-compatible provider config. If it already ends in `/v1`, Paseo leaves it as-is.
+
 ---
 
 ## Z.AI (Zhipu) coding plan
@@ -83,6 +107,7 @@ Required fields for custom providers:
           "ANTHROPIC_BASE_URL": "https://api.z.ai/api/anthropic",
           "API_TIMEOUT_MS": "3000000"
         },
+        "disallowedTools": ["WebSearch"],
         "models": [
           { "id": "glm-4.5-air", "label": "GLM 4.5 Air" },
           { "id": "glm-5-turbo", "label": "GLM 5 Turbo", "isDefault": true },
@@ -136,6 +161,7 @@ Required fields for custom providers:
           "ANTHROPIC_AUTH_TOKEN": "sk-sp-<your-coding-plan-key>",
           "ANTHROPIC_BASE_URL": "https://coding-intl.dashscope.aliyuncs.com/apps/anthropic"
         },
+        "disallowedTools": ["WebSearch"],
         "models": [
           { "id": "qwen3.5-plus", "label": "Qwen 3.5 Plus", "isDefault": true },
           { "id": "qwen3-coder-next", "label": "Qwen 3 Coder Next" },
@@ -340,11 +366,19 @@ Required fields for ACP providers:
 - `label`
 - `command` — the command to spawn the agent process (must support ACP over stdio)
 
+### Generic ACP diagnostics
+
+Paseo diagnostics for `extends: "acp"` providers report the configured command, resolved launcher binary, version output, ACP `initialize`, ACP `session/new`, model count, modes, and final status.
+
+For package-runner commands such as `npx -y @google/gemini-cli --acp`, the version probe keeps the package spec and runs `npx -y @google/gemini-cli --version`. This diagnoses the actual agent package instead of only proving that `npx` exists.
+
+ACP probes use short timeouts and browser-suppression environment variables so agents that enter an auth/browser flow fail as a diagnostic error instead of hanging the provider screen.
+
 ### Example: Google Gemini CLI
 
 [Gemini CLI](https://github.com/google-gemini/gemini-cli) supports ACP via the `--acp` flag.
 
-1. Install: `npm install -g @anthropic-ai/gemini-cli` or see [Gemini CLI docs](https://github.com/google-gemini/gemini-cli)
+1. Install: `npm install -g @google/gemini-cli` or see [Gemini CLI docs](https://github.com/google-gemini/gemini-cli)
 2. Authenticate with Google (Gemini CLI handles its own auth)
 3. Add to config.json:
 
@@ -502,6 +536,12 @@ Each entry in the `models` array:
 | `description` | `string`  | No       | Short description                   |
 | `isDefault`   | `boolean` | No       | Mark as the default thinking option |
 
+### Claude settings.json model discovery
+
+The built-in `claude` provider appends concrete model IDs from `~/.claude/settings.json` to its first-party Claude model list. Paseo reads the top-level `model` field and these `env` keys: `ANTHROPIC_MODEL`, `ANTHROPIC_SMALL_FAST_MODEL`, `ANTHROPIC_DEFAULT_OPUS_MODEL`, `ANTHROPIC_DEFAULT_SONNET_MODEL`, and `ANTHROPIC_DEFAULT_HAIKU_MODEL`.
+
+This lets users who already configured Claude Code for Bedrock, OpenRouter, ollama, Z.AI, or another Anthropic-compatible gateway select the exact model ID in Paseo. `agents.providers.claude.models` is still supported and is additive for the built-in Claude provider; duplicate IDs are de-duplicated.
+
 ### Gotcha: `extends: "claude"` with third-party endpoints
 
 When a custom provider extends `"claude"` but points `ANTHROPIC_BASE_URL` at a non-Anthropic API (Z.AI, Alibaba/Qwen, proxies), the Claude Agent SDK may try to use Anthropic-only server-side tools like `WebSearch`. Third-party APIs don't support these tools, causing errors.
@@ -550,6 +590,7 @@ A config.json with multiple custom providers:
           "ANTHROPIC_BASE_URL": "https://api.z.ai/api/anthropic",
           "API_TIMEOUT_MS": "3000000"
         },
+        "disallowedTools": ["WebSearch"],
         "models": [
           { "id": "glm-4.5-air", "label": "GLM 4.5 Air" },
           { "id": "glm-5-turbo", "label": "GLM 5 Turbo", "isDefault": true },
@@ -564,6 +605,7 @@ A config.json with multiple custom providers:
           "ANTHROPIC_AUTH_TOKEN": "sk-sp-<coding-plan-key>",
           "ANTHROPIC_BASE_URL": "https://coding-intl.dashscope.aliyuncs.com/apps/anthropic"
         },
+        "disallowedTools": ["WebSearch"],
         "models": [
           { "id": "qwen3.5-plus", "label": "Qwen 3.5 Plus", "isDefault": true },
           { "id": "qwen3-coder-next", "label": "Qwen 3 Coder Next" }

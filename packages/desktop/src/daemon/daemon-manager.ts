@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { app, ipcMain, powerMonitor } from "electron";
 import log from "electron-log/main";
-import { resolvePaseoHome, spawnProcess } from "@bas-more/server";
+import { resolvePaseoHome, spawnProcess } from "@getpaseo/server";
 import {
   copyAttachmentFileToManagedStorage,
   deleteManagedAttachmentFile,
@@ -17,23 +17,20 @@ import {
   downloadAndInstallUpdate,
   type AppReleaseChannel,
 } from "../features/auto-updater.js";
+import { getCliInstallStatus, installCli } from "../integrations/cli-install/index.js";
 import {
-  installCli,
-  getCliInstallStatus,
+  getSkillsStatus,
   installSkills,
-  getSkillsInstallStatus,
-} from "../integrations/integrations-manager.js";
+  uninstallSkills,
+  updateSkills,
+} from "../integrations/skills/index.js";
 import {
   openLocalTransportSession,
   sendLocalTransportMessage,
   closeLocalTransportSession,
 } from "./local-transport.js";
-import {
-  createNodeEntrypointInvocation,
-  resolveDaemonRunnerEntrypoint,
-  runCliJsonCommand,
-  runCliTextCommand,
-} from "./runtime-paths.js";
+import { createNodeEntrypointInvocation, resolveDaemonRunnerEntrypoint } from "./runtime-paths.js";
+import { runExternalCliJsonCommand, runExternalCliTextCommand } from "./cli/external.js";
 import {
   createDesktopSettingsCommandHandlers,
   type DesktopCommandHandler,
@@ -46,6 +43,7 @@ const DAEMON_LOG_FILENAME = "daemon.log";
 const STARTUP_POLL_INTERVAL_MS = 200;
 const STARTUP_POLL_MAX_ATTEMPTS = 150;
 const DETACHED_STARTUP_GRACE_MS = 1200;
+const STARTUP_OUTPUT_CAPTURE_LIMIT_CHARS = 64 * 1024;
 
 type DesktopDaemonState = "starting" | "running" | "stopped" | "errored";
 
@@ -70,6 +68,11 @@ interface DesktopPairingOffer {
   relayEnabled: boolean;
   url: string | null;
   qr: string | null;
+}
+
+interface StartupOutputCapture {
+  text: string;
+  truncated: boolean;
 }
 
 function parseReleaseChannel(
@@ -109,7 +112,7 @@ export function isDesktopManagedDaemonRunningSync(): boolean {
 }
 
 export async function stopDesktopDaemonViaCli(): Promise<void> {
-  await runCliJsonCommand([
+  await runExternalCliJsonCommand([
     "daemon",
     "stop",
     "--json",
@@ -146,6 +149,30 @@ function tailFile(filePath: string, lines = 50): string {
   } catch {
     return "";
   }
+}
+
+function createStartupOutputCapture(): StartupOutputCapture {
+  return { text: "", truncated: false };
+}
+
+function appendStartupOutput(capture: StartupOutputCapture, chunk: Buffer): StartupOutputCapture {
+  const nextText = capture.text + chunk.toString();
+  if (nextText.length <= STARTUP_OUTPUT_CAPTURE_LIMIT_CHARS) {
+    return { text: nextText, truncated: capture.truncated };
+  }
+
+  return {
+    text: nextText.slice(-STARTUP_OUTPUT_CAPTURE_LIMIT_CHARS),
+    truncated: true,
+  };
+}
+
+function formatStartupOutput(capture: StartupOutputCapture): string {
+  if (!capture.truncated) {
+    return capture.text;
+  }
+
+  return `[output truncated to the last ${STARTUP_OUTPUT_CAPTURE_LIMIT_CHARS} chars]\n${capture.text}`;
 }
 
 function logDesktopDaemonLifecycle(message: string, details?: Record<string, unknown>): void {
@@ -195,28 +222,33 @@ export async function resolveDesktopDaemonStatus(): Promise<DesktopDaemonStatus>
   const home = getPaseoHome();
 
   try {
-    const payload = (await runCliJsonCommand(["daemon", "status", "--json"])) as Record<
+    const payload = (await runExternalCliJsonCommand(["daemon", "status", "--json"])) as Record<
       string,
       unknown
     >;
     const localDaemon = typeof payload.localDaemon === "string" ? payload.localDaemon : "stopped";
-    // The CLI probe may report "unresponsive" when the daemon PID is alive
-    // but fetch_agents times out. Treat it as running if the daemon is
-    // reachable over WebSocket or the PID is verified alive.
-    const running =
-      localDaemon === "running" ||
-      (localDaemon === "unresponsive" &&
-        (payload.connectedDaemon === "reachable" || typeof payload.pid === "number"));
+    const connectedDaemon =
+      typeof payload.connectedDaemon === "string" ? payload.connectedDaemon : "not_probed";
+    const hasRunningLocalProcess = localDaemon === "running";
+    const hasLocalProcess = hasRunningLocalProcess || localDaemon === "unresponsive";
+    const apiReachable = connectedDaemon === "reachable";
+    let status: DesktopDaemonState = "stopped";
+    if (apiReachable || hasRunningLocalProcess) {
+      status = "running";
+    } else if (localDaemon === "unresponsive") {
+      status = "errored";
+    }
 
     return {
       serverId: typeof payload.serverId === "string" ? payload.serverId : "",
-      status: running ? "running" : "stopped",
+      status,
       listen: typeof payload.listen === "string" ? payload.listen : null,
-      hostname: running && typeof payload.hostname === "string" ? payload.hostname : null,
-      pid: running && typeof payload.pid === "number" ? payload.pid : null,
+      hostname:
+        status === "running" && typeof payload.hostname === "string" ? payload.hostname : null,
+      pid: hasLocalProcess && typeof payload.pid === "number" ? payload.pid : null,
       home,
       version: typeof payload.daemonVersion === "string" ? payload.daemonVersion : null,
-      desktopManaged: payload.desktopManaged === true,
+      desktopManaged: hasRunningLocalProcess && payload.desktopManaged === true,
       error: null,
     };
   } catch (error) {
@@ -257,15 +289,17 @@ function assertBuiltInDaemonManagementEnabled(settings: DesktopSettings): void {
 
 function buildStartupFailureError(
   result: { code: number | null; signal: string | null; error?: Error },
-  stdout: string,
-  stderr: string,
+  stdout: StartupOutputCapture,
+  stderr: StartupOutputCapture,
 ): Error {
   const reason = result.error
     ? result.error.message
     : `exit code ${result.code ?? "unknown"}${result.signal ? ` (${result.signal})` : ""}`;
   const parts = [`Daemon failed to start: ${reason}`];
-  if (stderr.trim()) parts.push(`stderr:\n${stderr.trim()}`);
-  if (stdout.trim()) parts.push(`stdout:\n${stdout.trim()}`);
+  const formattedStderr = formatStartupOutput(stderr).trim();
+  const formattedStdout = formatStartupOutput(stdout).trim();
+  if (formattedStderr) parts.push(`stderr:\n${formattedStderr}`);
+  if (formattedStdout) parts.push(`stdout:\n${formattedStdout}`);
   const logs = tailFile(logFilePath(), 15);
   if (logs) parts.push(`Recent logs (${logFilePath()}):\n${logs}`);
   return new Error(parts.join("\n\n"));
@@ -346,13 +380,13 @@ async function startDaemon(): Promise<DesktopDaemonStatus> {
     stdio: ["ignore", "pipe", "pipe"],
   });
 
-  let stdout = "";
-  let stderr = "";
+  let stdout = createStartupOutputCapture();
+  let stderr = createStartupOutputCapture();
   child.stdout!.on("data", (data: Buffer) => {
-    stdout += data.toString();
+    stdout = appendStartupOutput(stdout, data);
   });
   child.stderr!.on("data", (data: Buffer) => {
-    stderr += data.toString();
+    stderr = appendStartupOutput(stderr, data);
   });
 
   logDesktopDaemonLifecycle("detached spawn returned", {
@@ -390,8 +424,8 @@ async function startDaemon(): Promise<DesktopDaemonStatus> {
   logDesktopDaemonLifecycle("detached startup grace period completed", {
     childPid: child.pid ?? null,
     exitedEarly: result.exitedEarly,
-    stdout: stdout.slice(0, 2000),
-    stderr: stderr.slice(0, 2000),
+    stdout: formatStartupOutput(stdout).slice(0, 2000),
+    stderr: formatStartupOutput(stderr).slice(0, 2000),
     ...(result.exitedEarly
       ? {
           exitCode: result.code,
@@ -431,7 +465,7 @@ function getDaemonLogs(): DesktopDaemonLogs {
 }
 
 async function getCliDaemonStatus(): Promise<string> {
-  return await runCliTextCommand(["daemon", "status"]);
+  return await runExternalCliTextCommand(["daemon", "status"]);
 }
 
 async function getDaemonPairing(): Promise<DesktopPairingOffer> {
@@ -445,7 +479,7 @@ async function getDaemonPairing(): Promise<DesktopPairingOffer> {
   }
 
   try {
-    const payload = await runCliJsonCommand(["daemon", "pair", "--json"]);
+    const payload = await runExternalCliJsonCommand(["daemon", "pair", "--json"]);
     if (!isRecord(payload)) {
       throw new Error("Daemon pairing response was not an object.");
     }
@@ -541,8 +575,10 @@ export function createDaemonCommandHandlers(): Record<string, DesktopCommandHand
     get_local_daemon_version: () => getLocalDaemonVersion(),
     install_cli: () => installCli(),
     get_cli_install_status: () => getCliInstallStatus(),
+    get_skills_status: () => getSkillsStatus(),
     install_skills: () => installSkills(),
-    get_skills_install_status: () => getSkillsInstallStatus(),
+    update_skills: () => updateSkills(),
+    uninstall_skills: () => uninstallSkills(),
   };
 }
 

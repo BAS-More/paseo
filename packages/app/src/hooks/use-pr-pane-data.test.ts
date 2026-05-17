@@ -12,12 +12,9 @@ import type {
   CheckoutPrStatusResponse,
   PullRequestTimelineResponse,
 } from "@server/shared/messages";
-import {
-  prPaneTimelineQueryKey,
-  usePrPaneData,
-  type UsePrPaneDataResult,
-} from "./use-pr-pane-data";
-import { useWorkspacePrHint } from "./use-checkout-pr-status-query";
+import { checkoutPrStatusQueryKey, prPaneTimelineQueryKey } from "@/git/query-keys";
+import { usePrPaneData, type UsePrPaneDataResult } from "./use-pr-pane-data";
+import { useWorkspacePrHint } from "@/git/use-pr-status-query";
 
 type CheckoutPrStatus = NonNullable<CheckoutPrStatusResponse["payload"]["status"]>;
 type CheckoutPrStatusPayload = CheckoutPrStatusResponse["payload"];
@@ -57,6 +54,24 @@ vi.mock("@/runtime/host-runtime", () => ({
 const cwd = "/repo";
 const serverId = "server-1";
 
+const githubStatus: CheckoutPrStatus["github"] = {
+  mergeStateStatus: null,
+  autoMergeRequest: null,
+  viewerCanEnableAutoMerge: false,
+  viewerCanDisableAutoMerge: false,
+  viewerCanMergeAsAdmin: false,
+  viewerCanUpdateBranch: false,
+  repository: {
+    autoMergeAllowed: false,
+    mergeCommitAllowed: false,
+    squashMergeAllowed: false,
+    rebaseMergeAllowed: false,
+    viewerDefaultMergeMethod: null,
+  },
+  isMergeQueueEnabled: false,
+  isInMergeQueue: false,
+};
+
 function status(overrides: Partial<CheckoutPrStatus> = {}): CheckoutPrStatus {
   return {
     number: 42,
@@ -67,10 +82,12 @@ function status(overrides: Partial<CheckoutPrStatus> = {}): CheckoutPrStatus {
     headRefName: "feature/pr-pane",
     isMerged: false,
     isDraft: false,
+    mergeable: "UNKNOWN",
     checks: [],
     reviewDecision: null,
     repoOwner: "getpaseo",
     repoName: "paseo",
+    github: githubStatus,
     ...overrides,
   };
 }
@@ -334,7 +351,7 @@ describe("usePrPaneData", () => {
     ).toBeUndefined();
 
     mockClient.checkoutPrStatus.mockResolvedValue(statusPayload());
-    hook.queryClient.invalidateQueries({ queryKey: ["checkoutPrStatus", serverId, cwd] });
+    hook.queryClient.invalidateQueries({ queryKey: checkoutPrStatusQueryKey(serverId, cwd) });
 
     await waitForExpectation(() => {
       expect(mockClient.pullRequestTimeline).toHaveBeenCalledWith({
@@ -433,7 +450,7 @@ describe("usePrPaneData", () => {
     await waitForExpectation(() => {
       expect(hook.latest.data?.checks[0]?.status).toBe("success");
     });
-    expect(queryClient.getQueryData(["checkoutPrStatus", serverId, cwd])).toEqual(
+    expect(queryClient.getQueryData(checkoutPrStatusQueryKey(serverId, cwd))).toEqual(
       statusPayload({
         requestId: "server-push",
         status: status({
@@ -473,8 +490,10 @@ describe("usePrPaneData", () => {
       }),
     );
 
-    expect(queryClient.getQueryData(["checkoutPrStatus", serverId, cwd])).toEqual(initial);
-    expect(queryClient.getQueryData(["checkoutPrStatus", serverId, "/other-repo"])).toBeUndefined();
+    expect(queryClient.getQueryData(checkoutPrStatusQueryKey(serverId, cwd))).toEqual(initial);
+    expect(
+      queryClient.getQueryData(checkoutPrStatusQueryKey(serverId, "/other-repo")),
+    ).toBeUndefined();
   });
 
   it("passes repoOwner and repoName to the timeline request when present", async () => {
@@ -718,7 +737,7 @@ describe("usePrPaneData", () => {
 
     const refreshDeferred = createDeferred<CheckoutPrStatusPayload>();
     mockClient.checkoutPrStatus.mockReturnValue(refreshDeferred.promise);
-    hook.queryClient.invalidateQueries({ queryKey: ["checkoutPrStatus", serverId, cwd] });
+    hook.queryClient.invalidateQueries({ queryKey: checkoutPrStatusQueryKey(serverId, cwd) });
 
     await waitForExpectation(() => {
       expect(hook.latest.isLoading).toBe(false);

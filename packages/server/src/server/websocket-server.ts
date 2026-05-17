@@ -16,7 +16,6 @@ import type { DaemonConfigStore, MutableDaemonConfig } from "./daemon-config-sto
 import { applyMutableProviderConfigToOverrides } from "./daemon-config-store.js";
 import {
   type ServerInfoStatusPayload,
-  type SessionOutboundMessage,
   type WorkspaceSetupSnapshot,
   type WSHelloMessage,
   type WSInboundMessage,
@@ -40,7 +39,7 @@ import { buildProviderRegistry, createClientsFromRegistry } from "./agent/provid
 import type { WorkspaceGitRuntimeSnapshot, WorkspaceGitService } from "./workspace-git-service.js";
 import { buildWorkspaceGitMetadataFromSnapshot } from "./workspace-git-metadata.js";
 import { PushTokenStore } from "./push/token-store.js";
-import { PushService } from "./push/push-service.js";
+import { createPushNotificationSender, type PushNotificationSender } from "./push/notifications.js";
 import type { ScriptHealthState } from "./script-health-monitor.js";
 import type { ScriptRouteStore } from "./script-proxy.js";
 import type { WorkspaceScriptRuntimeStore } from "./workspace-script-runtime-store.js";
@@ -55,10 +54,13 @@ import { createGitHubService, type GitHubService } from "../services/github-serv
 import {
   extractWsBearerProtocol,
   extractWsBearerToken,
-  isBearerTokenValidAsync,
+  isBearerTokenValid,
   type DaemonAuthConfig,
 } from "./auth.js";
-import { shouldSendMessage } from "./ws-backpressure.js";
+import {
+  WebSocketRuntimeMetricsWindow,
+  type WebSocketRuntimeCounters,
+} from "./websocket/runtime-metrics.js";
 
 const WS_CLOSE_DAEMON_AUTH_FAILED = 4401;
 
@@ -108,6 +110,9 @@ function createFallbackWorkspaceGitSnapshot(cwd: string): WorkspaceGitRuntimeSna
 function createFallbackWorkspaceGitService(): WorkspaceGitService {
   return {
     registerWorkspace: () => ({
+      unsubscribe: () => {},
+    }),
+    onSnapshotUpdated: () => ({
       unsubscribe: () => {},
     }),
     peekSnapshot: () => null,
@@ -271,26 +276,6 @@ interface SessionConnection {
   externalDisconnectCleanupTimeout: ReturnType<typeof setTimeout> | null;
 }
 
-interface WebSocketRuntimeCounters {
-  connectedAwaitingHello: number;
-  helloResumed: number;
-  helloNew: number;
-  pendingDisconnected: number;
-  sessionDisconnectedWaitingReconnect: number;
-  sessionSocketDisconnectedAttached: number;
-  sessionCleanup: number;
-  validationFailed: number;
-  binaryBeforeHelloRejected: number;
-  pendingMessageRejectedBeforeHello: number;
-  missingConnectionForMessage: number;
-  unexpectedHelloOnActiveConnection: number;
-  relayExternalSocketAttached: number;
-  originRejected: number;
-  hostRejected: number;
-  connectionLimit: number;
-  authRateLimited: number;
-}
-
 const SLOW_REQUEST_THRESHOLD_MS = 500;
 const EXTERNAL_SESSION_DISCONNECT_GRACE_MS = 90_000;
 const HELLO_TIMEOUT_MS = 15_000;
@@ -361,7 +346,7 @@ export class VoiceAssistantWebSocketServer {
   private readonly paseoHome: string;
   private readonly daemonConfigStore: DaemonConfigStore;
   private readonly pushTokenStore: PushTokenStore;
-  private readonly pushService: PushService;
+  private readonly pushNotificationSender: PushNotificationSender;
   private readonly mcpBaseUrl: string | null;
   private speech!: SpeechService | null;
   private terminalManager!: TerminalManager | null;
@@ -385,43 +370,10 @@ export class VoiceAssistantWebSocketServer {
     | ((workspaceId: string, oldBranch: string | null, newBranch: string | null) => void)
     | null;
   private serverCapabilities: ServerCapabilities | undefined;
-  private runtimeWindowStartedAt = Date.now();
-  private readonly runtimeCounters: WebSocketRuntimeCounters = {
-    connectedAwaitingHello: 0,
-    helloResumed: 0,
-    helloNew: 0,
-    pendingDisconnected: 0,
-    sessionDisconnectedWaitingReconnect: 0,
-    sessionSocketDisconnectedAttached: 0,
-    sessionCleanup: 0,
-    validationFailed: 0,
-    binaryBeforeHelloRejected: 0,
-    pendingMessageRejectedBeforeHello: 0,
-    missingConnectionForMessage: 0,
-    unexpectedHelloOnActiveConnection: 0,
-    relayExternalSocketAttached: 0,
-    originRejected: 0,
-    hostRejected: 0,
-    connectionLimit: 0,
-    authRateLimited: 0,
-  };
-  private readonly inboundMessageCounts = new Map<string, number>();
-  private readonly inboundSessionRequestCounts = new Map<string, number>();
-  private readonly outboundMessageCounts = new Map<string, number>();
-  private readonly outboundSessionMessageCounts = new Map<string, number>();
-  private readonly outboundAgentStreamCounts = new Map<string, number>();
-  private readonly outboundAgentStreamByAgentCounts = new Map<string, number>();
-  private readonly outboundBinaryFrameCounts = new Map<string, number>();
-  private readonly bufferedAmountSamples: number[] = [];
-  private readonly requestLatencies = new Map<string, number[]>();
+  private readonly runtimeMetrics = new WebSocketRuntimeMetricsWindow();
   private runtimeMetricsInterval: ReturnType<typeof setInterval> | null = null;
   private unsubscribeSpeechReadiness: (() => void) | null = null;
   private unsubscribeDaemonConfigChange: (() => void) | null = null;
-  // SEC-002: per-IP WS auth failure tracker. Rejects new upgrades from an IP
-  // that has exceeded the failure budget in the rolling window. Defends
-  // against bearer-token brute force at the upgrade layer (HTTP rate limiter
-  // doesn't cover WS upgrades).
-  private readonly wsAuthFailures = new Map<string, { count: number; windowStart: number }>();
 
   constructor(
     server: HTTPServer,
@@ -463,6 +415,7 @@ export class VoiceAssistantWebSocketServer {
     resolveScriptHealth?: (hostname: string) => ScriptHealthState | null,
     workspaceGitService?: WorkspaceGitService,
     github?: GitHubService,
+    pushNotificationSender?: PushNotificationSender,
   ) {
     this.logger = logger.child({ module: "websocket-server" });
     this.serverId = serverId;
@@ -539,7 +492,8 @@ export class VoiceAssistantWebSocketServer {
 
     const pushLogger = this.logger.child({ module: "push" });
     this.pushTokenStore = new PushTokenStore(pushLogger, join(paseoHome, "push-tokens.json"));
-    this.pushService = new PushService(pushLogger, this.pushTokenStore);
+    this.pushNotificationSender =
+      pushNotificationSender ?? createPushNotificationSender(pushLogger, this.pushTokenStore);
 
     this.agentManager.setAgentAttentionCallback((params) => {
       void this.broadcastAgentAttention(params).catch((err) => {
@@ -592,38 +546,11 @@ export class VoiceAssistantWebSocketServer {
   ): WebSocketServer {
     const { allowedOrigins, hostnames } = wsConfig;
     const password = auth?.password;
-    // M-04: cap message size (1 MiB) and concurrent connections so a single
-    // peer can't OOM the daemon. PASEO_WS_MAX_PAYLOAD_BYTES and
-    // PASEO_WS_MAX_CONNECTIONS override the defaults.
-    const maxPayload =
-      Number.parseInt(process.env.PASEO_WS_MAX_PAYLOAD_BYTES ?? "", 10) || 1024 * 1024;
-    const maxConnections = Number.parseInt(process.env.PASEO_WS_MAX_CONNECTIONS ?? "", 10) || 1000;
-
     const wss = new WebSocketServer({
       server,
       path: "/ws",
-      maxPayload,
       handleProtocols: (protocols) => selectWebSocketProtocol(protocols, password),
       verifyClient: ({ req }, callback) => {
-        if (wss.clients.size >= maxConnections) {
-          this.incrementRuntimeCounter("connectionLimit");
-          this.logger.warn(
-            { active: wss.clients.size, max: maxConnections },
-            "Rejected WebSocket upgrade: concurrent connection limit reached",
-          );
-          callback(false, 503, "Server at capacity");
-          return;
-        }
-        // SEC-002: reject upgrade if the source IP has burned through its auth
-        // failure budget. Brute force attempts now hit a hard ceiling before
-        // even reaching the bearer-token check.
-        const ip = this.extractIp(req);
-        if (this.isAuthFailureBlocked(ip)) {
-          this.incrementRuntimeCounter("authRateLimited");
-          this.logger.warn({ ip }, "Rejected WebSocket upgrade: auth rate limit exceeded");
-          callback(false, 429, "Too many auth attempts");
-          return;
-        }
         this.verifyWsUpgrade(req, allowedOrigins, hostnames, callback);
       },
     });
@@ -631,42 +558,6 @@ export class VoiceAssistantWebSocketServer {
       void this.attachAuthenticatedSocket(ws, request, password);
     });
     return wss;
-  }
-
-  private extractIp(req: IncomingMessage): string {
-    const fwd = req.headers?.["x-forwarded-for"];
-    if (typeof fwd === "string" && fwd.length > 0) {
-      return fwd.split(",")[0].trim();
-    }
-    return req.socket?.remoteAddress ?? "unknown";
-  }
-
-  /**
-   * SEC-002: returns true when the IP has exceeded WS_AUTH_MAX_FAILURES
-   * (default 10) within the WS_AUTH_FAIL_WINDOW_MS rolling window (default
-   * 60_000ms). Tunable via PASEO_WS_AUTH_MAX_FAILURES + PASEO_WS_AUTH_WINDOW_MS.
-   */
-  private isAuthFailureBlocked(ip: string): boolean {
-    const max = Number.parseInt(process.env.PASEO_WS_AUTH_MAX_FAILURES ?? "", 10) || 10;
-    const window = Number.parseInt(process.env.PASEO_WS_AUTH_WINDOW_MS ?? "", 10) || 60_000;
-    const entry = this.wsAuthFailures.get(ip);
-    if (!entry) return false;
-    if (Date.now() - entry.windowStart > window) {
-      this.wsAuthFailures.delete(ip);
-      return false;
-    }
-    return entry.count >= max;
-  }
-
-  private recordAuthFailure(ip: string): void {
-    const window = Number.parseInt(process.env.PASEO_WS_AUTH_WINDOW_MS ?? "", 10) || 60_000;
-    const now = Date.now();
-    const entry = this.wsAuthFailures.get(ip);
-    if (!entry || now - entry.windowStart > window) {
-      this.wsAuthFailures.set(ip, { count: 1, windowStart: now });
-      return;
-    }
-    entry.count += 1;
   }
 
   private startRuntimeMetricsInterval(): void {
@@ -718,12 +609,9 @@ export class VoiceAssistantWebSocketServer {
       const requestMetadata = extractSocketRequestMetadata(request);
       const protocol = extractWsBearerProtocol(request.headers["sec-websocket-protocol"]);
       const token = extractWsBearerToken(protocol);
-      const isAuthorized = await isBearerTokenValidAsync({ password, token });
+      const isAuthorized = isBearerTokenValid({ password, token });
       if (!isAuthorized) {
         const reason = token === null ? "Password required" : "Incorrect password";
-        // SEC-002: record the failure against the source IP so repeated
-        // attempts trip the upgrade-layer rate limit on the next attempt.
-        this.recordAuthFailure(this.extractIp(request));
         this.logger.warn(
           { ...requestMetadata, hasToken: token !== null },
           "Rejected WebSocket connection with invalid daemon password",
@@ -741,15 +629,8 @@ export class VoiceAssistantWebSocketServer {
     for (const ws of this.sessions.keys()) {
       // WebSocket.OPEN = 1
       if (ws.readyState === 1) {
-        if (!shouldSendMessage(ws.bufferedAmount ?? 0)) {
-          this.logger.warn(
-            { bufferedAmount: ws.bufferedAmount, messageType: message.type },
-            "ws_broadcast_dropped_backpressure",
-          );
-          continue;
-        }
         ws.send(payload);
-        this.recordOutboundMessage(message, ws);
+        this.runtimeMetrics.recordOutboundMessage(message, ws.bufferedAmount);
       }
     }
   }
@@ -864,16 +745,9 @@ export class VoiceAssistantWebSocketServer {
     if (ws.readyState !== 1) {
       return;
     }
-    if (!shouldSendMessage(ws.bufferedAmount ?? 0)) {
-      this.logger.warn(
-        { bufferedAmount: ws.bufferedAmount, messageType: message.type },
-        "ws_send_dropped_backpressure",
-      );
-      return;
-    }
     try {
       ws.send(JSON.stringify(message));
-      this.recordOutboundMessage(message, ws);
+      this.runtimeMetrics.recordOutboundMessage(message, ws.bufferedAmount);
     } catch (err) {
       this.logger.warn({ err }, "ws_send_failed");
     }
@@ -883,16 +757,9 @@ export class VoiceAssistantWebSocketServer {
     if (ws.readyState !== 1) {
       return;
     }
-    if (!shouldSendMessage(ws.bufferedAmount ?? 0)) {
-      this.logger.warn(
-        { bufferedAmount: ws.bufferedAmount },
-        "ws_send_binary_dropped_backpressure",
-      );
-      return;
-    }
     try {
       ws.send(frame);
-      this.recordOutboundBinaryFrame(ws);
+      this.runtimeMetrics.recordOutboundBinaryFrame(ws.bufferedAmount);
     } catch (err) {
       this.logger.warn({ err }, "ws_send_binary_failed");
     }
@@ -1014,6 +881,7 @@ export class VoiceAssistantWebSocketServer {
       daemonConfigStore: this.daemonConfigStore,
       mcpBaseUrl: this.mcpBaseUrl,
       stt: () => this.speech?.resolveStt() ?? null,
+      sttLanguage: this.speech?.resolveSttLanguage() ?? "en",
       tts: () => this.speech?.resolveTts() ?? null,
       terminalManager: this.terminalManager,
       providerSnapshotManager: this.providerSnapshotManager,
@@ -1046,6 +914,7 @@ export class VoiceAssistantWebSocketServer {
           ? {
               finalTimeoutMs: this.dictation?.finalTimeoutMs,
               stt: () => this.speech?.resolveDictationStt() ?? null,
+              sttLanguage: this.speech?.resolveDictationSttLanguage() ?? "en",
               getSpeechReadiness: () => this.speech!.getReadiness(),
             }
           : undefined,
@@ -1182,6 +1051,8 @@ export class VoiceAssistantWebSocketServer {
       features: {
         // COMPAT(providersSnapshot): keep optional until all clients rely on snapshot flow.
         providersSnapshot: true,
+        // COMPAT(checkoutGithubSetAutoMerge): added in v0.1.75, remove gate after 2026-11-13.
+        checkoutGithubSetAutoMerge: true,
       },
     };
   }
@@ -1664,116 +1535,19 @@ export class VoiceAssistantWebSocketServer {
   }
 
   private incrementRuntimeCounter(counter: keyof WebSocketRuntimeCounters): void {
-    this.runtimeCounters[counter] += 1;
-  }
-
-  private incrementCount(map: Map<string, number>, key: string): void {
-    map.set(key, (map.get(key) ?? 0) + 1);
+    this.runtimeMetrics.incrementCounter(counter);
   }
 
   private recordInboundMessageType(type: string): void {
-    this.incrementCount(this.inboundMessageCounts, type);
+    this.runtimeMetrics.recordInboundMessage(type);
   }
 
   private recordInboundSessionRequestType(type: string): void {
-    this.incrementCount(this.inboundSessionRequestCounts, type);
-  }
-
-  private recordOutboundMessage(message: WSOutboundMessage, ws: WebSocketLike): void {
-    if (message.type !== "session") {
-      this.incrementCount(this.outboundMessageCounts, message.type);
-      this.recordBufferedAmount(ws);
-      return;
-    }
-
-    this.incrementCount(this.outboundMessageCounts, "session_message");
-    this.incrementCount(this.outboundSessionMessageCounts, message.message.type);
-
-    if (message.message.type === "agent_stream") {
-      this.recordOutboundAgentStreamMessage(message.message.payload);
-    }
-
-    this.recordBufferedAmount(ws);
-  }
-
-  private recordOutboundAgentStreamMessage(
-    payload: Extract<SessionOutboundMessage, { type: "agent_stream" }>["payload"],
-  ): void {
-    const { agentId, event } = payload;
-    const eventType = event.type === "timeline" ? `timeline:${event.item.type}` : event.type;
-    this.incrementCount(this.outboundAgentStreamCounts, eventType);
-    this.incrementCount(this.outboundAgentStreamByAgentCounts, agentId);
-  }
-
-  private recordOutboundBinaryFrame(ws: WebSocketLike): void {
-    this.incrementCount(this.outboundBinaryFrameCounts, "binary");
-    this.recordBufferedAmount(ws);
-  }
-
-  private recordBufferedAmount(ws: WebSocketLike): void {
-    if (typeof ws.bufferedAmount !== "number") {
-      return;
-    }
-    this.bufferedAmountSamples.push(ws.bufferedAmount);
+    this.runtimeMetrics.recordInboundSessionRequest(type);
   }
 
   private recordRequestLatency(type: string, durationMs: number): void {
-    let latencies = this.requestLatencies.get(type);
-    if (!latencies) {
-      latencies = [];
-      this.requestLatencies.set(type, latencies);
-    }
-    latencies.push(durationMs);
-  }
-
-  private getTopCounts(map: Map<string, number>, limit: number): Array<[string, number]> {
-    return [...map.entries()].sort((a, b) => b[1] - a[1]).slice(0, limit);
-  }
-
-  private computeLatencyStats(): Array<{
-    type: string;
-    count: number;
-    minMs: number;
-    maxMs: number;
-    p50Ms: number;
-    totalMs: number;
-  }> {
-    const stats: Array<{
-      type: string;
-      count: number;
-      minMs: number;
-      maxMs: number;
-      p50Ms: number;
-      totalMs: number;
-    }> = [];
-    for (const [type, latencies] of this.requestLatencies) {
-      if (latencies.length === 0) continue;
-      latencies.sort((a, b) => a - b);
-      const count = latencies.length;
-      const minMs = Math.round(latencies[0]);
-      const maxMs = Math.round(latencies[count - 1]);
-      const p50Ms = Math.round(latencies[Math.floor(count / 2)]);
-      const totalMs = Math.round(latencies.reduce((sum, v) => sum + v, 0));
-      stats.push({ type, count, minMs, maxMs, p50Ms, totalMs });
-    }
-    stats.sort((a, b) => b.totalMs - a.totalMs);
-    return stats.slice(0, 15);
-  }
-
-  private computeBufferedAmountStats(): {
-    p95: number;
-    max: number;
-  } {
-    if (this.bufferedAmountSamples.length === 0) {
-      return { p95: 0, max: 0 };
-    }
-
-    const samples = [...this.bufferedAmountSamples].sort((a, b) => a - b);
-    const p95Index = Math.ceil(samples.length * 0.95) - 1;
-    return {
-      p95: samples[p95Index] ?? 0,
-      max: samples[samples.length - 1] ?? 0,
-    };
+    this.runtimeMetrics.recordRequestLatency(type, durationMs);
   }
 
   private collectSessionRuntimeMetrics(): WebSocketRuntimeMetrics {
@@ -1802,8 +1576,7 @@ export class VoiceAssistantWebSocketServer {
   }
 
   private flushRuntimeMetrics(options?: { final?: boolean }): void {
-    const now = Date.now();
-    const windowMs = Math.max(0, now - this.runtimeWindowStartedAt);
+    const runtimeMetrics = this.runtimeMetrics.snapshotAndReset();
     const activeConnections = new Set<SessionConnection>(this.sessions.values()).size;
     const activeSockets = this.sessions.size;
     const pendingConnections = this.pendingConnections.size;
@@ -1812,13 +1585,11 @@ export class VoiceAssistantWebSocketServer {
         connection.sockets.size === 0 && connection.externalDisconnectCleanupTimeout !== null,
     ).length;
     const sessionMetrics = this.collectSessionRuntimeMetrics();
-    const latencyStats = this.computeLatencyStats();
-    const bufferedAmountStats = this.computeBufferedAmountStats();
     const agentSnapshot = this.agentManager.getMetricsSnapshot();
 
     this.logger.info(
       {
-        windowMs,
+        windowMs: runtimeMetrics.windowMs,
         final: Boolean(options?.final),
         sessions: {
           activeConnections,
@@ -1829,37 +1600,21 @@ export class VoiceAssistantWebSocketServer {
           activeSockets,
           pendingConnections,
         },
-        counters: { ...this.runtimeCounters },
-        inboundMessageTypesTop: this.getTopCounts(this.inboundMessageCounts, 12),
-        inboundSessionRequestTypesTop: this.getTopCounts(this.inboundSessionRequestCounts, 20),
-        outboundMessageTypesTop: this.getTopCounts(this.outboundMessageCounts, 12),
-        outboundSessionMessageTypesTop: this.getTopCounts(this.outboundSessionMessageCounts, 20),
-        outboundAgentStreamTypesTop: this.getTopCounts(this.outboundAgentStreamCounts, 20),
-        outboundAgentStreamAgentsTop: this.getTopCounts(this.outboundAgentStreamByAgentCounts, 20),
-        outboundBinaryFrameTypesTop: this.getTopCounts(this.outboundBinaryFrameCounts, 12),
-        bufferedAmount: bufferedAmountStats,
+        counters: runtimeMetrics.counters,
+        inboundMessageTypesTop: runtimeMetrics.inboundMessageTypesTop,
+        inboundSessionRequestTypesTop: runtimeMetrics.inboundSessionRequestTypesTop,
+        outboundMessageTypesTop: runtimeMetrics.outboundMessageTypesTop,
+        outboundSessionMessageTypesTop: runtimeMetrics.outboundSessionMessageTypesTop,
+        outboundAgentStreamTypesTop: runtimeMetrics.outboundAgentStreamTypesTop,
+        outboundAgentStreamAgentsTop: runtimeMetrics.outboundAgentStreamAgentsTop,
+        outboundBinaryFrameTypesTop: runtimeMetrics.outboundBinaryFrameTypesTop,
+        bufferedAmount: runtimeMetrics.bufferedAmount,
         runtime: sessionMetrics,
-        latency: latencyStats,
+        latency: runtimeMetrics.latency,
         agents: agentSnapshot,
       },
       "ws_runtime_metrics",
     );
-
-    for (const counter of Object.keys(this.runtimeCounters) as Array<
-      keyof WebSocketRuntimeCounters
-    >) {
-      this.runtimeCounters[counter] = 0;
-    }
-    this.inboundMessageCounts.clear();
-    this.inboundSessionRequestCounts.clear();
-    this.outboundMessageCounts.clear();
-    this.outboundSessionMessageCounts.clear();
-    this.outboundAgentStreamCounts.clear();
-    this.outboundAgentStreamByAgentCounts.clear();
-    this.outboundBinaryFrameCounts.clear();
-    this.bufferedAmountSamples.length = 0;
-    this.requestLatencies.clear();
-    this.runtimeWindowStartedAt = now;
   }
 
   private getClientActivityState(session: Session): ClientPresenceState {
@@ -1916,11 +1671,9 @@ export class VoiceAssistantWebSocketServer {
     });
 
     if (plan.shouldPush) {
-      const tokens = this.pushTokenStore.getAllTokens();
-      this.logger.info({ tokenCount: tokens.length }, "Sending push notification");
-      if (tokens.length > 0) {
-        void this.pushService.sendPush(tokens, notification);
-      }
+      void this.pushNotificationSender.send(notification).catch((err) => {
+        this.logger.warn({ err, agentId: params.agentId }, "Failed to send push notification");
+      });
     }
 
     for (const [clientIndex, { ws }] of clientEntries.entries()) {

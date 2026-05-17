@@ -26,6 +26,8 @@ function workspace(input: {
     archivingAt: null,
     activityAt: null,
     diffStat: null,
+    archiveHasUncommittedChanges: null,
+    archiveUnpushedCommitCount: null,
     scripts: [],
     hasRunningScripts: false,
   };

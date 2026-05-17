@@ -1,14 +1,25 @@
-import { existsSync, mkdirSync, readdirSync } from "node:fs";
-import os from "node:os";
+import { chmodSync, mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, test } from "vitest";
+import { describe, expect, test } from "vitest";
 
 import {
-  PersistedConfigSchema,
   loadPersistedConfig,
+  PersistedConfigSchema,
   savePersistedConfig,
-  writeConfigAtomically,
 } from "./persisted-config.js";
+import { PRIVATE_FILE_MODE } from "./private-files.js";
+
+const MODE_MASK = 0o777;
+const PERMISSIVE_FILE_MODE = 0o644;
+
+function createTempHome(): string {
+  return mkdtempSync(path.join(tmpdir(), "paseo-config-"));
+}
+
+function modeOf(filePath: string): number {
+  return statSync(filePath).mode & MODE_MASK;
+}
 
 describe("PersistedConfigSchema daemon auth config", () => {
   test("accepts optional daemon password hash", () => {
@@ -472,86 +483,69 @@ describe("PersistedConfigSchema voice mode config", () => {
 
     expect(parsed.features?.voiceMode?.turnDetection?.provider).toBe("local");
   });
+
+  test("accepts trimmed STT language fields", () => {
+    const parsed = PersistedConfigSchema.parse({
+      features: {
+        dictation: {
+          stt: {
+            language: " fr ",
+          },
+        },
+        voiceMode: {
+          stt: {
+            language: " de ",
+          },
+        },
+      },
+    });
+
+    expect(parsed.features?.dictation?.stt?.language).toBe("fr");
+    expect(parsed.features?.voiceMode?.stt?.language).toBe("de");
+  });
 });
 
-describe("savePersistedConfig — atomic writes", () => {
-  let tmpDir: string;
-
-  beforeEach(() => {
-    tmpDir = path.join(os.tmpdir(), `paseo-config-test-${Date.now()}-${Math.random()}`);
-    mkdirSync(tmpDir, { recursive: true });
-  });
-
-  afterEach(() => {
+describe.skipIf(process.platform === "win32")("persisted config file permissions", () => {
+  test("initializes config.json with private permissions", () => {
+    const home = createTempHome();
     try {
-      const { rmSync } = require("node:fs");
-      rmSync(tmpDir, { recursive: true, force: true });
-    } catch {
-      // ignore cleanup errors
+      loadPersistedConfig(home);
+
+      expect(modeOf(path.join(home, "config.json"))).toBe(PRIVATE_FILE_MODE);
+    } finally {
+      rmSync(home, { recursive: true, force: true });
     }
   });
 
-  test("writeConfigAtomically writes correct content to the target file", () => {
-    const targetPath = path.join(tmpDir, "config.json");
-    writeConfigAtomically(targetPath, '{"version":1}\n');
+  test("repairs permissive config.json permissions when loading", () => {
+    const home = createTempHome();
+    const configPath = path.join(home, "config.json");
+    try {
+      writeFileSync(configPath, "{}\n", { mode: PERMISSIVE_FILE_MODE });
+      chmodSync(configPath, PERMISSIVE_FILE_MODE);
 
-    expect(existsSync(targetPath)).toBe(true);
-    const content = require("node:fs").readFileSync(targetPath, "utf-8");
-    expect(JSON.parse(content)).toEqual({ version: 1 });
+      loadPersistedConfig(home);
+
+      expect(modeOf(configPath)).toBe(PRIVATE_FILE_MODE);
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
   });
 
-  test("writeConfigAtomically leaves no .tmp files after success", () => {
-    const targetPath = path.join(tmpDir, "config.json");
-    writeConfigAtomically(targetPath, '{"version":1}\n');
+  test("saves config.json with private permissions", () => {
+    const home = createTempHome();
+    try {
+      savePersistedConfig(home, {
+        providers: {
+          openai: {
+            apiKey: "secret",
+          },
+        },
+      });
 
-    const entries = readdirSync(tmpDir);
-    expect(entries.filter((f) => f.includes(".tmp"))).toHaveLength(0);
-  });
-
-  test("writeConfigAtomically preserves prior content if write fails", () => {
-    // Pre-write a valid config
-    const targetPath = path.join(tmpDir, "config.json");
-    writeConfigAtomically(targetPath, '{"version":1,"prior":true}\n');
-
-    // Attempt an atomic write to a non-writable directory (simulate failure)
-    // by using an invalid target path; the original file must remain intact.
-    expect(() => {
-      writeConfigAtomically(
-        path.join(tmpDir, "nonexistent", "config.json"),
-        '{"version":1,"corrupt":true}\n',
-      );
-    }).toThrow();
-
-    // Original file is still intact
-    const content = require("node:fs").readFileSync(targetPath, "utf-8");
-    expect(JSON.parse(content)).toMatchObject({ prior: true });
-  });
-
-  test("leaves no .tmp file after a successful write", () => {
-    const config = loadPersistedConfig(tmpDir);
-    savePersistedConfig(tmpDir, config);
-
-    const entries = readdirSync(tmpDir);
-    const tmpFiles = entries.filter((f) => f.includes(".tmp"));
-    expect(tmpFiles).toHaveLength(0);
-  });
-
-  test("written file contains valid JSON matching the saved config", () => {
-    const config = loadPersistedConfig(tmpDir);
-    savePersistedConfig(tmpDir, config);
-
-    const content = require("node:fs").readFileSync(path.join(tmpDir, "config.json"), "utf-8");
-    const parsed = JSON.parse(content);
-    expect(parsed).toMatchObject({ version: 1 });
-  });
-
-  test("config round-trips through save and load", () => {
-    const config = loadPersistedConfig(tmpDir);
-    if (!config.daemon) config.daemon = {};
-    config.daemon.listen = "127.0.0.1:9999";
-    savePersistedConfig(tmpDir, config);
-
-    const loaded = loadPersistedConfig(tmpDir);
-    expect(loaded.daemon?.listen).toBe("127.0.0.1:9999");
+      expect(modeOf(path.join(home, "config.json"))).toBe(PRIVATE_FILE_MODE);
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
   });
 });

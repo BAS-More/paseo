@@ -1,14 +1,5 @@
 import { router, usePathname } from "expo-router";
-import {
-  FolderPlus,
-  Globe,
-  MessagesSquare,
-  PanelLeftOpen,
-  Plus,
-  Search,
-  Settings,
-  SquarePen,
-} from "lucide-react-native";
+import { FolderPlus, MessagesSquare, Settings, X } from "lucide-react-native";
 import {
   type Dispatch,
   memo,
@@ -25,7 +16,6 @@ import {
   Pressable,
   StyleSheet as RNStyleSheet,
   Text,
-  TextInput,
   useWindowDimensions,
   View,
   type PressableStateCallbackType,
@@ -48,7 +38,6 @@ import { Combobox, ComboboxItem, type ComboboxOption } from "@/components/ui/com
 import { Shortcut } from "@/components/ui/shortcut";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useIsCompactFormFactor } from "@/constants/layout";
-import { useAppSettings } from "@/hooks/use-settings";
 import { isWeb } from "@/constants/platform";
 import { useSidebarAnimation } from "@/contexts/sidebar-animation-context";
 import { useOpenProjectPicker } from "@/hooks/use-open-project-picker";
@@ -56,7 +45,6 @@ import { useShortcutKeys } from "@/hooks/use-shortcut-keys";
 import { useSidebarShortcutModel } from "@/hooks/use-sidebar-shortcut-model";
 import {
   type SidebarProjectEntry,
-  type SidebarWorkspaceEntry,
   useSidebarWorkspacesList,
 } from "@/hooks/use-sidebar-workspaces-list";
 import { useHostRuntimeSnapshot, useHosts } from "@/runtime/host-runtime";
@@ -74,40 +62,11 @@ import {
   buildSettingsRoute,
   mapPathnameToServer,
 } from "@/utils/host-routes";
-import { usePinnedWorkspacesStore } from "@/stores/pinned-workspaces-store";
 import { SidebarAgentListSkeleton } from "./sidebar-agent-list-skeleton";
 import { SidebarCalloutSlot } from "./sidebar-callout-slot";
 import { SidebarWorkspaceList } from "./sidebar-workspace-list";
 
 const MIN_CHAT_WIDTH = 400;
-
-type DateBucket = "today" | "yesterday" | "this-week" | "this-month" | "older";
-
-function getDateBucket(activityAt: string | null): DateBucket {
-  if (!activityAt) return "older";
-  const date = new Date(activityAt);
-  if (isNaN(date.getTime())) return "older";
-  const now = new Date();
-  const diffMs = now.getTime() - date.getTime();
-  const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
-  if (diffDays === 0 && date.toDateString() === now.toDateString()) return "today";
-  const yesterday = new Date(now);
-  yesterday.setDate(yesterday.getDate() - 1);
-  if (date.toDateString() === yesterday.toDateString()) return "yesterday";
-  if (diffDays < 7) return "this-week";
-  if (diffDays < 30) return "this-month";
-  return "older";
-}
-
-const DATE_BUCKET_LABELS: Record<DateBucket, string> = {
-  today: "Today",
-  yesterday: "Yesterday",
-  "this-week": "This Week",
-  "this-month": "This Month",
-  older: "Older",
-};
-
-const DATE_BUCKET_ORDER: DateBucket[] = ["today", "yesterday", "this-week", "this-month", "older"];
 
 type SidebarShortcutModel = ReturnType<typeof useSidebarShortcutModel>;
 type SidebarTheme = ReturnType<typeof useUnistyles>["theme"];
@@ -471,13 +430,6 @@ function SidebarFooter({
   handleSettings: () => void;
 }) {
   const newAgentKeys = useShortcutKeys("new-agent");
-  const { settings: footerSettings } = useAppSettings();
-  const isClaudeDesktopFooter = footerSettings.layoutMode === "claude-desktop";
-
-  if (isClaudeDesktopFooter) {
-    return null;
-  }
-
   return (
     <View style={styles.sidebarFooter}>
       <View style={styles.footerHostSlot}>
@@ -520,6 +472,7 @@ function SidebarFooter({
         searchable={false}
         title="Switch host"
         searchPlaceholder="Search hosts..."
+        desktopMinWidth={280}
         open={isHostPickerOpen}
         onOpenChange={setIsHostPickerOpen}
         anchorRef={hostTriggerRef}
@@ -727,6 +680,25 @@ function MobileSidebar({
               isActive={isSessionsActive}
               testID="sidebar-sessions"
             />
+            <Pressable
+              style={styles.mobileCloseButton}
+              onPress={closeToAgent}
+              testID="sidebar-close"
+              nativeID="sidebar-close"
+              accessible
+              accessibilityRole="button"
+              accessibilityLabel="Close sidebar"
+              hitSlop={8}
+            >
+              {({ hovered, pressed }) => (
+                <X
+                  size={theme.iconSize.md}
+                  color={
+                    hovered || pressed ? theme.colors.foreground : theme.colors.foregroundMuted
+                  }
+                />
+              )}
+            </Pressable>
 
             {isInitialLoad ? (
               <SidebarAgentListSkeleton />
@@ -796,98 +768,6 @@ function DesktopSidebar({
   const padding = useWindowControlsPadding("sidebar");
   const sidebarWidth = usePanelStore((state) => state.sidebarWidth);
   const setSidebarWidth = usePanelStore((state) => state.setSidebarWidth);
-  const { settings: appSettings } = useAppSettings();
-  const isClaudeDesktop = appSettings.layoutMode === "claude-desktop";
-  const [searchQuery, setSearchQuery] = useState("");
-
-  const searchInputStyle = useMemo(
-    () => [styles.searchInput, isWeb && ({ outlineStyle: "none" } as Record<string, unknown>)],
-    [],
-  );
-
-  const filteredProjects = useMemo(() => {
-    if (!searchQuery.trim()) return projects;
-    const query = searchQuery.toLowerCase();
-    return projects
-      .map((project) => ({
-        ...project,
-        workspaces: project.workspaces.filter(
-          (ws) =>
-            ws.name.toLowerCase().includes(query) ||
-            project.projectName.toLowerCase().includes(query),
-        ),
-      }))
-      .filter((project) => project.workspaces.length > 0);
-  }, [projects, searchQuery]);
-
-  const pinnedKeys = usePinnedWorkspacesStore((s) => s.pinnedKeys);
-  const dateGroupedProjects = useMemo((): SidebarProjectEntry[] => {
-    if (!isClaudeDesktop) return filteredProjects;
-
-    const allWorkspaces: SidebarWorkspaceEntry[] = [];
-    for (const project of filteredProjects) {
-      for (const ws of project.workspaces) {
-        allWorkspaces.push(ws);
-      }
-    }
-
-    const pinned: SidebarWorkspaceEntry[] = [];
-    const unpinned: SidebarWorkspaceEntry[] = [];
-    for (const ws of allWorkspaces) {
-      if (pinnedKeys.has(ws.workspaceKey)) {
-        pinned.push(ws);
-      } else {
-        unpinned.push(ws);
-      }
-    }
-
-    const sortByActivity = (a: SidebarWorkspaceEntry, b: SidebarWorkspaceEntry) => {
-      const aTime = a.activityAt ? new Date(a.activityAt).getTime() : 0;
-      const bTime = b.activityAt ? new Date(b.activityAt).getTime() : 0;
-      return bTime - aTime;
-    };
-
-    const result: SidebarProjectEntry[] = [];
-
-    if (pinned.length > 0) {
-      pinned.sort(sortByActivity);
-      result.push({
-        projectKey: "__pinned__",
-        projectName: "Pinned",
-        projectKind: "directory",
-        iconWorkingDir: "",
-        workspaces: pinned,
-      });
-    }
-
-    const bucketMap = new Map<DateBucket, SidebarWorkspaceEntry[]>();
-    for (const ws of unpinned) {
-      const bucket = getDateBucket(ws.activityAt);
-      let list = bucketMap.get(bucket);
-      if (!list) {
-        list = [];
-        bucketMap.set(bucket, list);
-      }
-      list.push(ws);
-    }
-
-    for (const list of bucketMap.values()) {
-      list.sort(sortByActivity);
-    }
-
-    for (const bucket of DATE_BUCKET_ORDER) {
-      const workspaces = bucketMap.get(bucket);
-      if (!workspaces || workspaces.length === 0) continue;
-      result.push({
-        projectKey: `__date_bucket__${bucket}`,
-        projectName: DATE_BUCKET_LABELS[bucket],
-        projectKind: "directory",
-        iconWorkingDir: "",
-        workspaces,
-      });
-    }
-    return result;
-  }, [isClaudeDesktop, filteredProjects, pinnedKeys]);
   const { width: viewportWidth } = useWindowDimensions();
   const hostStatusDotStyle = useMemo(
     () => [styles.hostStatusDot, { backgroundColor: activeHostStatusColor }],
@@ -931,78 +811,20 @@ function DesktopSidebar({
 
   const paddingTopSpacerStyle = useMemo(() => ({ height: padding.top }), [padding.top]);
   const desktopSidebarStyle = useMemo(
-    () => [staticStyles.desktopSidebar, resizeAnimatedStyle, { paddingTop: insetsTop }],
-    [resizeAnimatedStyle, insetsTop],
+    () => [staticStyles.desktopSidebar, resizeAnimatedStyle],
+    [resizeAnimatedStyle],
   );
-  const desktopSidebarBorderStyle = useMemo(() => [styles.desktopSidebarBorder, { flex: 1 }], []);
+  const desktopSidebarBorderStyle = useMemo(
+    () => [styles.desktopSidebarBorder, { flex: 1, paddingTop: insetsTop }],
+    [insetsTop],
+  );
   const resizeHandleStyle = useMemo(
     () => [styles.resizeHandle, isWeb && ({ cursor: "col-resize" } as object)],
     [],
   );
 
-  const iconRailStyle = useMemo(() => [styles.iconRail, { paddingTop: insetsTop }], [insetsTop]);
-  const handleExpandSidebar = useCallback(
-    () => usePanelStore.getState().openDesktopAgentList(),
-    [],
-  );
-  const flexFillStyle = useMemo(() => ({ flex: 1 }) as const, []);
-
   if (!isOpen) {
-    return (
-      <View style={iconRailStyle}>
-        <TitlebarDragRegion />
-        <Tooltip delayDuration={200}>
-          <TooltipTrigger asChild>
-            <Pressable
-              onPress={handleExpandSidebar}
-              style={styles.iconRailButton}
-              accessibilityLabel="Expand sidebar"
-            >
-              <PanelLeftOpen size={18} color={theme.colors.foregroundMuted} />
-            </Pressable>
-          </TooltipTrigger>
-          <TooltipContent side="right">
-            <Text>Expand sidebar</Text>
-          </TooltipContent>
-        </Tooltip>
-        <Tooltip delayDuration={200}>
-          <TooltipTrigger asChild>
-            <Pressable
-              onPress={handleOpenProject}
-              style={styles.iconRailButton}
-              accessibilityLabel="New agent"
-            >
-              <Plus size={18} color={theme.colors.foregroundMuted} />
-            </Pressable>
-          </TooltipTrigger>
-          <TooltipContent side="right">
-            <Text>New agent</Text>
-          </TooltipContent>
-        </Tooltip>
-        <Tooltip delayDuration={200}>
-          <TooltipTrigger asChild>
-            <Pressable
-              onPress={handleViewMore}
-              style={styles.iconRailButton}
-              accessibilityLabel="Sessions"
-            >
-              <MessagesSquare size={18} color={theme.colors.foregroundMuted} />
-            </Pressable>
-          </TooltipTrigger>
-          <TooltipContent side="right">
-            <Text>Sessions</Text>
-          </TooltipContent>
-        </Tooltip>
-        <View style={flexFillStyle} />
-        <Pressable
-          onPress={handleSettings}
-          style={styles.iconRailButton}
-          accessibilityLabel="Settings"
-        >
-          <Settings size={18} color={theme.colors.foregroundMuted} />
-        </Pressable>
-      </View>
-    );
+    return null;
   }
 
   return (
@@ -1018,45 +840,7 @@ function DesktopSidebar({
             isActive={isSessionsActive}
             testID="sidebar-sessions"
           />
-          {isClaudeDesktop ? (
-            <View style={styles.claudeDesktopHeaderActions}>
-              <Pressable
-                onPress={handleOpenProject}
-                style={styles.claudeDesktopHeaderIcon}
-                accessibilityLabel="New session"
-              >
-                <SquarePen size={14} color={theme.colors.foregroundMuted} />
-              </Pressable>
-              <Pressable style={styles.claudeDesktopHeaderIcon} accessibilityLabel="Web">
-                <Globe size={14} color={theme.colors.foregroundMuted} />
-              </Pressable>
-            </View>
-          ) : null}
         </View>
-
-        {isClaudeDesktop ? (
-          <View style={styles.searchContainer}>
-            <Search size={14} color={theme.colors.foregroundMuted} />
-            <TextInput
-              style={searchInputStyle}
-              placeholder="Search sessions…"
-              placeholderTextColor={theme.colors.foregroundMuted}
-              value={searchQuery}
-              onChangeText={setSearchQuery}
-              autoCapitalize="none"
-              autoCorrect={false}
-            />
-          </View>
-        ) : (
-          <Pressable
-            onPress={handleOpenProject}
-            style={styles.newChatButton}
-            accessibilityLabel="New agent"
-          >
-            <Plus size={16} color={theme.colors.foregroundMuted} />
-            <Text style={styles.newChatText}>New Agent</Text>
-          </Pressable>
-        )}
 
         {isInitialLoad ? (
           <SidebarAgentListSkeleton />
@@ -1066,14 +850,14 @@ function DesktopSidebar({
             collapsedProjectKeys={collapsedProjectKeys}
             onToggleProjectCollapsed={toggleProjectCollapsed}
             shortcutIndexByWorkspaceKey={shortcutIndexByWorkspaceKey}
-            projects={isClaudeDesktop ? dateGroupedProjects : projects}
+            projects={projects}
             isRefreshing={isManualRefresh && isRevalidating}
             onRefresh={handleRefresh}
             onAddProject={handleOpenProject}
           />
         )}
 
-        {isClaudeDesktop ? null : <SidebarCalloutSlot />}
+        <SidebarCalloutSlot />
 
         <SidebarFooter
           theme={theme}
@@ -1124,42 +908,22 @@ const styles = StyleSheet.create((theme) => ({
     flex: 1,
     minHeight: 0,
   },
+  mobileCloseButton: {
+    position: "absolute",
+    top: theme.spacing[3],
+    right: theme.spacing[4],
+    zIndex: 2,
+    width: 32,
+    height: 32,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: theme.borderRadius.lg,
+    backgroundColor: theme.colors.surfaceSidebar,
+  },
   desktopSidebarBorder: {
     borderRightWidth: 1,
     borderRightColor: theme.colors.border,
     backgroundColor: theme.colors.surfaceSidebar,
-  },
-  iconRail: {
-    width: 48,
-    backgroundColor: theme.colors.surfaceSidebar,
-    borderRightWidth: 1,
-    borderRightColor: theme.colors.border,
-    alignItems: "center",
-    paddingVertical: theme.spacing[3],
-    gap: theme.spacing[2],
-  },
-  iconRailButton: {
-    width: 36,
-    height: 36,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: theme.borderRadius.lg,
-  },
-  newChatButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: theme.spacing[2],
-    marginHorizontal: theme.spacing[3],
-    marginBottom: theme.spacing[2],
-    paddingVertical: theme.spacing[2],
-    paddingHorizontal: theme.spacing[3],
-    borderRadius: theme.borderRadius.lg,
-    backgroundColor: theme.colors.surface2,
-  },
-  newChatText: {
-    fontSize: theme.fontSize.sm,
-    fontWeight: theme.fontWeight.medium,
-    color: theme.colors.foreground,
   },
   resizeHandle: {
     position: "absolute",
@@ -1171,41 +935,6 @@ const styles = StyleSheet.create((theme) => ({
   },
   sidebarDragArea: {
     position: "relative",
-  },
-  claudeDesktopHeaderActions: {
-    position: "absolute",
-    right: theme.spacing[3],
-    top: 0,
-    bottom: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: theme.spacing[1],
-  },
-  claudeDesktopHeaderIcon: {
-    width: 24,
-    height: 24,
-    borderRadius: theme.borderRadius.md,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  searchContainer: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: theme.spacing[2],
-    marginHorizontal: theme.spacing[3],
-    marginBottom: theme.spacing[2],
-    paddingHorizontal: theme.spacing[3],
-    paddingVertical: theme.spacing[1.5],
-    borderRadius: theme.borderRadius.lg,
-    backgroundColor: theme.colors.surface1,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-  },
-  searchInput: {
-    flex: 1,
-    fontSize: theme.fontSize.sm,
-    color: theme.colors.foreground,
-    padding: 0,
   },
   hostTrigger: {
     flexDirection: "row",

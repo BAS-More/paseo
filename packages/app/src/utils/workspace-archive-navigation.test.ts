@@ -48,7 +48,7 @@ describe("buildWorkspaceArchiveRedirectRoute", () => {
         archivedWorkspaceId: "/repo/.paseo/worktrees/feature",
         workspaces,
       }),
-    ).toBe("/h/server-1/new?dir=%2Frepo&name=Project");
+    ).toBe("/h/server-1/new?dir=%2Frepo&name=Project&projectId=project-1");
   });
 
   it("redirects to the new workspace route when no sibling workspace target exists", () => {
@@ -66,7 +66,7 @@ describe("buildWorkspaceArchiveRedirectRoute", () => {
         archivedWorkspaceId: "/repo/.paseo/worktrees/feature",
         workspaces,
       }),
-    ).toBe("/h/server-1/new?dir=%2Frepo&name=Project");
+    ).toBe("/h/server-1/new?dir=%2Frepo&name=Project&projectId=project-1");
   });
 
   it("redirects to the new workspace route instead of another workspace", () => {
@@ -86,7 +86,7 @@ describe("buildWorkspaceArchiveRedirectRoute", () => {
         archivedWorkspaceId: "/notes",
         workspaces,
       }),
-    ).toBe("/h/server-1/new?dir=%2Fnotes&name=Project");
+    ).toBe("/h/server-1/new?dir=%2Fnotes&name=Project&projectId=notes");
   });
 });
 
@@ -133,6 +133,8 @@ describe("redirectIfArchivingActiveWorkspace", () => {
       }),
     ).toBe(true);
 
-    expect(replaceMock).toHaveBeenCalledWith("/h/server-1/new?dir=%2Frepo&name=Project");
+    expect(replaceMock).toHaveBeenCalledWith(
+      "/h/server-1/new?dir=%2Frepo&name=Project&projectId=project-1",
+    );
   });
 });

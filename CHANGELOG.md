@@ -1,5 +1,186 @@
 # Changelog
 
+## 0.1.76 - 2026-05-15
+
+### Added
+
+- **Chat timestamps and turn durations.** Every message shows when it was sent, and each turn surfaces how long the agent took.
+- **Auto Review permission mode for Claude Code and Codex.** Agents stop after each assistant turn for review instead of running unattended. ([#928](https://github.com/getpaseo/paseo/pull/928), [#963](https://github.com/getpaseo/paseo/pull/963) by [@bolasblack](https://github.com/bolasblack))
+- Surface Codex's context compaction events and the `/compact` command in chat.
+- Optional auto-archive for worktrees once their PR merges.
+- Paste a GitHub PR or issue URL into the composer to attach it as context.
+- Surface GitHub auto-merge actions in the PR hover card.
+- Show all PR check counts in the PR hover card.
+- Rename a project to disambiguate duplicates that share a folder name.
+- Confirm before archiving a worktree with uncommitted or unpushed work.
+- Claude Code now picks up models from `~/.claude/settings.json` so custom model lists show up in the model picker.
+- Local Claude Code settings (`.claude/settings.local.json`) apply per workspace.
+- Diagnostics for generic ACP providers surface in the model picker.
+- Allow setting fast mode for Paseo subagents ([#909](https://github.com/getpaseo/paseo/pull/909), [#910](https://github.com/getpaseo/paseo/pull/910) by [@kongjiadongyuan](https://github.com/kongjiadongyuan))
+
+### Improved
+
+- Surface Claude error messages in chat instead of ending the turn silently.
+- Workspace checkout picker auto-selects when a single PR is attached.
+- New workspace flow honors the currently checked-out branch when branching off. ([#909](https://github.com/getpaseo/paseo/pull/908) by [@sbtobb](https://github.com/sbtobb))
+- OpenCode models from console subscription providers now appear in the model picker. ([#917](https://github.com/getpaseo/paseo/pull/917) by [@t2o2](https://github.com/t2o2))
+- Cursor model picker reflects the models advertised by the Cursor ACP client. ([#958](https://github.com/getpaseo/paseo/pull/958) by [@chrisbanes](https://github.com/chrisbanes))
+
+### Fixed
+
+- iPad hardware Enter submits the composer. ([#919](https://github.com/getpaseo/paseo/pull/919) by [@kongjiadongyuan](https://github.com/kongjiadongyuan))
+- PR status falls back to a non-checks query for fine-grained GitHub tokens. ([#932](https://github.com/getpaseo/paseo/pull/932) by [@32r4](https://github.com/32r4))
+- ACP errors display as readable text instead of `[object Object]`.
+- OpenCode no longer hangs on retry when the upstream provider stalls.
+- Worktree ahead count is correct when the upstream branch has been deleted.
+- Branch-off worktrees track the correct upstream.
+- File changes view works on empty repositories with no commits yet.
+- Assistant message file links open the correct file.
+- Default thinking option matches the selected model's capabilities.
+- Shift+Enter works again in terminal input modes.
+- Duplicate project entries no longer appear after reopening a project.
+- Pi-backed sessions recover after a Copilot 413 instead of staying stuck.
+- Skip probing unrelated executable candidates when launching agents.
+- Relay E2EE reconnects cleanly under racing connect/disconnect.
+- Workspace kind stays in sync with project kind after reconfiguration.
+- zsh integration files install with usable runtime modes.
+- MCP worktree cache refreshes after create and archive. ([#911](https://github.com/getpaseo/paseo/pull/911) by [@kongjiadongyuan](https://github.com/kongjiadongyuan))
+
+## 0.1.75 - 2026-05-12
+
+### Added
+
+- Set the speech-to-text language used by dictation and voice mode from settings. ([#941](https://github.com/getpaseo/paseo/pull/941))
+
+### Fixed
+
+- Codex resume failures now surface as explicit errors instead of leaving the agent silently stuck. ([#947](https://github.com/getpaseo/paseo/pull/947))
+- Custom providers extending Codex now route correctly when they set a custom `OPENAI_BASE_URL`. ([#915](https://github.com/getpaseo/paseo/pull/915))
+- Fixed Copilot's **Allow All** mode (renamed from Autopilot) ([#935](https://github.com/getpaseo/paseo/pull/935))
+- Desktop: daemon startup no longer fails when a stale PID file is left next to a still-running daemon. ([#913](https://github.com/getpaseo/paseo/pull/913) by [@biaoma-ty](https://github.com/biaoma-ty))
+- iPhone HEIC photos now attach correctly from the image picker ([#934](https://github.com/getpaseo/paseo/pull/934))
+- Scheduled agents now archive automatically after each run ([#945](https://github.com/getpaseo/paseo/pull/945))
+- Windows: Codex command summaries trim `pwsh`, `powershell`, or `cmd` wrappers. ([#931](https://github.com/getpaseo/paseo/pull/931) by [@32r4](https://github.com/32r4))
+- iPad: settings sidebar and main sidebar respect the top safe area in wide layouts. ([#922](https://github.com/getpaseo/paseo/pull/922), [#937](https://github.com/getpaseo/paseo/pull/937) by [@kongjiadongyuan](https://github.com/kongjiadongyuan))
+
+## 0.1.74 - 2026-05-11
+
+### Fixed
+
+- **OpenCode agent turns no longer stall.** Paseo now follows OpenCode's global event stream, so turns stream reliably without falling back to fragile recovery paths. ([#916](https://github.com/getpaseo/paseo/pull/916))
+
+## 0.1.73 - 2026-05-10
+
+### Fixed
+
+- **OpenCode agents work again on OpenCode 1.14.42+.** ([#895](https://github.com/getpaseo/paseo/pull/895), [#902](https://github.com/getpaseo/paseo/pull/902), [#904](https://github.com/getpaseo/paseo/pull/904) by [@atomlink-ye](https://github.com/atomlink-ye), [@plutofog](https://github.com/plutofog))
+- Web: opening a workspace no longer hangs in browsers without `crypto.randomUUID`. ([#858](https://github.com/getpaseo/paseo/pull/858) by [@cokekitten](https://github.com/cokekitten))
+- Codex sub-agent child tool calls now report a final failure state instead of staying as "running". ([#899](https://github.com/getpaseo/paseo/pull/899))
+- Old relay pairing URLs without an explicit TLS flag work again. ([#896](https://github.com/getpaseo/paseo/pull/896))
+- macOS: the tab-jump shortcut no longer collides with system shortcuts. ([#859](https://github.com/getpaseo/paseo/pull/859) by [@nikuscs](https://github.com/nikuscs))
+- Web: the composer no longer triggers a bottom-sheet keyboard on desktop browsers. ([#898](https://github.com/getpaseo/paseo/pull/898) by [@nikuscs](https://github.com/nikuscs))
+- Windows: git operations no longer flash a console window on each invocation. ([#897](https://github.com/getpaseo/paseo/pull/897))
+- File explorer no longer follows symlinks outside the workspace root. ([#847](https://github.com/getpaseo/paseo/pull/847) by [@joaosa](https://github.com/joaosa))
+- Desktop only opens external URLs via http(s) and mailto schemes. ([#845](https://github.com/getpaseo/paseo/pull/845) by [@joaosa](https://github.com/joaosa))
+- MCP debug request logs now redact request bodies. ([#842](https://github.com/getpaseo/paseo/pull/842) by [@joaosa](https://github.com/joaosa))
+
+## 0.1.72 - 2026-05-10
+
+### Fixed
+
+- **Codex approval prompts no longer hang.** Fixes a regression introduced in 0.1.70 where Codex agents would wait forever on command and file approvals — the prompt never reached the app and the agent stayed stuck in "running". ([#866](https://github.com/getpaseo/paseo/pull/866), [#869](https://github.com/getpaseo/paseo/pull/869))
+- **Windows: daemon no longer crashes when Codex emits non-JSON output.** Localized stdout lines from the Codex CLI are now ignored instead of taking down the daemon worker. ([#866](https://github.com/getpaseo/paseo/pull/866))
+- Drag-and-drop images onto the new workspace screen now works. ([#850](https://github.com/getpaseo/paseo/pull/850))
+- Archiving a worktree from the toolbar redirects you immediately instead of leaving you on the dead screen for a beat. ([#852](https://github.com/getpaseo/paseo/pull/852))
+- Pi-backed sessions now shut down cleanly when you close them, releasing extension resources on the Pi side. ([#863](https://github.com/getpaseo/paseo/pull/863))
+
+## 0.1.71 - 2026-05-09
+
+### Added
+
+- **Import existing Claude, Codex, and OpenCode sessions** into Paseo — pick up a conversation you started in the terminal and keep going from the app, with the full timeline. ([#766](https://github.com/getpaseo/paseo/pull/766), [#833](https://github.com/getpaseo/paseo/pull/833))
+- **Subagents now appear in a collapsible section above the composer** so you can jump into agents your main agent spawned. ([#532](https://github.com/getpaseo/paseo/pull/532))
+- Merge a pull request directly from the checkout pane. ([#814](https://github.com/getpaseo/paseo/pull/814))
+- Customize the per-project prompts Paseo uses to auto-generate agent titles, branch names, commit messages, and pull request descriptions. ([#836](https://github.com/getpaseo/paseo/pull/836))
+- Open an empty workspace without typing a prompt first. ([#834](https://github.com/getpaseo/paseo/pull/834))
+- Project settings are now grouped with inline links to the relevant docs. ([#837](https://github.com/getpaseo/paseo/pull/837))
+- Rich context menu on desktop — copy link, copy image, and spellcheck suggestions.
+- Archiving a Codex-backed agent now archives the underlying native Codex thread too. ([#827](https://github.com/getpaseo/paseo/pull/827) by [@32r4](https://github.com/32r4))
+
+### Improved
+
+- Opening a workspace auto-focuses the agent that needs your attention. ([#828](https://github.com/getpaseo/paseo/pull/828))
+- An unattended agent that spawns a sub-agent on a different provider via MCP now starts the sub-agent in unattended mode too.
+
+### Fixed
+
+- iOS project picker now submits the typed path. ([#831](https://github.com/getpaseo/paseo/pull/831))
+- System messages and chat mentions routed to multiple agents now reach every recipient consistently. ([#830](https://github.com/getpaseo/paseo/pull/830))
+- Clicking a Markdown link in agent output no longer reloads the desktop app on top of opening the link.
+- macOS desktop tab-jump shortcuts now use Cmd+Option+1-9, avoiding conflicts with Option-based international keyboard characters such as `@`.
+
+### Security
+
+- Local state files (daemon keypair, stored credentials, persisted config) are now readable only by the owning user. ([#825](https://github.com/getpaseo/paseo/pull/825) by [@joaosa](https://github.com/joaosa))
+
+## 0.1.70 - 2026-05-08
+
+### Breaking
+
+- **Claude agents now require `claude` on your PATH.** Install Claude Code globally (`npm install -g @anthropic-ai/claude-code`) before running a Claude agent — Paseo no longer ships a bundled fallback binary. Same posture as Codex and OpenCode, and shrinks the desktop install by ~210 MB per platform.
+
+### Added
+
+- **One-click ACP providers** — add Cursor, Hermes, Qwen Coder, Kimi Code, and other ACP agents from a built-in catalog instead of writing config by hand.
+- Codex `/goal` slash command — set or update the goal mid-turn while a Codex agent is running.
+- Claude's Sonnet 4.6 1M context model is now selectable in the model picker.
+- Detect GitHub issue and PR URLs pasted into the composer search.
+- `paseo worktree create` CLI command, with parity to the MCP `create_worktree` tool.
+- `paseo schedule update` to edit a schedule in place without recreating it.
+- `paseo schedule run-once` for cron-style triggers, plus `--mode` on `schedule` and `loop`. Background runs now default to unattended mode.
+- Projects settings now lists workspaces from any remote — GitLab, Gitea, Bitbucket, self-hosted, and SSH-style URLs, not just GitHub. ([#681](https://github.com/getpaseo/paseo/pull/681) by [@krumpyzoid](https://github.com/krumpyzoid))
+
+### Improved
+
+- Skills now install, update, and uninstall on demand instead of silently auto-syncing on every desktop launch.
+- Self-hosted relays can opt into `wss://` for TLS connections.
+- Workspace open targets only show options reachable from the current daemon.
+- Combobox search matches model descriptions, not just names.
+- Codex image attachments render inline as path markdown.
+- Subagent task notifications no longer clutter the parent agent's timeline.
+- Voice mode: quieter thinking tone and small UI polish.
+- Settings sidebar order: Projects now appears after General.
+- Electron upgraded to 41.2.0 for the desktop app.
+
+### Fixed
+
+- **Claude agent: daemon no longer crashes mid-turn** when the underlying SDK fires a stray control message after the connection has been torn down.
+- **Windows:** Terminals start reliably and shut down cleanly without leaving stuck processes behind.
+- **Linux:** Workspace file watchers no longer storm with events on busy working trees, fixing CPU spikes on large repos. ([#794](https://github.com/getpaseo/paseo/pull/794) by [@312223105](https://github.com/312223105))
+- ACP-based agents launch terminal shell commands reliably. ([#793](https://github.com/getpaseo/paseo/pull/793) by [@ebg1223](https://github.com/ebg1223))
+- Checkout shortstat now counts untracked files. ([#608](https://github.com/getpaseo/paseo/issues/608), [#762](https://github.com/getpaseo/paseo/pull/762) by [@somus](https://github.com/somus))
+- Relay endpoints on port 443 use TLS automatically. ([#774](https://github.com/getpaseo/paseo/pull/774) by [@caoer](https://github.com/caoer))
+- Desktop CLI passthrough TTY handling — interactive commands now behave correctly when launched from the desktop app.
+- The CLI honors the `PASEO_PASSWORD` environment variable for password-protected daemons.
+- Daemon shutdown terminates all child processes cleanly using tree-kill.
+- Agent spawn paths handle missing executables and unusual install layouts more reliably.
+- OpenCode now forwards provider retry errors instead of silently swallowing them.
+- Codex import no longer reverts to the wrong default mode.
+- Pane keyboard shortcuts no longer fire while you're typing in an editable field.
+- Cold workspace URL navigation now lands in the correct sidebar entry on web.
+- Workspace navigation regression on web fixed.
+- Duplicate workspace shell navigation eliminated.
+- The 'Update installed' callout no longer flashes incorrectly.
+- Browser pane reload focus and devtools handling.
+- MCP terminal capture now includes scrollback.
+- Worktree branches no longer get renamed when an agent is created against an existing worktree from MCP.
+- Creating an agent in a subdirectory of a registered workspace now runs in that subdirectory instead of jumping up to the parent. ([#551](https://github.com/getpaseo/paseo/issues/551))
+- Non-GitHub project display names are derived from the remote owner/repo instead of the local path.
+- Desktop IPC wrapped in shared mutation/query hooks, fixing stale state and intermittent failures. ([#761](https://github.com/getpaseo/paseo/issues/761))
+- `paseo schedule create --host` now requires `--cwd` to avoid running schedules in the wrong directory.
+- `paseo schedule create --every` runs once immediately by default, then on the configured interval.
+- MCP `create_agent` validates the requested mode and refuses silent cross-provider inheritance.
+
 ## 0.1.69 - 2026-05-05
 
 ### Fixed

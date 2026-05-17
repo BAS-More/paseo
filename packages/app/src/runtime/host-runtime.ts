@@ -602,8 +602,20 @@ export class HostRuntimeController {
   }
 
   async updateHost(host: HostProfile): Promise<void> {
+    const activeConnectionId = this.snapshot.activeConnectionId;
+    const previousActiveConnection = findConnectionById(this.host, activeConnectionId);
     this.host = host;
     this.trackConnectionFirstSeen();
+    const nextActiveConnection = findConnectionById(this.host, activeConnectionId);
+    if (
+      activeConnectionId &&
+      previousActiveConnection &&
+      nextActiveConnection &&
+      !equal(previousActiveConnection, nextActiveConnection)
+    ) {
+      this.connectionLastProbedAt.delete(activeConnectionId);
+      await this.switchToConnection({ connectionId: activeConnectionId });
+    }
     await this.runProbeCycleNow();
   }
 
@@ -1506,10 +1518,12 @@ export class HostRuntimeStore {
   }
 
   async upsertConnectionFromOffer(offer: ConnectionOffer, label?: string): Promise<HostProfile> {
+    // COMPAT(oldRelayOfferTls): added in v0.1.73, remove after 2026-11-10.
+    const useTls = offer.relay.useTls ?? shouldUseTlsForDefaultHostedRelay(offer.relay.endpoint);
     return this.upsertRelayConnection({
       serverId: offer.serverId,
       relayEndpoint: offer.relay.endpoint,
-      useTls: offer.relay.useTls,
+      useTls,
       daemonPublicKeyB64: offer.daemonPublicKeyB64,
       label,
     });
