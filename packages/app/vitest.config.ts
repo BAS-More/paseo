@@ -79,11 +79,11 @@ export default defineConfig({
     ],
     alias: [
       {
-        find: /^@bas-more\/relay\/e2ee$/,
+        find: /^@getpaseo\/relay\/e2ee$/,
         replacement: path.resolve(__dirname, "../relay/src/e2ee.ts"),
       },
       {
-        find: /^@bas-more\/relay$/,
+        find: /^@getpaseo\/relay$/,
         replacement: path.resolve(__dirname, "../relay/src/index.ts"),
       },
       { find: "@", replacement: path.resolve(__dirname, "src") },
