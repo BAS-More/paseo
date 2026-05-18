@@ -51,6 +51,7 @@ import {
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import { SPACING, type Theme } from "@/styles/theme";
 import { useIsCompactFormFactor } from "@/constants/layout";
+import { useAppSettings } from "@/hooks/use-settings";
 import Animated, {
   Easing,
   cancelAnimation,
@@ -355,6 +356,9 @@ const userMessageStylesheet = StyleSheet.create((theme) => ({
     minWidth: 0,
     flexShrink: 1,
   },
+  bubbleClaudeDesktop: {
+    backgroundColor: theme.colors.userBubble || theme.colors.surface3,
+  },
   text: {
     color: theme.colors.foreground,
     fontSize: theme.fontSize.base,
@@ -461,6 +465,8 @@ export const UserMessage = memo(function UserMessage({
   disableOuterSpacing,
 }: UserMessageProps) {
   const isCompact = useIsCompactFormFactor();
+  const { settings } = useAppSettings();
+  const isClaudeDesktop = settings.layoutMode === "claude-desktop";
   const [isHovered, setIsHovered] = useState(false);
   const resolvedDisableOuterSpacing = useDisableOuterSpacing(disableOuterSpacing);
   const hasText = message.trim().length > 0;
@@ -518,7 +524,12 @@ export const UserMessage = memo(function UserMessage({
         onPointerEnter={handlePointerEnter}
         onPointerLeave={handlePointerLeave}
       >
-        <View style={userMessageStylesheet.bubble}>
+        <View
+          style={[
+            userMessageStylesheet.bubble,
+            isClaudeDesktop && userMessageStylesheet.bubbleClaudeDesktop,
+          ]}
+        >
           {hasImages ? (
             <View style={imagePreviewContainerStyle}>
               {images.map((image) => (
