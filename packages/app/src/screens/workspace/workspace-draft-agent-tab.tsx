@@ -31,7 +31,7 @@ import {
   useWorkspaceAttachmentScopeKey,
 } from "@/attachments/workspace-attachments-store";
 import type { UserMessageImageAttachment } from "@/types/stream";
-import { MAX_CONTENT_WIDTH, useIsCompactFormFactor } from "@/constants/layout";
+import { MAX_CONTENT_WIDTH, useIsCompactFormFactor, useMaxContentWidth } from "@/constants/layout";
 import { isWeb } from "@/constants/platform";
 import type { WorkspaceDraftTabSetup } from "@/stores/workspace-tabs-store";
 
@@ -335,6 +335,7 @@ export function WorkspaceDraftAgentTab({
   onOpenImportSheet,
 }: WorkspaceDraftAgentTabProps) {
   const insets = useSafeAreaInsets();
+  const dynamicMaxContentWidth = useMaxContentWidth();
   const client = useHostRuntimeClient(serverId);
   const isConnected = useHostRuntimeIsConnected(serverId);
   const workspaceAuthority = useWorkspaceExecutionAuthority(serverId, workspaceId);
@@ -647,7 +648,7 @@ export function WorkspaceDraftAgentTab({
         <View style={inputAreaWrapperStyle}>
           {onOpenImportSheet ? (
             <View style={styles.importPillRow}>
-              <View style={styles.importPillContent}>
+              <View style={[styles.importPillContent, { maxWidth: dynamicMaxContentWidth }]}>
                 <ComposerImportPill onPress={onOpenImportSheet} disabled={isSubmitting} />
               </View>
             </View>

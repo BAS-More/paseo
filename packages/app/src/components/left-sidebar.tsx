@@ -62,8 +62,11 @@ import {
   buildSettingsRoute,
   mapPathnameToServer,
 } from "@/utils/host-routes";
+import { useAppSettings } from "@/hooks/use-settings";
+import { useSettingsModalStore } from "@/stores/settings-modal-store";
 import { SidebarAgentListSkeleton } from "./sidebar-agent-list-skeleton";
 import { SidebarCalloutSlot } from "./sidebar-callout-slot";
+import { SidebarDateGroupedList } from "./sidebar-date-grouped-list";
 import { SidebarWorkspaceList } from "./sidebar-workspace-list";
 
 const MIN_CHAT_WIDTH = 400;
@@ -204,6 +207,8 @@ export const LeftSidebar = memo(function LeftSidebar({
   }, [isRevalidating, isManualRefresh]);
 
   const openProjectPicker = useOpenProjectPicker(activeServerId);
+  const { settings: { layoutMode } } = useAppSettings();
+  const openSettingsModal = useSettingsModalStore((s) => s.open);
 
   const handleOpenProjectMobile = useCallback(() => {
     showMobileAgent();
@@ -215,13 +220,22 @@ export const LeftSidebar = memo(function LeftSidebar({
   }, [openProjectPicker]);
 
   const handleSettingsMobile = useCallback(() => {
-    showMobileAgent();
-    router.push(buildSettingsRoute());
-  }, [showMobileAgent]);
+    if (layoutMode === "claude-desktop") {
+      showMobileAgent();
+      openSettingsModal();
+    } else {
+      showMobileAgent();
+      router.push(buildSettingsRoute());
+    }
+  }, [showMobileAgent, layoutMode, openSettingsModal]);
 
   const handleSettingsDesktop = useCallback(() => {
-    router.push(buildSettingsRoute());
-  }, []);
+    if (layoutMode === "claude-desktop") {
+      openSettingsModal();
+    } else {
+      router.push(buildSettingsRoute());
+    }
+  }, [layoutMode, openSettingsModal]);
 
   const handleViewMoreNavigate = useCallback(() => {
     if (!activeServerId) {
@@ -510,6 +524,7 @@ function MobileSidebar({
 }: MobileSidebarProps) {
   const pathname = usePathname();
   const isSessionsActive = pathname.includes("/sessions");
+  const { settings: { layoutMode: mobileLayoutMode } } = useAppSettings();
   const {
     translateX,
     backdropOpacity,
@@ -702,6 +717,11 @@ function MobileSidebar({
 
             {isInitialLoad ? (
               <SidebarAgentListSkeleton />
+            ) : mobileLayoutMode === "claude-desktop" && activeServerId ? (
+              <SidebarDateGroupedList
+                projects={projects}
+                serverId={activeServerId}
+              />
             ) : (
               <SidebarWorkspaceList
                 serverId={activeServerId}
@@ -765,6 +785,7 @@ function DesktopSidebar({
 }: DesktopSidebarProps) {
   const pathname = usePathname();
   const isSessionsActive = pathname.includes("/sessions");
+  const { settings: { layoutMode: desktopLayoutMode } } = useAppSettings();
   const padding = useWindowControlsPadding("sidebar");
   const sidebarWidth = usePanelStore((state) => state.sidebarWidth);
   const setSidebarWidth = usePanelStore((state) => state.setSidebarWidth);
@@ -844,6 +865,11 @@ function DesktopSidebar({
 
         {isInitialLoad ? (
           <SidebarAgentListSkeleton />
+        ) : desktopLayoutMode === "claude-desktop" && activeServerId ? (
+          <SidebarDateGroupedList
+            projects={projects}
+            serverId={activeServerId}
+          />
         ) : (
           <SidebarWorkspaceList
             serverId={activeServerId}
