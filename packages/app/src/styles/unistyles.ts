@@ -5,6 +5,7 @@ import {
   darkZincTheme,
   darkMidnightTheme,
   darkClaudeTheme,
+  darkClaudeCodeTheme,
   darkGhosttyTheme,
   soiferLightTheme,
   darkSoiferTheme,
@@ -18,6 +19,7 @@ StyleSheet.configure({
     darkZinc: darkZincTheme,
     darkMidnight: darkMidnightTheme,
     darkClaude: darkClaudeTheme,
+    darkClaudeCode: darkClaudeCodeTheme,
     darkGhostty: darkGhosttyTheme,
     soifer: soiferLightTheme,
     darkSoifer: darkSoiferTheme,
@@ -42,6 +44,7 @@ interface AppThemes {
   darkZinc: typeof darkZincTheme;
   darkMidnight: typeof darkMidnightTheme;
   darkClaude: typeof darkClaudeTheme;
+  darkClaudeCode: typeof darkClaudeCodeTheme;
   darkGhostty: typeof darkGhosttyTheme;
   soifer: typeof soiferLightTheme;
   darkSoifer: typeof darkSoiferTheme;

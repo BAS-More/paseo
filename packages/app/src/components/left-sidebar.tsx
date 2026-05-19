@@ -1,5 +1,12 @@
 import { router, usePathname } from "expo-router";
-import { FolderPlus, MessagesSquare, Settings, X } from "lucide-react-native";
+import {
+  FolderPlus,
+  MessagesSquare,
+  PanelLeftOpen,
+  Plus,
+  Search,
+  Settings,
+} from "lucide-react-native";
 import {
   type Dispatch,
   memo,
@@ -16,6 +23,7 @@ import {
   Pressable,
   StyleSheet as RNStyleSheet,
   Text,
+  TextInput,
   useWindowDimensions,
   View,
   type PressableStateCallbackType,
@@ -38,6 +46,7 @@ import { Combobox, ComboboxItem, type ComboboxOption } from "@/components/ui/com
 import { Shortcut } from "@/components/ui/shortcut";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useIsCompactFormFactor } from "@/constants/layout";
+import { useAppSettings } from "@/hooks/use-settings";
 import { isWeb } from "@/constants/platform";
 import { useSidebarAnimation } from "@/contexts/sidebar-animation-context";
 import { useOpenProjectPicker } from "@/hooks/use-open-project-picker";
@@ -58,62 +67,24 @@ import { resolveActiveHost } from "@/utils/active-host";
 import { formatConnectionStatus } from "@/utils/daemons";
 import { useWindowControlsPadding } from "@/utils/desktop-window";
 import {
+  buildHostAgentDetailRoute,
   buildHostSessionsRoute,
   buildSettingsRoute,
   mapPathnameToServer,
 } from "@/utils/host-routes";
-import { useAppSettings } from "@/hooks/use-settings";
-import { useSettingsModalStore } from "@/stores/settings-modal-store";
+import { useAgentHistory } from "@/hooks/use-agent-history";
+import type { AggregatedAgent } from "@/hooks/use-aggregated-agents";
+import { useSessionStore } from "@/stores/session-store";
+import { resolveWorkspaceIdByExecutionDirectory } from "@/utils/workspace-execution";
+import { navigateToPreparedWorkspaceTab } from "@/utils/workspace-navigation";
 import { SidebarAgentListSkeleton } from "./sidebar-agent-list-skeleton";
-import { SidebarCalloutSlot } from "./sidebar-callout-slot";
-import { SidebarDateGroupedList } from "./sidebar-date-grouped-list";
 import { SidebarWorkspaceList } from "./sidebar-workspace-list";
+import { SidebarTabBar, type SidebarTab } from "./sidebar/sidebar-tab-bar";
+import { SidebarQuickActions } from "./sidebar/sidebar-quick-actions";
+import { SidebarSessionList } from "./sidebar/sidebar-session-list";
+import { SidebarUserFooter } from "./sidebar/sidebar-user-footer";
 
 const MIN_CHAT_WIDTH = 400;
-
-/** Avoids nested ternary lint violation in both mobile + desktop sidebars. */
-function SidebarListContent({
-  isInitialLoad,
-  layoutMode,
-  activeServerId,
-  projects,
-  collapsedProjectKeys,
-  shortcutIndexByWorkspaceKey,
-  toggleProjectCollapsed,
-  isRefreshing,
-  onRefresh,
-  onAddProject,
-}: {
-  isInitialLoad: boolean;
-  layoutMode: string;
-  activeServerId: string | null;
-  projects: SidebarProjectEntry[];
-  collapsedProjectKeys: SidebarShortcutModel["collapsedProjectKeys"];
-  shortcutIndexByWorkspaceKey: SidebarShortcutModel["shortcutIndexByWorkspaceKey"];
-  toggleProjectCollapsed: SidebarShortcutModel["toggleProjectCollapsed"];
-  isRefreshing: boolean;
-  onRefresh: () => void;
-  onAddProject: () => void;
-}) {
-  if (isInitialLoad) {
-    return <SidebarAgentListSkeleton />;
-  }
-  if (layoutMode === "claude-desktop" && activeServerId) {
-    return <SidebarDateGroupedList projects={projects} serverId={activeServerId} />;
-  }
-  return (
-    <SidebarWorkspaceList
-      serverId={activeServerId}
-      collapsedProjectKeys={collapsedProjectKeys}
-      onToggleProjectCollapsed={toggleProjectCollapsed}
-      shortcutIndexByWorkspaceKey={shortcutIndexByWorkspaceKey}
-      projects={projects}
-      isRefreshing={isRefreshing}
-      onRefresh={onRefresh}
-      onAddProject={onAddProject}
-    />
-  );
-}
 
 type SidebarShortcutModel = ReturnType<typeof useSidebarShortcutModel>;
 type SidebarTheme = ReturnType<typeof useUnistyles>["theme"];
@@ -148,6 +119,10 @@ interface SidebarSharedProps {
     active: boolean;
     onPress: () => void;
   }) => ReactElement;
+  agentHistoryAgents: AggregatedAgent[];
+  agentHistoryIsLoading: boolean;
+  agentHistoryLoadMore: () => void;
+  handleSessionPress: (agent: AggregatedAgent) => void;
 }
 
 interface MobileSidebarProps extends SidebarSharedProps {
@@ -237,12 +212,18 @@ export const LeftSidebar = memo(function LeftSidebar({
   const { collapsedProjectKeys, shortcutIndexByWorkspaceKey, toggleProjectCollapsed } =
     useSidebarShortcutModel({ projects, isInitialLoad });
 
+  const agentHistory = useAgentHistory({
+    serverId: activeServerId,
+    enabled: isCompactLayout || isOpen,
+  });
+
   const [isManualRefresh, setIsManualRefresh] = useState(false);
 
   const handleRefresh = useCallback(() => {
     setIsManualRefresh(true);
     refreshAll();
-  }, [refreshAll]);
+    agentHistory.refreshAll();
+  }, [refreshAll, agentHistory]);
 
   useEffect(() => {
     if (!isRevalidating && isManualRefresh) {
@@ -251,10 +232,6 @@ export const LeftSidebar = memo(function LeftSidebar({
   }, [isRevalidating, isManualRefresh]);
 
   const openProjectPicker = useOpenProjectPicker(activeServerId);
-  const {
-    settings: { layoutMode },
-  } = useAppSettings();
-  const openSettingsModal = useSettingsModalStore((s) => s.open);
 
   const handleOpenProjectMobile = useCallback(() => {
     showMobileAgent();
@@ -266,22 +243,13 @@ export const LeftSidebar = memo(function LeftSidebar({
   }, [openProjectPicker]);
 
   const handleSettingsMobile = useCallback(() => {
-    if (layoutMode === "claude-desktop") {
-      showMobileAgent();
-      openSettingsModal();
-    } else {
-      showMobileAgent();
-      router.push(buildSettingsRoute());
-    }
-  }, [showMobileAgent, layoutMode, openSettingsModal]);
+    showMobileAgent();
+    router.push(buildSettingsRoute());
+  }, [showMobileAgent]);
 
   const handleSettingsDesktop = useCallback(() => {
-    if (layoutMode === "claude-desktop") {
-      openSettingsModal();
-    } else {
-      router.push(buildSettingsRoute());
-    }
-  }, [layoutMode, openSettingsModal]);
+    router.push(buildSettingsRoute());
+  }, []);
 
   const handleViewMoreNavigate = useCallback(() => {
     if (!activeServerId) {
@@ -302,6 +270,27 @@ export const LeftSidebar = memo(function LeftSidebar({
     [pathname],
   );
 
+  const handleSessionPress = useCallback((agent: AggregatedAgent) => {
+    const serverId = agent.serverId;
+    const agentId = agent.id;
+    const workspaceId = resolveWorkspaceIdByExecutionDirectory({
+      workspaces: useSessionStore.getState().sessions[serverId]?.workspaces?.values(),
+      workspaceDirectory: agent.cwd,
+    });
+
+    if (!workspaceId) {
+      router.navigate(buildHostAgentDetailRoute(serverId, agentId) as import("expo-router").Href);
+      return;
+    }
+
+    navigateToPreparedWorkspaceTab({
+      serverId,
+      workspaceId,
+      target: { kind: "agent", agentId },
+      pin: Boolean(agent.archivedAt),
+    });
+  }, []);
+
   const sharedProps = {
     theme,
     activeServerId,
@@ -321,6 +310,10 @@ export const LeftSidebar = memo(function LeftSidebar({
     handleRefresh,
     handleHostSelect,
     renderHostOption,
+    agentHistoryAgents: agentHistory.agents,
+    agentHistoryIsLoading: agentHistory.isLoading,
+    agentHistoryLoadMore: agentHistory.loadMore,
+    handleSessionPress,
   };
 
   if (isCompactLayout) {
@@ -490,6 +483,13 @@ function SidebarFooter({
   handleSettings: () => void;
 }) {
   const newAgentKeys = useShortcutKeys("new-agent");
+  const { settings: footerSettings } = useAppSettings();
+  const isClaudeDesktopFooter = footerSettings.layoutMode === "claude-desktop";
+
+  if (isClaudeDesktopFooter) {
+    return null;
+  }
+
   return (
     <View style={styles.sidebarFooter}>
       <View style={styles.footerHostSlot}>
@@ -570,9 +570,6 @@ function MobileSidebar({
 }: MobileSidebarProps) {
   const pathname = usePathname();
   const isSessionsActive = pathname.includes("/sessions");
-  const {
-    settings: { layoutMode: mobileLayoutMode },
-  } = useAppSettings();
   const {
     translateX,
     backdropOpacity,
@@ -739,38 +736,21 @@ function MobileSidebar({
               isActive={isSessionsActive}
               testID="sidebar-sessions"
             />
-            <Pressable
-              style={styles.mobileCloseButton}
-              onPress={closeToAgent}
-              testID="sidebar-close"
-              nativeID="sidebar-close"
-              accessible
-              accessibilityRole="button"
-              accessibilityLabel="Close sidebar"
-              hitSlop={8}
-            >
-              {({ hovered, pressed }) => (
-                <X
-                  size={theme.iconSize.md}
-                  color={
-                    hovered || pressed ? theme.colors.foreground : theme.colors.foregroundMuted
-                  }
-                />
-              )}
-            </Pressable>
 
-            <SidebarListContent
-              isInitialLoad={isInitialLoad}
-              layoutMode={mobileLayoutMode}
-              activeServerId={activeServerId}
-              projects={projects}
-              collapsedProjectKeys={collapsedProjectKeys}
-              shortcutIndexByWorkspaceKey={shortcutIndexByWorkspaceKey}
-              toggleProjectCollapsed={toggleProjectCollapsed}
-              isRefreshing={isManualRefresh && isRevalidating}
-              onRefresh={handleRefresh}
-              onAddProject={handleOpenProject}
-            />
+            {isInitialLoad ? (
+              <SidebarAgentListSkeleton />
+            ) : (
+              <SidebarWorkspaceList
+                serverId={activeServerId}
+                collapsedProjectKeys={collapsedProjectKeys}
+                onToggleProjectCollapsed={toggleProjectCollapsed}
+                shortcutIndexByWorkspaceKey={shortcutIndexByWorkspaceKey}
+                projects={projects}
+                isRefreshing={isManualRefresh && isRevalidating}
+                onRefresh={handleRefresh}
+                onAddProject={handleOpenProject}
+              />
+            )}
 
             <SidebarFooter
               theme={theme}
@@ -796,41 +776,51 @@ function MobileSidebar({
 function DesktopSidebar({
   theme,
   activeServerId,
-  activeHostLabel,
-  activeHostStatusColor,
-  hostOptions,
-  hostTriggerRef,
-  isHostPickerOpen,
-  setIsHostPickerOpen,
-  projects,
-  isInitialLoad,
-  isRevalidating,
-  isManualRefresh,
-  collapsedProjectKeys,
-  shortcutIndexByWorkspaceKey,
-  toggleProjectCollapsed,
-  handleRefresh,
-  handleHostSelect,
-  renderHostOption,
+  activeHostLabel: _activeHostLabel,
+  activeHostStatusColor: _activeHostStatusColor,
+  hostOptions: _hostOptions,
+  hostTriggerRef: _hostTriggerRef,
+  isHostPickerOpen: _isHostPickerOpen,
+  setIsHostPickerOpen: _setIsHostPickerOpen,
+  projects: _projects,
+  isInitialLoad: _isInitialLoad,
+  isRevalidating: _isRevalidating,
+  isManualRefresh: _isManualRefresh,
+  collapsedProjectKeys: _collapsedProjectKeys,
+  shortcutIndexByWorkspaceKey: _shortcutIndexByWorkspaceKey,
+  toggleProjectCollapsed: _toggleProjectCollapsed,
+  handleRefresh: _handleRefresh,
+  handleHostSelect: _handleHostSelect,
+  renderHostOption: _renderHostOption,
   handleOpenProject,
   handleSettings,
   insetsTop,
   isOpen,
-  handleViewMore,
+  handleViewMore: _handleViewMore,
+  agentHistoryAgents,
+  agentHistoryIsLoading,
+  agentHistoryLoadMore,
+  handleSessionPress,
 }: DesktopSidebarProps) {
   const pathname = usePathname();
-  const isSessionsActive = pathname.includes("/sessions");
-  const {
-    settings: { layoutMode: desktopLayoutMode },
-  } = useAppSettings();
   const padding = useWindowControlsPadding("sidebar");
   const sidebarWidth = usePanelStore((state) => state.sidebarWidth);
   const setSidebarWidth = usePanelStore((state) => state.setSidebarWidth);
-  const { width: viewportWidth } = useWindowDimensions();
-  const hostStatusDotStyle = useMemo(
-    () => [styles.hostStatusDot, { backgroundColor: activeHostStatusColor }],
-    [activeHostStatusColor],
+  const [searchQuery, setSearchQuery] = useState("");
+  const [activeTab, setActiveTab] = useState<SidebarTab>("code");
+
+  const searchInputStyle = useMemo(
+    () => [styles.searchInput, isWeb && ({ outlineStyle: "none" } as Record<string, unknown>)],
+    [],
   );
+
+  const selectedAgentKey = useMemo(() => {
+    const match = pathname.match(/\/agent\/([^/]+)/);
+    if (!match) return null;
+    return activeServerId ? `${activeServerId}:${match[1]}` : null;
+  }, [pathname, activeServerId]);
+
+  const { width: viewportWidth } = useWindowDimensions();
 
   const startWidthRef = useRef(sidebarWidth);
   const resizeWidth = useSharedValue(sidebarWidth);
@@ -869,20 +859,78 @@ function DesktopSidebar({
 
   const paddingTopSpacerStyle = useMemo(() => ({ height: padding.top }), [padding.top]);
   const desktopSidebarStyle = useMemo(
-    () => [staticStyles.desktopSidebar, resizeAnimatedStyle],
-    [resizeAnimatedStyle],
+    () => [staticStyles.desktopSidebar, resizeAnimatedStyle, { paddingTop: insetsTop }],
+    [resizeAnimatedStyle, insetsTop],
   );
-  const desktopSidebarBorderStyle = useMemo(
-    () => [styles.desktopSidebarBorder, { flex: 1, paddingTop: insetsTop }],
-    [insetsTop],
-  );
+  const desktopSidebarBorderStyle = useMemo(() => [styles.desktopSidebarBorder, { flex: 1 }], []);
   const resizeHandleStyle = useMemo(
     () => [styles.resizeHandle, isWeb && ({ cursor: "col-resize" } as object)],
     [],
   );
 
+  const iconRailStyle = useMemo(() => [styles.iconRail, { paddingTop: insetsTop }], [insetsTop]);
+  const handleExpandSidebar = useCallback(
+    () => usePanelStore.getState().openDesktopAgentList(),
+    [],
+  );
+  const flexFillStyle = useMemo(() => ({ flex: 1 }) as const, []);
+
   if (!isOpen) {
-    return null;
+    return (
+      <View style={iconRailStyle}>
+        <TitlebarDragRegion />
+        <Tooltip delayDuration={200}>
+          <TooltipTrigger asChild>
+            <Pressable
+              onPress={handleExpandSidebar}
+              style={styles.iconRailButton}
+              accessibilityLabel="Expand sidebar"
+            >
+              <PanelLeftOpen size={18} color={theme.colors.foregroundMuted} />
+            </Pressable>
+          </TooltipTrigger>
+          <TooltipContent side="right">
+            <Text>Expand sidebar</Text>
+          </TooltipContent>
+        </Tooltip>
+        <Tooltip delayDuration={200}>
+          <TooltipTrigger asChild>
+            <Pressable
+              onPress={handleOpenProject}
+              style={styles.iconRailButton}
+              accessibilityLabel="New agent"
+            >
+              <Plus size={18} color={theme.colors.foregroundMuted} />
+            </Pressable>
+          </TooltipTrigger>
+          <TooltipContent side="right">
+            <Text>New agent</Text>
+          </TooltipContent>
+        </Tooltip>
+        <Tooltip delayDuration={200}>
+          <TooltipTrigger asChild>
+            <Pressable
+              onPress={handleViewMore}
+              style={styles.iconRailButton}
+              accessibilityLabel="Sessions"
+            >
+              <MessagesSquare size={18} color={theme.colors.foregroundMuted} />
+            </Pressable>
+          </TooltipTrigger>
+          <TooltipContent side="right">
+            <Text>Sessions</Text>
+          </TooltipContent>
+        </Tooltip>
+        <View style={flexFillStyle} />
+        <Pressable
+          onPress={handleSettings}
+          style={styles.iconRailButton}
+          accessibilityLabel="Settings"
+        >
+          <Settings size={18} color={theme.colors.foregroundMuted} />
+        </Pressable>
+      </View>
+    );
   }
 
   return (
@@ -891,46 +939,45 @@ function DesktopSidebar({
         <View style={styles.sidebarDragArea}>
           <TitlebarDragRegion />
           {padding.top > 0 ? <View style={paddingTopSpacerStyle} /> : null}
-          <SidebarHeaderRow
-            icon={MessagesSquare}
-            label="Sessions"
-            onPress={handleViewMore}
-            isActive={isSessionsActive}
-            testID="sidebar-sessions"
+        </View>
+
+        <SidebarTabBar activeTab={activeTab} onTabChange={setActiveTab} />
+
+        <SidebarQuickActions
+          onNewSession={handleOpenProject}
+          onRoutines={handleViewMore}
+          onCustomize={handleSettings}
+        />
+
+        <View style={styles.searchContainer}>
+          <Search size={14} color={theme.colors.foregroundMuted} />
+          <TextInput
+            style={searchInputStyle}
+            placeholder="Search sessions…"
+            placeholderTextColor={theme.colors.foregroundMuted}
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+            autoCapitalize="none"
+            autoCorrect={false}
           />
         </View>
 
-        <SidebarListContent
-          isInitialLoad={isInitialLoad}
-          layoutMode={desktopLayoutMode}
-          activeServerId={activeServerId}
-          projects={projects}
-          collapsedProjectKeys={collapsedProjectKeys}
-          shortcutIndexByWorkspaceKey={shortcutIndexByWorkspaceKey}
-          toggleProjectCollapsed={toggleProjectCollapsed}
-          isRefreshing={isManualRefresh && isRevalidating}
-          onRefresh={handleRefresh}
-          onAddProject={handleOpenProject}
-        />
+        {agentHistoryIsLoading && agentHistoryAgents.length === 0 ? (
+          <SidebarAgentListSkeleton />
+        ) : (
+          <SidebarSessionList
+            agents={agentHistoryAgents}
+            selectedAgentKey={selectedAgentKey}
+            isRefreshing={isManualRefresh && isRevalidating}
+            onRefresh={handleRefresh}
+            onSessionPress={handleSessionPress}
+            onEndReached={agentHistoryLoadMore}
+            searchQuery={searchQuery}
+          />
+        )}
 
-        <SidebarCalloutSlot />
+        <SidebarUserFooter userName="Avi" modelLabel="Max" onPress={handleSettings} />
 
-        <SidebarFooter
-          theme={theme}
-          activeServerId={activeServerId}
-          activeHostLabel={activeHostLabel}
-          hostStatusDotStyle={hostStatusDotStyle}
-          hostOptions={hostOptions}
-          hostTriggerRef={hostTriggerRef}
-          isHostPickerOpen={isHostPickerOpen}
-          setIsHostPickerOpen={setIsHostPickerOpen}
-          handleHostSelect={handleHostSelect}
-          renderHostOption={renderHostOption}
-          handleOpenProject={handleOpenProject}
-          handleSettings={handleSettings}
-        />
-
-        {/* Resize handle - absolutely positioned over right border */}
         <GestureDetector gesture={resizeGesture}>
           <View style={resizeHandleStyle} />
         </GestureDetector>
@@ -964,22 +1011,45 @@ const styles = StyleSheet.create((theme) => ({
     flex: 1,
     minHeight: 0,
   },
-  mobileCloseButton: {
-    position: "absolute",
-    top: theme.spacing[3],
-    right: theme.spacing[4],
-    zIndex: 2,
-    width: 32,
-    height: 32,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: theme.borderRadius.lg,
-    backgroundColor: theme.colors.surfaceSidebar,
-  },
   desktopSidebarBorder: {
     borderRightWidth: 1,
     borderRightColor: theme.colors.border,
     backgroundColor: theme.colors.surfaceSidebar,
+  },
+  iconRail: {
+    width: 48,
+    backgroundColor: theme.colors.surfaceSidebar,
+    borderRightWidth: 1,
+    borderRightColor: theme.colors.border,
+    alignItems: "center",
+    paddingVertical: theme.spacing[3],
+    gap: theme.spacing[2],
+  },
+  iconRailButton: {
+    width: 36,
+    height: 36,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: theme.borderRadius.lg,
+  },
+  searchContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: theme.spacing[2],
+    marginHorizontal: theme.spacing[3],
+    marginBottom: theme.spacing[2],
+    paddingHorizontal: theme.spacing[3],
+    paddingVertical: theme.spacing[1.5],
+    borderRadius: theme.borderRadius.lg,
+    backgroundColor: theme.colors.surface1,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+  },
+  searchInput: {
+    flex: 1,
+    fontSize: theme.fontSize.sm,
+    color: theme.colors.foreground,
+    padding: 0,
   },
   resizeHandle: {
     position: "absolute",

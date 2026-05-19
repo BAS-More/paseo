@@ -45,7 +45,7 @@ export const DEFAULT_CLIENT_SETTINGS: AppSettings = {
   sendBehavior: "interrupt",
   serviceUrlBehavior: "ask",
   terminalScrollbackLines: DEFAULT_TERMINAL_SCROLLBACK_LINES,
-  layoutMode: "workspace",
+  layoutMode: "claude-desktop",
 };
 
 export const DEFAULT_APP_SETTINGS: Settings = {

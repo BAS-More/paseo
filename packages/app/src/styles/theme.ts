@@ -112,6 +112,7 @@ export type ThemeName =
   | "zinc"
   | "midnight"
   | "claude"
+  | "claudeCode"
   | "ghostty"
   | "soifer"
   | "soifer-dark"
@@ -429,6 +430,25 @@ const ghosttyDarkColors = buildDarkSemanticColors({
   destructive: "#c44a55", // red with slight cool lean against the slate-blue surfaces
 });
 
+// Claude Code — monospace CLI aesthetic, Tokyo Night-inspired palette
+const claudeCodeDarkColors = buildDarkSemanticColors({
+  surface0: "#1a1b26",
+  surface1: "#1f2335",
+  surface2: "#292e42",
+  surface3: "#3b4261",
+  surface4: "#545c7e",
+  surfaceDiffEmpty: "#222436",
+  surfaceSidebar: "#16161e",
+  surfaceSidebarHover: "#1e1f2e",
+  foregroundMuted: "#565f89",
+  scrollbarHandle: "#565f89",
+  border: "#292e42",
+  borderAccent: "#3b4261",
+  accent: "#7aa2f7",
+  accentBright: "#89b4fa",
+  destructive: "#f7768e",
+});
+
 // Soifer — warm beige with orange-brown accent (dark variant)
 const soiferDarkColors = buildDarkSemanticColors({
   surface0: "#1A1917", // warm charcoal
@@ -566,6 +586,7 @@ export const darkZincTheme = buildDarkTheme(zincDarkColors);
 export const darkMidnightTheme = buildDarkTheme(midnightDarkColors);
 export const darkClaudeTheme = buildDarkTheme(claudeDarkColors);
 export const darkGhosttyTheme = buildDarkTheme(ghosttyDarkColors);
+export const darkClaudeCodeTheme = buildDarkTheme(claudeCodeDarkColors);
 export const darkSoiferTheme = buildDarkTheme(soiferDarkColors);
 
 export const lightTheme = {
@@ -823,6 +844,7 @@ type UnistylesThemeKey =
   | "darkZinc"
   | "darkMidnight"
   | "darkClaude"
+  | "darkClaudeCode"
   | "darkGhostty"
   | "soifer"
   | "darkSoifer"
@@ -834,6 +856,7 @@ export const THEME_TO_UNISTYLES: Record<ThemeName, UnistylesThemeKey> = {
   zinc: "darkZinc",
   midnight: "darkMidnight",
   claude: "darkClaude",
+  claudeCode: "darkClaudeCode",
   ghostty: "darkGhostty",
   soifer: "soifer",
   "soifer-dark": "darkSoifer",
@@ -846,6 +869,7 @@ export const THEME_SWATCHES: Record<ThemeName, string> = {
   zinc: "#808080",
   midnight: "#4A6BA8",
   claude: "#D97757",
+  claudeCode: "#7aa2f7",
   ghostty: "#8caaee",
   soifer: "#F9F6F1",
   "soifer-dark": "#D4762A",

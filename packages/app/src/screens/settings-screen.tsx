@@ -41,7 +41,6 @@ import {
   parseTerminalScrollbackLines,
   type AppSettings,
   type SendBehavior,
-  type LayoutMode,
   type ServiceUrlBehavior,
   type Settings as EffectiveSettings,
 } from "@/hooks/use-settings";
@@ -178,6 +177,7 @@ const THEME_LABELS: Record<AppSettings["theme"], string> = {
   zinc: "Zinc",
   midnight: "Midnight",
   claude: "Claude",
+  claudeCode: "Claude Code",
   ghostty: "Ghostty",
   soifer: "Soifer",
   "soifer-dark": "Soifer Dark",
@@ -190,11 +190,6 @@ const ROW_WITH_BORDER_STYLE = [settingsStyles.row, settingsStyles.rowBorder];
 const SEND_BEHAVIOR_OPTIONS = [
   { value: "interrupt" as const, label: "Interrupt" },
   { value: "queue" as const, label: "Queue" },
-];
-
-const LAYOUT_MODE_OPTIONS = [
-  { value: "workspace" as const, label: "Workspace (IDE)" },
-  { value: "claude-desktop" as const, label: "Claude Desktop" },
 ];
 
 const RELEASE_CHANNEL_OPTIONS = [
@@ -219,7 +214,6 @@ interface GeneralSectionProps {
   isDesktopApp: boolean;
   handleThemeChange: (theme: AppSettings["theme"]) => void;
   handleSendBehaviorChange: (behavior: SendBehavior) => void;
-  handleLayoutModeChange: (mode: LayoutMode) => void;
   handleServiceUrlBehaviorChange: (behavior: ServiceUrlBehavior) => void;
   handleTerminalScrollbackLinesChange: (lines: number) => void;
 }
@@ -279,7 +273,6 @@ function GeneralSection({
   isDesktopApp,
   handleThemeChange,
   handleSendBehaviorChange,
-  handleLayoutModeChange,
   handleServiceUrlBehaviorChange,
   handleTerminalScrollbackLinesChange,
 }: GeneralSectionProps) {
@@ -336,7 +329,7 @@ function GeneralSection({
                 />
               ))}
               <DropdownMenuSeparator />
-              {(["zinc", "midnight", "claude", "ghostty"] as const).map((t) => (
+              {(["zinc", "midnight", "claude", "claudeCode", "ghostty"] as const).map((t) => (
                 <ThemeMenuItem
                   key={t}
                   themeValue={t}
@@ -361,20 +354,6 @@ function GeneralSection({
             value={settings.sendBehavior}
             onValueChange={handleSendBehaviorChange}
             options={SEND_BEHAVIOR_OPTIONS}
-          />
-        </View>
-        <View style={ROW_WITH_BORDER_STYLE}>
-          <View style={settingsStyles.rowContent}>
-            <Text style={settingsStyles.rowTitle}>Layout mode</Text>
-            <Text style={settingsStyles.rowHint}>
-              Workspace mode shows IDE panels. Claude Desktop mode shows a centered chat.
-            </Text>
-          </View>
-          <SegmentedControl
-            size="sm"
-            value={settings.layoutMode}
-            onValueChange={handleLayoutModeChange}
-            options={LAYOUT_MODE_OPTIONS}
           />
         </View>
         {isDesktopApp ? (
@@ -913,18 +892,6 @@ export default function SettingsScreen({ view }: SettingsScreenProps) {
     [updateSettings],
   );
 
-  const handleLayoutModeChange = useCallback(
-    (mode: LayoutMode) => {
-      const updates: Partial<AppSettings> = { layoutMode: mode };
-      // Auto-switch to claudeLight theme when entering claude-desktop mode
-      if (mode === "claude-desktop") {
-        updates.theme = "claudeLight";
-      }
-      void updateSettings(updates);
-    },
-    [updateSettings],
-  );
-
   const handleServiceUrlBehaviorChange = useCallback(
     (behavior: ServiceUrlBehavior) => {
       void updateSettings({ serviceUrlBehavior: behavior });
@@ -1119,7 +1086,6 @@ export default function SettingsScreen({ view }: SettingsScreenProps) {
               isDesktopApp={isDesktopApp}
               handleThemeChange={handleThemeChange}
               handleSendBehaviorChange={handleSendBehaviorChange}
-              handleLayoutModeChange={handleLayoutModeChange}
               handleServiceUrlBehaviorChange={handleServiceUrlBehaviorChange}
               handleTerminalScrollbackLinesChange={handleTerminalScrollbackLinesChange}
             />
