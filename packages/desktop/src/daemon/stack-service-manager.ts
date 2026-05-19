@@ -26,6 +26,15 @@ interface ManagedService {
   managedByDesktop: boolean;
 }
 
+// Service paths resolved from env vars → sensible per-platform defaults.
+// Override via NINE_ROUTER_DIR, SOIFER_BACKEND_DIR, CREWAI_BRIDGE_DIR.
+const isWin = process.platform === "win32";
+const devRoot = isWin ? "C:/Dev/tools" : `${process.env.HOME}/dev/tools`;
+
+function resolveServiceDir(envVar: string, fallbackSubdir: string): string {
+  return process.env[envVar] || `${devRoot}/${fallbackSubdir}`;
+}
+
 const SERVICES: StackService[] = [
   {
     name: "9Router",
@@ -33,7 +42,7 @@ const SERVICES: StackService[] = [
     healthUrl: "http://127.0.0.1:20128/v1/models",
     command: "npm",
     args: ["run", "dev"],
-    cwd: "C:/Dev/tools/9router",
+    cwd: resolveServiceDir("NINE_ROUTER_DIR", "9router"),
     shell: true,
   },
   {
@@ -42,16 +51,20 @@ const SERVICES: StackService[] = [
     healthUrl: "http://127.0.0.1:3001/api/stack-health",
     command: "npm",
     args: ["run", "dev"],
-    cwd: "C:/Dev/tools/claudecodeui",
+    cwd: resolveServiceDir("SOIFER_BACKEND_DIR", "claudecodeui"),
     shell: true,
   },
   {
     name: "CrewAI Bridge",
     port: 8000,
     healthUrl: "http://127.0.0.1:8000/health",
-    command: "C:/Dev/tools/CrewAI-Studio/venv/Scripts/python.exe",
+    command:
+      process.env.CREWAI_PYTHON_PATH ||
+      (isWin
+        ? `${resolveServiceDir("CREWAI_BRIDGE_DIR", "CrewAI-Studio")}/venv/Scripts/python.exe`
+        : `${resolveServiceDir("CREWAI_BRIDGE_DIR", "CrewAI-Studio")}/venv/bin/python`),
     args: ["bridge/api.py"],
-    cwd: "C:/Dev/tools/CrewAI-Studio",
+    cwd: resolveServiceDir("CREWAI_BRIDGE_DIR", "CrewAI-Studio"),
     shell: false,
     env: { CREWAI_TRACING_ENABLED: "false" },
   },
