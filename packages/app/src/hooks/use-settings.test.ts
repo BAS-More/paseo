@@ -75,6 +75,7 @@ describe("use-settings", () => {
         return JSON.stringify({
           theme: "light",
           manageBuiltInDaemon: false,
+          layoutMode: "workspace",
         });
       }
       return null;
@@ -134,7 +135,7 @@ describe("use-settings", () => {
       sendBehavior: "interrupt",
       serviceUrlBehavior: "ask",
       terminalScrollbackLines: 10_000,
-      layoutMode: "workspace",
+      layoutMode: "claude-desktop",
     });
     expect(asyncStorageMock.setItem).toHaveBeenCalledWith(
       mod.APP_SETTINGS_KEY,
@@ -150,6 +151,7 @@ describe("use-settings", () => {
           theme: "light",
           manageBuiltInDaemon: false,
           releaseChannel: "beta",
+          layoutMode: "workspace",
         });
       }
       return null;
@@ -185,6 +187,7 @@ describe("use-settings", () => {
     asyncStorageMock.getItem.mockResolvedValue(
       JSON.stringify({
         theme: "light",
+        layoutMode: "workspace",
       }),
     );
 
@@ -227,10 +230,12 @@ describe("use-settings", () => {
       updates: { terminalScrollbackLines: 42_000 },
     });
 
+    // claude-desktop layout auto-migrates theme from "auto" to "claudeLight" on load
     expect(asyncStorageMock.setItem).toHaveBeenLastCalledWith(
       mod.APP_SETTINGS_KEY,
       JSON.stringify({
         ...mod.DEFAULT_CLIENT_SETTINGS,
+        theme: "claudeLight",
         terminalScrollbackLines: 42_000,
       }),
     );

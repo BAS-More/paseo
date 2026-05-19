@@ -776,27 +776,15 @@ function MobileSidebar({
 function DesktopSidebar({
   theme,
   activeServerId,
-  activeHostLabel: _activeHostLabel,
-  activeHostStatusColor: _activeHostStatusColor,
-  hostOptions: _hostOptions,
-  hostTriggerRef: _hostTriggerRef,
-  isHostPickerOpen: _isHostPickerOpen,
-  setIsHostPickerOpen: _setIsHostPickerOpen,
-  projects: _projects,
-  isInitialLoad: _isInitialLoad,
-  isRevalidating: _isRevalidating,
-  isManualRefresh: _isManualRefresh,
-  collapsedProjectKeys: _collapsedProjectKeys,
-  shortcutIndexByWorkspaceKey: _shortcutIndexByWorkspaceKey,
-  toggleProjectCollapsed: _toggleProjectCollapsed,
-  handleRefresh: _handleRefresh,
-  handleHostSelect: _handleHostSelect,
-  renderHostOption: _renderHostOption,
+  activeHostLabel,
+  isRevalidating,
+  isManualRefresh,
+  handleRefresh,
   handleOpenProject,
   handleSettings,
   insetsTop,
   isOpen,
-  handleViewMore: _handleViewMore,
+  handleViewMore,
   agentHistoryAgents,
   agentHistoryIsLoading,
   agentHistoryLoadMore,
@@ -973,10 +961,15 @@ function DesktopSidebar({
             onSessionPress={handleSessionPress}
             onEndReached={agentHistoryLoadMore}
             searchQuery={searchQuery}
+            activeTab={activeTab}
           />
         )}
 
-        <SidebarUserFooter userName="Avi" modelLabel="Max" onPress={handleSettings} />
+        <SidebarUserFooter
+          userName={activeHostLabel}
+          modelLabel={activeServerId ? "Connected" : "Offline"}
+          onPress={handleSettings}
+        />
 
         <GestureDetector gesture={resizeGesture}>
           <View style={resizeHandleStyle} />

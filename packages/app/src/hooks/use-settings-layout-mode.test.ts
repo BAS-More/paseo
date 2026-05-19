@@ -25,14 +25,14 @@ describe("use-settings layoutMode", () => {
     asyncStorageMock.setItem.mockReset();
   });
 
-  it("defaults layoutMode to workspace", async () => {
+  it("defaults layoutMode to claude-desktop", async () => {
     asyncStorageMock.getItem.mockResolvedValue(null);
     asyncStorageMock.setItem.mockResolvedValue();
 
     const mod = await import("./use-settings");
     const result = await mod.loadSettingsFromStorage();
 
-    expect(result.layoutMode).toBe("workspace");
+    expect(result.layoutMode).toBe("claude-desktop");
   });
 
   it("persists claude-desktop layoutMode from storage", async () => {
@@ -60,12 +60,12 @@ describe("use-settings layoutMode", () => {
     const mod = await import("./use-settings");
     const result = await mod.loadSettingsFromStorage();
 
-    expect(result.layoutMode).toBe("workspace");
+    expect(result.layoutMode).toBe("claude-desktop");
   });
 
   it("includes layoutMode in DEFAULT_APP_SETTINGS", async () => {
     const mod = await import("./use-settings");
-    expect(mod.DEFAULT_APP_SETTINGS.layoutMode).toBe("workspace");
+    expect(mod.DEFAULT_APP_SETTINGS.layoutMode).toBe("claude-desktop");
   });
 
   it("preserves other settings when layoutMode is set", async () => {

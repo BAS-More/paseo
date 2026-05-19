@@ -3,6 +3,7 @@ import { FlatList, RefreshControl, Text, View, type ListRenderItem } from "react
 import { StyleSheet, useUnistyles } from "react-native-unistyles";
 import type { AggregatedAgent } from "@/hooks/use-aggregated-agents";
 import { usePinnedWorkspacesStore } from "@/stores/pinned-workspaces-store";
+import type { SidebarTab } from "./sidebar-tab-bar";
 import { SidebarSessionRow } from "./sidebar-session-row";
 
 interface SidebarSessionListProps {
@@ -14,6 +15,7 @@ interface SidebarSessionListProps {
   onSessionLongPress?: (agent: AggregatedAgent) => void;
   onEndReached?: () => void;
   searchQuery?: string;
+  activeTab?: SidebarTab;
 }
 
 type ListItem =
@@ -29,17 +31,32 @@ export const SidebarSessionList = memo(function SidebarSessionList({
   onSessionLongPress,
   onEndReached,
   searchQuery,
+  activeTab,
 }: SidebarSessionListProps) {
   const { theme } = useUnistyles();
   const pinnedKeys = usePinnedWorkspacesStore((s) => s.pinnedKeys);
 
   const filteredAgents = useMemo(() => {
-    if (!searchQuery?.trim()) return agents;
-    const q = searchQuery.toLowerCase();
-    return agents.filter(
-      (a) => a.title?.toLowerCase().includes(q) || a.cwd?.toLowerCase().includes(q),
-    );
-  }, [agents, searchQuery]);
+    let result = agents;
+
+    if (activeTab && activeTab !== "code") {
+      result = result.filter((a) => {
+        const agentType = a.labels?.type;
+        if (activeTab === "cowork") return agentType === "cowork";
+        if (activeTab === "chat") return agentType !== "cowork";
+        return true;
+      });
+    }
+
+    if (searchQuery?.trim()) {
+      const q = searchQuery.toLowerCase();
+      result = result.filter(
+        (a) => a.title?.toLowerCase().includes(q) || a.cwd?.toLowerCase().includes(q),
+      );
+    }
+
+    return result;
+  }, [agents, searchQuery, activeTab]);
 
   const listData = useMemo(() => {
     const items: ListItem[] = [];
