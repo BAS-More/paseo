@@ -45,9 +45,11 @@ export interface LocalSpeechSttLanguageConfig {
 const NumberLikeSchema = z.union([z.number(), z.string().trim().min(1)]);
 const LanguageSchema = z.string().trim().min(1).default(DEFAULT_STT_LANGUAGE);
 
-const OptionalFiniteNumberSchema = NumberLikeSchema.pipe(z.coerce.number().finite()).optional();
+const OptionalFiniteNumberSchema = NumberLikeSchema.transform(Number)
+  .pipe(z.number().finite())
+  .optional();
 
-const OptionalIntegerSchema = NumberLikeSchema.pipe(z.coerce.number().int()).optional();
+const OptionalIntegerSchema = NumberLikeSchema.transform(Number).pipe(z.number().int()).optional();
 
 const LocalSpeechResolutionSchema = z.object({
   includeProviderConfig: z.boolean(),

@@ -51,7 +51,7 @@ export const INITIAL_USER_MODIFIED: UserModifiedFields = {
   workingDir: false,
 };
 
-type ProviderPrefs = NonNullable<FormPreferences["providerPreferences"]>[AgentProvider];
+type ProviderPrefs = ProviderPreferences;
 
 export const RESOLVABLE_PROVIDER_STATUSES = new Set<ProviderSnapshotEntry["status"]>([
   "ready",

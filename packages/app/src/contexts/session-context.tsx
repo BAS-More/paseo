@@ -10,6 +10,7 @@ import { generateMessageId, type StreamItem } from "@/types/stream";
 import {
   createSessionAgentStreamReducerQueue,
   processTimelineResponse,
+  type ProcessTimelineResponseInput,
   type ProcessTimelineResponseOutput,
   type TimelineReducerSideEffect,
 } from "@/timeline/session-stream-reducers";
@@ -25,7 +26,10 @@ import type { AgentLifecycleStatus } from "@server/shared/agent-lifecycle";
 import type { DaemonClient } from "@server/client/daemon-client";
 import type { AgentSessionConfig } from "@server/server/agent/agent-sdk-types";
 import type { GitSetupOptions } from "@server/shared/messages";
-import type { AgentPermissionResponse } from "@server/server/agent/agent-sdk-types";
+import type {
+  AgentPermissionRequest,
+  AgentPermissionResponse,
+} from "@server/server/agent/agent-sdk-types";
 import { getHostRuntimeStore, useHostRuntimeIsConnected } from "@/runtime/host-runtime";
 import { useVoiceAudioEngineOptional, useVoiceRuntimeOptional } from "@/contexts/voice-context";
 import type { AudioPlaybackSource } from "@/voice/audio-engine-types";
@@ -1072,7 +1076,7 @@ function SessionProviderInternal({ children, serverId, client }: SessionProvider
 
       // Call pure reducer
       const result = processTimelineResponse({
-        payload,
+        payload: payload as ProcessTimelineResponseInput["payload"],
         currentTail,
         currentHead,
         currentCursor,
@@ -1290,7 +1294,8 @@ function SessionProviderInternal({ children, serverId, client }: SessionProvider
 
     const unsubPermissionRequest = client.on("agent_permission_request", (message) => {
       if (message.type !== "agent_permission_request") return;
-      const { agentId, request } = message.payload;
+      const agentId = message.payload.agentId;
+      const request = message.payload.request as AgentPermissionRequest;
 
       setPendingPermissions(serverId, (prev) => {
         const next = new Map(prev);

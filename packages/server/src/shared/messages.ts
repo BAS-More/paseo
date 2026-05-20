@@ -176,7 +176,7 @@ const AgentSelectOptionSchema = z.object({
   label: z.string(),
   description: z.string().optional(),
   isDefault: z.boolean().optional(),
-  metadata: z.record(z.unknown()).optional(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
 });
 
 export const AgentFeatureToggleSchema = z.object({
@@ -212,7 +212,7 @@ const AgentModelDefinitionSchema: z.ZodType<AgentModelDefinition> = z
     label: z.string(),
     description: z.string().optional(),
     isDefault: z.boolean().optional(),
-    metadata: z.record(z.unknown()).optional(),
+    metadata: z.record(z.string(), z.unknown()).optional(),
     thinkingOptions: z.array(AgentSelectOptionSchema).optional(),
     defaultThinkingOptionId: z.string().optional(),
   })
@@ -253,19 +253,19 @@ const McpStdioServerConfigSchema = z.object({
   type: z.literal("stdio"),
   command: z.string(),
   args: z.array(z.string()).optional(),
-  env: z.record(z.string()).optional(),
+  env: z.record(z.string(), z.string()).optional(),
 });
 
 const McpHttpServerConfigSchema = z.object({
   type: z.literal("http"),
   url: z.string(),
-  headers: z.record(z.string()).optional(),
+  headers: z.record(z.string(), z.string()).optional(),
 });
 
 const McpSseServerConfigSchema = z.object({
   type: z.literal("sse"),
   url: z.string(),
-  headers: z.record(z.string()).optional(),
+  headers: z.record(z.string(), z.string()).optional(),
 });
 
 const McpServerConfigSchema = z.discriminatedUnion("type", [
@@ -280,7 +280,7 @@ const AgentSessionConfigSchema = z.object({
   modeId: z.string().optional(),
   model: z.string().optional(),
   thinkingOptionId: z.string().optional(),
-  featureValues: z.record(z.unknown()).optional(),
+  featureValues: z.record(z.string(), z.unknown()).optional(),
   title: z.string().trim().min(1).max(MAX_EXPLICIT_AGENT_TITLE_CHARS).optional().nullable(),
   approvalPolicy: z.string().optional(),
   sandboxMode: z.string().optional(),
@@ -288,16 +288,16 @@ const AgentSessionConfigSchema = z.object({
   webSearch: z.boolean().optional(),
   extra: z
     .object({
-      codex: z.record(z.unknown()).optional(),
-      claude: z.record(z.unknown()).optional(),
+      codex: z.record(z.string(), z.unknown()).optional(),
+      claude: z.record(z.string(), z.unknown()).optional(),
     })
     .partial()
     .optional(),
   systemPrompt: z.string().optional(),
-  mcpServers: z.record(McpServerConfigSchema).optional(),
+  mcpServers: z.record(z.string(), McpServerConfigSchema).optional(),
 });
 
-const AgentPermissionUpdateSchema = z.record(z.unknown());
+const AgentPermissionUpdateSchema = z.record(z.string(), z.unknown());
 const AgentPermissionActionSchema = z.object({
   id: z.string(),
   label: z.string(),
@@ -310,7 +310,7 @@ export const AgentPermissionResponseSchema: z.ZodType<AgentPermissionResponse> =
   z.object({
     behavior: z.literal("allow"),
     selectedActionId: z.string().optional(),
-    updatedInput: z.record(z.unknown()).optional(),
+    updatedInput: z.record(z.string(), z.unknown()).optional(),
     updatedPermissions: z.array(AgentPermissionUpdateSchema).optional(),
   }),
   z.object({
@@ -321,22 +321,18 @@ export const AgentPermissionResponseSchema: z.ZodType<AgentPermissionResponse> =
   }),
 ]);
 
-export const AgentPermissionRequestPayloadSchema: z.ZodType<
-  AgentPermissionRequest,
-  z.ZodTypeDef,
-  unknown
-> = z.object({
+export const AgentPermissionRequestPayloadSchema: z.ZodType<AgentPermissionRequest> = z.object({
   id: z.string(),
   provider: AgentProviderSchema,
   name: z.string(),
   kind: z.enum(["tool", "plan", "question", "mode", "other"]),
   title: z.string().optional(),
   description: z.string().optional(),
-  input: z.record(z.unknown()).optional(),
+  input: z.record(z.string(), z.unknown()).optional(),
   detail: z.lazy(() => ToolCallDetailPayloadSchema).optional(),
   suggestions: z.array(AgentPermissionUpdateSchema).optional(),
   actions: z.array(AgentPermissionActionSchema).optional(),
-  metadata: z.record(z.unknown()).optional(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
 });
 
 const UnknownValueSchema = z.union([
@@ -375,102 +371,101 @@ const WorktreeSetupDetailPayloadSchema = z.object({
   truncated: z.boolean().optional(),
 });
 
-const ToolCallDetailPayloadSchema: z.ZodType<ToolCallDetail, z.ZodTypeDef, unknown> =
-  z.discriminatedUnion("type", [
-    WorktreeSetupDetailPayloadSchema,
-    z.object({
-      type: z.literal("shell"),
-      command: z.string(),
-      cwd: z.string().optional(),
-      output: z.string().optional(),
-      exitCode: z.number().nullable().optional(),
-    }),
-    z.object({
-      type: z.literal("read"),
-      filePath: z.string(),
-      content: z.string().optional(),
-      offset: z.number().optional(),
-      limit: z.number().optional(),
-    }),
-    z.object({
-      type: z.literal("edit"),
-      filePath: z.string(),
-      oldString: z.string().optional(),
-      newString: z.string().optional(),
-      unifiedDiff: z.string().optional(),
-    }),
-    z.object({
-      type: z.literal("write"),
-      filePath: z.string(),
-      content: z.string().optional(),
-    }),
-    z.object({
-      type: z.literal("search"),
-      query: z.string(),
-      toolName: z.enum(["search", "grep", "glob", "web_search"]).optional(),
-      content: z.string().optional(),
-      filePaths: z.array(z.string()).optional(),
-      webResults: z
-        .array(
-          z.object({
-            title: z.string(),
-            url: z.string(),
-          }),
-        )
-        .optional(),
-      annotations: z.array(z.string()).optional(),
-      numFiles: z.number().optional(),
-      numMatches: z.number().optional(),
-      durationMs: z.number().optional(),
-      durationSeconds: z.number().optional(),
-      truncated: z.boolean().optional(),
-      mode: z.enum(["content", "files_with_matches", "count"]).optional(),
-    }),
-    z.object({
-      type: z.literal("fetch"),
-      url: z.string(),
-      prompt: z.string().optional(),
-      result: z.string().optional(),
-      code: z.number().optional(),
-      codeText: z.string().optional(),
-      bytes: z.number().optional(),
-      durationMs: z.number().optional(),
-    }),
-    z.object({
-      type: z.literal("sub_agent"),
-      subAgentType: z.string().optional(),
-      description: z.string().optional(),
-      childSessionId: z.string().optional(),
-      log: z.string(),
-      // Compat cruft for clients <= 0.1.65-beta.3 that required this field. Producers still
-      // emit `[]`; nothing reads it. Drop the field (and the `[]` emissions) once those
-      // clients are no longer in the field.
-      actions: z
-        .array(
-          z.object({
-            index: z.number().int().positive(),
-            toolName: z.string(),
-            summary: z.string().optional(),
-          }),
-        )
-        .optional(),
-    }),
-    z.object({
-      type: z.literal("plain_text"),
-      label: z.string().optional(),
-      text: z.string().optional(),
-      icon: z.enum(TOOL_CALL_ICON_NAMES).optional(),
-    }),
-    z.object({
-      type: z.literal("plan"),
-      text: z.string(),
-    }),
-    z.object({
-      type: z.literal("unknown"),
-      input: UnknownValueSchema,
-      output: UnknownValueSchema,
-    }),
-  ]);
+const ToolCallDetailPayloadSchema: z.ZodType<ToolCallDetail> = z.discriminatedUnion("type", [
+  WorktreeSetupDetailPayloadSchema,
+  z.object({
+    type: z.literal("shell"),
+    command: z.string(),
+    cwd: z.string().optional(),
+    output: z.string().optional(),
+    exitCode: z.number().nullable().optional(),
+  }),
+  z.object({
+    type: z.literal("read"),
+    filePath: z.string(),
+    content: z.string().optional(),
+    offset: z.number().optional(),
+    limit: z.number().optional(),
+  }),
+  z.object({
+    type: z.literal("edit"),
+    filePath: z.string(),
+    oldString: z.string().optional(),
+    newString: z.string().optional(),
+    unifiedDiff: z.string().optional(),
+  }),
+  z.object({
+    type: z.literal("write"),
+    filePath: z.string(),
+    content: z.string().optional(),
+  }),
+  z.object({
+    type: z.literal("search"),
+    query: z.string(),
+    toolName: z.enum(["search", "grep", "glob", "web_search"]).optional(),
+    content: z.string().optional(),
+    filePaths: z.array(z.string()).optional(),
+    webResults: z
+      .array(
+        z.object({
+          title: z.string(),
+          url: z.string(),
+        }),
+      )
+      .optional(),
+    annotations: z.array(z.string()).optional(),
+    numFiles: z.number().optional(),
+    numMatches: z.number().optional(),
+    durationMs: z.number().optional(),
+    durationSeconds: z.number().optional(),
+    truncated: z.boolean().optional(),
+    mode: z.enum(["content", "files_with_matches", "count"]).optional(),
+  }),
+  z.object({
+    type: z.literal("fetch"),
+    url: z.string(),
+    prompt: z.string().optional(),
+    result: z.string().optional(),
+    code: z.number().optional(),
+    codeText: z.string().optional(),
+    bytes: z.number().optional(),
+    durationMs: z.number().optional(),
+  }),
+  z.object({
+    type: z.literal("sub_agent"),
+    subAgentType: z.string().optional(),
+    description: z.string().optional(),
+    childSessionId: z.string().optional(),
+    log: z.string(),
+    // Compat cruft for clients <= 0.1.65-beta.3 that required this field. Producers still
+    // emit `[]`; nothing reads it. Drop the field (and the `[]` emissions) once those
+    // clients are no longer in the field.
+    actions: z
+      .array(
+        z.object({
+          index: z.number().int().positive(),
+          toolName: z.string(),
+          summary: z.string().optional(),
+        }),
+      )
+      .optional(),
+  }),
+  z.object({
+    type: z.literal("plain_text"),
+    label: z.string().optional(),
+    text: z.string().optional(),
+    icon: z.enum(TOOL_CALL_ICON_NAMES).optional(),
+  }),
+  z.object({
+    type: z.literal("plan"),
+    text: z.string(),
+  }),
+  z.object({
+    type: z.literal("unknown"),
+    input: UnknownValueSchema,
+    output: UnknownValueSchema,
+  }),
+]);
 
 const ToolCallBasePayloadSchema = z
   .object({
@@ -502,51 +497,49 @@ const ToolCallCanceledPayloadSchema = ToolCallBasePayloadSchema.extend({
   error: z.null(),
 });
 
-const ToolCallTimelineItemPayloadSchema: z.ZodType<ToolCallTimelineItem, z.ZodTypeDef, unknown> =
-  z.union([
-    ToolCallRunningPayloadSchema,
-    ToolCallCompletedPayloadSchema,
-    ToolCallFailedPayloadSchema,
-    ToolCallCanceledPayloadSchema,
-  ]);
+const ToolCallTimelineItemPayloadSchema: z.ZodType<ToolCallTimelineItem> = z.union([
+  ToolCallRunningPayloadSchema,
+  ToolCallCompletedPayloadSchema,
+  ToolCallFailedPayloadSchema,
+  ToolCallCanceledPayloadSchema,
+]);
 
-export const AgentTimelineItemPayloadSchema: z.ZodType<AgentTimelineItem, z.ZodTypeDef, unknown> =
-  z.union([
-    z.object({
-      type: z.literal("user_message"),
-      text: z.string(),
-      messageId: z.string().optional(),
-    }),
-    z.object({
-      type: z.literal("assistant_message"),
-      text: z.string(),
-      messageId: z.string().optional(),
-    }),
-    z.object({
-      type: z.literal("reasoning"),
-      text: z.string(),
-    }),
-    ToolCallTimelineItemPayloadSchema,
-    z.object({
-      type: z.literal("todo"),
-      items: z.array(
-        z.object({
-          text: z.string(),
-          completed: z.boolean(),
-        }),
-      ),
-    }),
-    z.object({
-      type: z.literal("error"),
-      message: z.string(),
-    }),
-    z.object({
-      type: z.literal("compaction"),
-      status: z.enum(["loading", "completed"]),
-      trigger: z.enum(["auto", "manual"]).optional(),
-      preTokens: z.number().optional(),
-    }),
-  ]);
+export const AgentTimelineItemPayloadSchema: z.ZodType<AgentTimelineItem> = z.union([
+  z.object({
+    type: z.literal("user_message"),
+    text: z.string(),
+    messageId: z.string().optional(),
+  }),
+  z.object({
+    type: z.literal("assistant_message"),
+    text: z.string(),
+    messageId: z.string().optional(),
+  }),
+  z.object({
+    type: z.literal("reasoning"),
+    text: z.string(),
+  }),
+  ToolCallTimelineItemPayloadSchema,
+  z.object({
+    type: z.literal("todo"),
+    items: z.array(
+      z.object({
+        text: z.string(),
+        completed: z.boolean(),
+      }),
+    ),
+  }),
+  z.object({
+    type: z.literal("error"),
+    message: z.string(),
+  }),
+  z.object({
+    type: z.literal("compaction"),
+    status: z.enum(["loading", "completed"]),
+    trigger: z.enum(["auto", "manual"]).optional(),
+    preTokens: z.number().optional(),
+  }),
+]);
 
 export const AgentStreamEventPayloadSchema = z.discriminatedUnion("type", [
   z.object({
@@ -721,7 +714,7 @@ export const AudioPlayedMessageSchema = z.object({
 });
 
 const AgentDirectoryFilterSchema = z.object({
-  labels: z.record(z.string()).optional(),
+  labels: z.record(z.string(), z.string()).optional(),
   projectKeys: z.array(z.string()).optional(),
   statuses: z.array(AgentStatusSchema).optional(),
   includeArchived: z.boolean().optional(),
@@ -752,7 +745,7 @@ export const UpdateAgentRequestMessageSchema = z.object({
   type: z.literal("update_agent_request"),
   agentId: z.string(),
   name: z.string().optional(),
-  labels: z.record(z.string()).optional(),
+  labels: z.record(z.string(), z.string()).optional(),
   requestId: z.string(),
 });
 
@@ -1061,11 +1054,11 @@ export const CreateAgentRequestMessageSchema = z.object({
   worktreeName: z.string().optional(),
   initialPrompt: z.string().optional(),
   clientMessageId: z.string().optional(),
-  outputSchema: z.record(z.unknown()).optional(),
+  outputSchema: z.record(z.string(), z.unknown()).optional(),
   images: z.array(ImageAttachmentSchema).optional(),
   attachments: AgentAttachmentsSchema,
   git: GitSetupOptionsSchema.optional(),
-  labels: z.record(z.string()).default({}),
+  labels: z.record(z.string(), z.string()).default({}),
   requestId: z.string(),
 });
 
@@ -1132,7 +1125,7 @@ export const ImportAgentRequestMessageSchema = z.object({
   sessionId: z.string().optional(),
   providerHandleId: z.string().optional(),
   cwd: z.string().optional(),
-  labels: z.record(z.string()).optional(),
+  labels: z.record(z.string(), z.string()).optional(),
   requestId: z.string(),
 });
 
@@ -1671,7 +1664,7 @@ const ListCommandsDraftConfigSchema = z.object({
   modeId: z.string().optional(),
   model: z.string().optional(),
   thinkingOptionId: z.string().optional(),
-  featureValues: z.record(z.unknown()).optional(),
+  featureValues: z.record(z.string(), z.unknown()).optional(),
 });
 
 export const ListProviderFeaturesRequestMessageSchema = z.object({
@@ -1746,7 +1739,7 @@ export const NineRouterCliToolSettingsUpdateRequestSchema = z.object({
   type: z.literal("nine_router_cli_tool_settings_update_request"),
   requestId: z.string(),
   tool: z.string(),
-  settings: z.record(z.unknown()),
+  settings: z.record(z.string(), z.unknown()),
 });
 
 export const NineRouterModelAliasesRequestSchema = z.object({
@@ -2003,7 +1996,7 @@ export const ActivityLogPayloadSchema = z.object({
   timestamp: z.coerce.date(),
   type: z.enum(["transcript", "assistant", "tool_call", "tool_result", "error", "system"]),
   content: z.string(),
-  metadata: z.record(z.unknown()).optional(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
 });
 
 export const ActivityLogMessageSchema = z.object({
@@ -3172,7 +3165,15 @@ export const PullRequestTimelineResponseSchema = z.object({
       githubFeaturesEnabled: z.boolean().optional().default(true),
     })
     .optional()
-    .default({}),
+    .default({
+      cwd: "",
+      prNumber: null,
+      items: [],
+      truncated: false,
+      error: null,
+      requestId: "",
+      githubFeaturesEnabled: true,
+    }),
 });
 
 export const CheckoutSwitchBranchResponseSchema = z.object({
@@ -3624,7 +3625,7 @@ export const NineRouterCliToolSettingsResponseSchema = z.object({
     tool: z.string(),
     installed: z.boolean(),
     has9Router: z.boolean(),
-    settings: z.record(z.unknown()),
+    settings: z.record(z.string(), z.unknown()),
     settingsPath: z.string().optional(),
   }),
 });
@@ -3643,7 +3644,7 @@ export const NineRouterModelAliasesResponseSchema = z.object({
   type: z.literal("nine_router_model_aliases_response"),
   payload: z.object({
     requestId: z.string(),
-    aliases: z.record(z.string()),
+    aliases: z.record(z.string(), z.string()),
   }),
 });
 
@@ -3683,6 +3684,7 @@ export const SoiferBackendStatusResponseSchema = z.object({
     health: z.object({
       status: z.enum(["ok", "degraded"]),
       services: z.record(
+        z.string(),
         z.object({
           status: z.string(),
           port: z.number().optional(),
@@ -3695,14 +3697,15 @@ export const SoiferBackendStatusResponseSchema = z.object({
     rules: z.array(z.object({ name: z.string(), content: z.string() })),
     mcpServers: z.object({
       mcpServers: z.record(
+        z.string(),
         z.object({
           command: z.string(),
           args: z.array(z.string()).optional(),
-          env: z.record(z.string()).optional(),
+          env: z.record(z.string(), z.string()).optional(),
         }),
       ),
     }),
-    hooks: z.record(z.unknown()),
+    hooks: z.record(z.string(), z.unknown()),
     permissions: z.object({
       allow: z.array(z.string()),
       deny: z.array(z.string()),

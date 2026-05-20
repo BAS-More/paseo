@@ -1,6 +1,7 @@
 import type { AgentSnapshotPayload } from "@server/shared/messages";
 import type { AgentPermissionRequest } from "@server/server/agent/agent-sdk-types";
 import { PARENT_AGENT_ID_LABEL } from "@server/shared/agent-labels";
+import type { Agent } from "@/stores/session-store";
 
 export function derivePendingPermissionKey(
   agentId: string,
@@ -16,7 +17,10 @@ export function derivePendingPermissionKey(
   return `${agentId}:${fallbackId}`;
 }
 
-export function normalizeAgentSnapshot(snapshot: AgentSnapshotPayload, serverId: string) {
+export function normalizeAgentSnapshot(
+  snapshot: AgentSnapshotPayload,
+  serverId: string,
+): Omit<Agent, "projectPlacement"> {
   const createdAt = new Date(snapshot.createdAt);
   const updatedAt = new Date(snapshot.updatedAt);
   const lastUserMessageAt = snapshot.lastUserMessageAt
@@ -44,7 +48,7 @@ export function normalizeAgentSnapshot(snapshot: AgentSnapshotPayload, serverId:
     capabilities: snapshot.capabilities,
     currentModeId: snapshot.currentModeId,
     availableModes: snapshot.availableModes ?? [],
-    pendingPermissions: snapshot.pendingPermissions ?? [],
+    pendingPermissions: (snapshot.pendingPermissions ?? []) as AgentPermissionRequest[],
     persistence: snapshot.persistence ?? null,
     runtimeInfo: snapshot.runtimeInfo,
     lastUsage: snapshot.lastUsage,

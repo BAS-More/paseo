@@ -707,7 +707,7 @@ export async function createAgentMcpServer(options: AgentMcpServerOptions): Prom
     modeId: z.string().optional(),
     model: z.string().optional(),
     thinkingOptionId: z.string().optional(),
-    featureValues: z.record(z.unknown()).optional(),
+    featureValues: z.record(z.string(), z.unknown()).optional(),
   };
 
   if (options.voiceOnly || options.enableVoiceTools || callerContext?.enableVoiceTools) {

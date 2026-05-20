@@ -6,6 +6,7 @@ import {
   Plus,
   Search,
   Settings,
+  Zap,
 } from "lucide-react-native";
 import {
   type Dispatch,
@@ -68,6 +69,7 @@ import { formatConnectionStatus } from "@/utils/daemons";
 import { useWindowControlsPadding } from "@/utils/desktop-window";
 import {
   buildHostAgentDetailRoute,
+  buildHostRoutinesRoute,
   buildHostSessionsRoute,
   buildSettingsRoute,
   mapPathnameToServer,
@@ -131,12 +133,14 @@ interface MobileSidebarProps extends SidebarSharedProps {
   isOpen: boolean;
   closeToAgent: () => void;
   handleViewMoreNavigate: () => void;
+  handleRoutinesNavigate: () => void;
 }
 
 interface DesktopSidebarProps extends SidebarSharedProps {
   insetsTop: number;
   isOpen: boolean;
   handleViewMore: () => void;
+  handleRoutines: () => void;
 }
 
 export const LeftSidebar = memo(function LeftSidebar({
@@ -258,6 +262,13 @@ export const LeftSidebar = memo(function LeftSidebar({
     router.push(buildHostSessionsRoute(activeServerId));
   }, [activeServerId]);
 
+  const handleRoutinesNavigate = useCallback(() => {
+    if (!activeServerId) {
+      return;
+    }
+    router.push(buildHostRoutinesRoute(activeServerId));
+  }, [activeServerId]);
+
   const handleHostSelect = useCallback(
     (nextServerId: string) => {
       if (!nextServerId) {
@@ -327,6 +338,7 @@ export const LeftSidebar = memo(function LeftSidebar({
         handleOpenProject={handleOpenProjectMobile}
         handleSettings={handleSettingsMobile}
         handleViewMoreNavigate={handleViewMoreNavigate}
+        handleRoutinesNavigate={handleRoutinesNavigate}
       />
     );
   }
@@ -339,6 +351,7 @@ export const LeftSidebar = memo(function LeftSidebar({
       handleOpenProject={handleOpenProjectDesktop}
       handleSettings={handleSettingsDesktop}
       handleViewMore={handleViewMoreNavigate}
+      handleRoutines={handleRoutinesNavigate}
     />
   );
 });
@@ -567,9 +580,11 @@ function MobileSidebar({
   isOpen,
   closeToAgent,
   handleViewMoreNavigate,
+  handleRoutinesNavigate,
 }: MobileSidebarProps) {
   const pathname = usePathname();
   const isSessionsActive = pathname.includes("/sessions");
+  const isRoutinesActive = pathname.includes("/routines");
   const {
     translateX,
     backdropOpacity,
@@ -601,6 +616,23 @@ function MobileSidebar({
     backdropOpacity,
     closeToAgent,
     handleViewMoreNavigate,
+    translateX,
+    windowWidth,
+  ]);
+
+  const handleRoutines = useCallback(() => {
+    if (!activeServerId) {
+      return;
+    }
+    translateX.value = -windowWidth;
+    backdropOpacity.value = 0;
+    closeToAgent();
+    handleRoutinesNavigate();
+  }, [
+    activeServerId,
+    backdropOpacity,
+    closeToAgent,
+    handleRoutinesNavigate,
     translateX,
     windowWidth,
   ]);
@@ -736,6 +768,13 @@ function MobileSidebar({
               isActive={isSessionsActive}
               testID="sidebar-sessions"
             />
+            <SidebarHeaderRow
+              icon={Zap}
+              label="Routines"
+              onPress={handleRoutines}
+              isActive={isRoutinesActive}
+              testID="sidebar-routines"
+            />
 
             {isInitialLoad ? (
               <SidebarAgentListSkeleton />
@@ -785,6 +824,7 @@ function DesktopSidebar({
   insetsTop,
   isOpen,
   handleViewMore,
+  handleRoutines,
   agentHistoryAgents,
   agentHistoryIsLoading,
   agentHistoryLoadMore,
@@ -933,7 +973,7 @@ function DesktopSidebar({
 
         <SidebarQuickActions
           onNewSession={handleOpenProject}
-          onRoutines={handleViewMore}
+          onRoutines={handleRoutines}
           onCustomize={handleSettings}
         />
 

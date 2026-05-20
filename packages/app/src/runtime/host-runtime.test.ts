@@ -1518,7 +1518,7 @@ describe("HostRuntimeStore", () => {
         archivedAt: null,
         title: "Stale active copy",
       }).agent;
-      const staleAgent: Agent = {
+      const staleAgent = {
         ...stale,
         serverId: host.serverId,
         createdAt: new Date(stale.createdAt),
@@ -1528,7 +1528,7 @@ describe("HostRuntimeStore", () => {
         archivedAt: stale.archivedAt ? new Date(stale.archivedAt) : null,
         attentionTimestamp: stale.attentionTimestamp ? new Date(stale.attentionTimestamp) : null,
         parentAgentId: null,
-      };
+      } as Agent;
       return new Map([[stale.id, staleAgent]]);
     });
 

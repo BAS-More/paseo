@@ -347,6 +347,14 @@ export function buildHostSessionsRoute(serverId: string) {
   return `${base}/sessions` as const;
 }
 
+export function buildHostRoutinesRoute(serverId: string) {
+  const base = buildHostRootRoute(serverId);
+  if (base === "/") {
+    return "/" as const;
+  }
+  return `${base}/routines` as const;
+}
+
 export function buildHostOpenProjectRoute(serverId: string) {
   const base = buildHostRootRoute(serverId);
   if (base === "/") {
@@ -431,6 +439,9 @@ export function mapPathnameToServer(pathname: string, nextServerId: string) {
   }
   if (suffix.startsWith("sessions")) {
     return `${base}/sessions` as const;
+  }
+  if (suffix.startsWith("routines")) {
+    return `${base}/routines` as const;
   }
   if (suffix.startsWith("open-project")) {
     return `${base}/open-project` as const;

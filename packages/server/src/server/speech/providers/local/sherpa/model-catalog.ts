@@ -180,7 +180,7 @@ function buildAliasMap<T extends SherpaOnnxModelId>(modelIds: readonly T[]): Rec
 function createAliasedModelIdSchema<T extends string>(params: {
   modelIds: readonly T[];
   aliases: Record<string, T>;
-}): z.ZodType<T, z.ZodTypeDef, string> {
+}): z.ZodType<T, string> {
   const validIds = new Set<string>(params.modelIds);
   return z
     .string()

@@ -4838,7 +4838,7 @@ export class DaemonClient {
         return {
           type: "agent_permission_request",
           agentId: msg.payload.agentId,
-          request: msg.payload.request,
+          request: msg.payload.request as AgentPermissionRequest,
         };
       case "agent_permission_resolved":
         return {

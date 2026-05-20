@@ -28,7 +28,7 @@ export const NineRouterModelAliasesResponseSchema = z.object({
   type: z.literal("nine_router_model_aliases_response"),
   payload: z.object({
     requestId: z.string(),
-    aliases: z.record(z.string()),
+    aliases: z.record(z.string(), z.string()),
   }),
 });
 

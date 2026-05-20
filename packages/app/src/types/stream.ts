@@ -1,8 +1,16 @@
-import type { AgentProvider, ToolCallDetail } from "@server/server/agent/agent-sdk-types";
+import type {
+  AgentProvider,
+  AgentTimelineItem,
+  CompactionTimelineItem,
+  ToolCallDetail,
+  ToolCallTimelineItem,
+} from "@server/server/agent/agent-sdk-types";
 import type { AgentAttachment, AgentStreamEventPayload } from "@server/shared/messages";
 import type { AttachmentMetadata } from "@/attachments/types";
 import { extractTaskEntriesFromToolCall } from "../utils/tool-call-parsers";
 import { splitMarkdownBlocks } from "@/utils/split-markdown-blocks";
+
+type TimelineEvent = Extract<AgentStreamEventPayload, { type: "timeline" }>;
 
 /**
  * Simple hash function for deterministic ID generation
@@ -566,11 +574,8 @@ function appendTodoList(
 
 function reduceTimelineToolCall(
   state: StreamItem[],
-  event: Extract<AgentStreamEventPayload, { type: "timeline" }>,
-  item: Extract<
-    Extract<AgentStreamEventPayload, { type: "timeline" }>["item"],
-    { type: "tool_call" }
-  >,
+  event: TimelineEvent,
+  item: ToolCallTimelineItem,
   timestamp: Date,
 ): StreamItem[] {
   const normalizedToolName = item.name
@@ -624,10 +629,7 @@ function reduceTimelineToolCall(
 
 function reduceTimelineCompaction(
   state: StreamItem[],
-  item: Extract<
-    Extract<AgentStreamEventPayload, { type: "timeline" }>["item"],
-    { type: "compaction" }
-  >,
+  item: CompactionTimelineItem,
   timestamp: Date,
 ): StreamItem[] {
   if (item.status === "completed") {
@@ -659,11 +661,11 @@ function reduceTimelineCompaction(
 
 function reduceTimelineEvent(
   state: StreamItem[],
-  event: Extract<AgentStreamEventPayload, { type: "timeline" }>,
+  event: TimelineEvent,
   timestamp: Date,
   source: StreamUpdateSource,
 ): StreamItem[] {
-  const item = event.item;
+  const item = event.item as AgentTimelineItem;
   switch (item.type) {
     case "user_message":
       return finalizeActiveThoughts(appendUserMessage(state, item.text, timestamp, item.messageId));
@@ -679,10 +681,12 @@ function reduceTimelineEvent(
       if (event.provider === "claude") {
         return finalizeActiveThoughts(state);
       }
-      const items: TodoEntry[] = (item.items ?? []).map((todo) => ({
-        text: todo.text,
-        completed: todo.completed,
-      }));
+      const items: TodoEntry[] = (item.items ?? []).map(
+        (todo: { text: string; completed: boolean }) => ({
+          text: todo.text,
+          completed: todo.completed,
+        }),
+      );
       return finalizeActiveThoughts(appendTodoList(state, event.provider, items, timestamp));
     }
     case "error": {
@@ -781,7 +785,8 @@ function getEventItemKind(event: AgentStreamEventPayload): StreamItem["kind"] | 
   if (event.type !== "timeline") {
     return null;
   }
-  switch (event.item.type) {
+  const item = event.item as AgentTimelineItem;
+  switch (item.type) {
     case "user_message":
       return "user_message";
     case "assistant_message":
@@ -850,10 +855,10 @@ function getTailAssistantToResume(params: {
   if (params.tailAssistant?.kind !== "assistant_message") {
     return null;
   }
+  const timelineItem =
+    params.event.type === "timeline" ? (params.event.item as AgentTimelineItem) : undefined;
   const incomingMessageId =
-    params.event.type === "timeline" && params.event.item.type === "assistant_message"
-      ? params.event.item.messageId
-      : undefined;
+    timelineItem && timelineItem.type === "assistant_message" ? timelineItem.messageId : undefined;
   if (incomingMessageId !== undefined && params.tailAssistant.messageId !== incomingMessageId) {
     return null;
   }

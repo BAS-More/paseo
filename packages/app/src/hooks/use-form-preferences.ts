@@ -24,13 +24,13 @@ export interface FavoriteModelRow {
 const providerPreferencesSchema = z.object({
   model: z.string().optional(),
   mode: z.string().optional(),
-  thinkingByModel: z.record(z.string()).optional(),
-  featureValues: z.record(z.unknown()).optional(),
+  thinkingByModel: z.record(z.string(), z.string()).optional(),
+  featureValues: z.record(z.string(), z.unknown()).optional(),
 });
 
 const formPreferencesSchema = z.object({
   provider: z.string().optional(),
-  providerPreferences: z.record(providerPreferencesSchema).optional(),
+  providerPreferences: z.record(z.string(), providerPreferencesSchema).optional(),
   favoriteModels: z
     .array(
       z.object({
@@ -41,8 +41,18 @@ const formPreferencesSchema = z.object({
     .optional(),
 });
 
-export type ProviderPreferences = z.infer<typeof providerPreferencesSchema>;
-export type FormPreferences = z.infer<typeof formPreferencesSchema>;
+export interface ProviderPreferences {
+  model?: string;
+  mode?: string;
+  thinkingByModel?: Record<string, string>;
+  featureValues?: Record<string, unknown>;
+}
+
+export interface FormPreferences {
+  provider?: string;
+  providerPreferences?: Record<string, ProviderPreferences>;
+  favoriteModels?: Array<{ provider: string; modelId: string }>;
+}
 
 const DEFAULT_FORM_PREFERENCES: FormPreferences = {};
 
@@ -50,7 +60,7 @@ async function loadFormPreferences(): Promise<FormPreferences> {
   const stored = await AsyncStorage.getItem(FORM_PREFERENCES_STORAGE_KEY);
   if (!stored) return DEFAULT_FORM_PREFERENCES;
   const result = formPreferencesSchema.safeParse(JSON.parse(stored));
-  return result.success ? result.data : DEFAULT_FORM_PREFERENCES;
+  return result.success ? (result.data as FormPreferences) : DEFAULT_FORM_PREFERENCES;
 }
 
 export interface UseFormPreferencesReturn {
@@ -68,7 +78,7 @@ export function mergeProviderPreferences(args: {
 }): FormPreferences {
   const { preferences, provider, updates } = args;
   const existingProviderPreferences = preferences.providerPreferences ?? {};
-  const existing = existingProviderPreferences[provider] ?? {};
+  const existing: ProviderPreferences = existingProviderPreferences[provider] ?? {};
   const nextThinkingByModel =
     updates.thinkingByModel === undefined
       ? existing.thinkingByModel
