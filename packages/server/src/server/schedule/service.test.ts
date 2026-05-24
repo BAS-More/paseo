@@ -66,7 +66,7 @@ describe("ScheduleService", () => {
       agentStorage,
       now: () => now,
       runner: async (schedule) => ({
-        agentId: "00000000-0000-0000-0000-000000000001",
+        agentId: "00000000-0000-4000-a000-000000000001",
         output: `ran:${schedule.prompt}`,
       }),
     });
@@ -90,7 +90,7 @@ describe("ScheduleService", () => {
     expect(inspected.runs).toHaveLength(1);
     expect(inspected.runs[0]).toMatchObject({
       status: "succeeded",
-      agentId: "00000000-0000-0000-0000-000000000001",
+      agentId: "00000000-0000-4000-a000-000000000001",
       output: "ran:Review new PRs",
     });
     expect(inspected.nextRunAt).toBe("2026-01-01T00:02:00.000Z");
@@ -525,8 +525,9 @@ describe("ScheduleService", () => {
       now: () => now,
     });
 
+    const archivedAgentId = "00000000-0000-0000-0000-a00000000001";
     await agentStorage.upsert({
-      id: "archived-agent",
+      id: archivedAgentId,
       provider: "claude",
       cwd: tempDir,
       createdAt: now.toISOString(),
@@ -558,7 +559,7 @@ describe("ScheduleService", () => {
         cadence: { type: "every", everyMs: 60_000 },
         target: {
           type: "agent",
-          agentId: "archived-agent",
+          agentId: archivedAgentId,
         },
         status: "active",
         createdAt: now.toISOString(),
@@ -570,7 +571,7 @@ describe("ScheduleService", () => {
         maxRuns: null,
         runs: [],
       }),
-    ).rejects.toThrow("Agent archived-agent is archived");
+    ).rejects.toThrow(`Agent ${archivedAgentId} is archived`);
   });
 
   test("defaults --every schedules to fire immediately on creation", async () => {
@@ -671,7 +672,7 @@ describe("ScheduleService", () => {
       agentStorage,
       now: () => now,
       runner: async (schedule) => ({
-        agentId: "00000000-0000-0000-0000-000000000099",
+        agentId: "00000000-0000-4000-a000-000000000099",
         output: `manual:${schedule.prompt}`,
       }),
     });
@@ -693,7 +694,7 @@ describe("ScheduleService", () => {
     expect(after.runs).toHaveLength(1);
     expect(after.runs[0]).toMatchObject({
       status: "succeeded",
-      agentId: "00000000-0000-0000-0000-000000000099",
+      agentId: "00000000-0000-4000-a000-000000000099",
       output: "manual:manual fire",
     });
   });
@@ -851,7 +852,7 @@ describe("ScheduleService", () => {
     const created = await service.create({
       prompt: "agent target",
       cadence: { type: "every", everyMs: 60_000 },
-      target: { type: "agent", agentId: "00000000-0000-0000-0000-000000000005" },
+      target: { type: "agent", agentId: "00000000-0000-4000-a000-000000000005" },
     });
 
     await expect(

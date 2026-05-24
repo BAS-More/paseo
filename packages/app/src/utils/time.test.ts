@@ -43,7 +43,7 @@ describe("formatMessageTimestamp", () => {
     const date = new Date(2026, 4, 11, 22, 12);
     const formatted = formatMessageTimestamp(date, now);
     expect(formatted).toMatch(/Monday/);
-    expect(formatted).toMatch(/10:12 PM|22:12/);
+    expect(formatted).toMatch(/10:12 PM|10:12 pm|22:12/);
   });
 
   it("includes full date for older timestamps", () => {
