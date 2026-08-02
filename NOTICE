@@ -1,0 +1,88 @@
+NOTICE
+======
+
+This repository is a MODIFIED FORK of Paseo.
+
+Upstream project:  https://github.com/getpaseo/paseo
+Upstream author:   Mohamed Boudra <hello@moboudra.com>
+Upstream licence:  GNU Affero General Public License v3.0 or later (AGPL-3.0-or-later)
+
+This fork:         https://github.com/BAS-More/paseo
+Forked at:         721f1ee8d3e7 ("Fix inline code file matching", 2026-05-17)
+Modified by:       BAS & More
+Modifications:     178 commits, 2026-05-07 through 2026-05-25
+
+Modifications are ongoing. This file is the notice required by AGPL-3.0
+section 5(a), which obliges a modified work to carry prominent notices
+stating that it was changed and giving a relevant date.
+
+
+Licence
+-------
+
+Paseo, including this fork, is licensed AGPL-3.0-or-later. The full text and
+the upstream copyright notice are in LICENSE, which must not be removed.
+
+Per LICENSE, third-party components incorporated into the software remain
+under the licences given by their own authors; the AGPL covers everything
+else.
+
+The copyright in the upstream work remains with Mohamed Boudra. Nothing in
+this fork asserts otherwise, and the LICENSE file is retained unmodified.
+
+
+Source availability (AGPL sections 5, 6 and 13)
+-----------------------------------------------
+
+The complete corresponding source for this fork is published at:
+
+    https://github.com/BAS-More/paseo
+
+The repository is public, so anyone who receives this software — including
+anyone interacting with it remotely over a network, which is what AGPL
+section 13 covers — can obtain the complete source there. `packages/relay`
+and the daemon are network-facing by design, so section 13 is live rather
+than theoretical whenever this fork is deployed for anyone other than the
+operator.
+
+If you interact with a deployed instance of this fork and cannot reach the
+URL above, you are entitled to the corresponding source; request it from the
+operator of that instance.
+
+
+npm packages — read before publishing
+-------------------------------------
+
+The workspace packages are still named `@getpaseo/*`. That scope belongs to
+the upstream author: as of 2026-08-02 the published `@getpaseo/cli`,
+`@getpaseo/server`, `@getpaseo/relay` and `@getpaseo/highlight` packages are
+at 0.2.5 with `boudra` as the sole maintainer.
+
+This fork has never published to that scope and cannot — npm will reject it.
+But five packages are missing `"private": true`, so the configuration invites
+an attempt that will simply fail:
+
+    @getpaseo/cli
+    @getpaseo/expo-two-way-audio
+    @getpaseo/highlight
+    @getpaseo/relay
+    @getpaseo/server
+
+README.md tells users to run `npm install -g @bas-more/cli`. No such package
+exists on npm. A rename to a `@bas-more` scope was evidently started in the
+documentation and never carried through to package.json, so the install
+instruction currently cannot work.
+
+Resolve this one way or the other before any release: either complete the
+rename to a scope this project controls, or mark the packages private and
+correct the README. Publishing under another author's scope is not an option.
+
+
+Fork currency
+-------------
+
+As of 2026-08-02 this fork is 1299 commits BEHIND upstream and 178 commits
+ahead. Upstream's latest tag is v0.2.5; this tree reports 0.1.76. Upstream
+fixes, including security fixes, are not reaching this code. That is a
+maintenance risk rather than a licensing one, but it is worth knowing before
+depending on this fork.

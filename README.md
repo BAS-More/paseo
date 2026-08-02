@@ -59,10 +59,20 @@ To connect from your phone, scan the QR code shown in Settings.
 
 ### CLI / headless
 
+> **This fork does not publish an npm package.** See [NOTICE](NOTICE). The
+> workspace packages are still named `@getpaseo/*`, a scope owned by the
+> upstream author, and are marked private so they cannot be published from
+> here. A previous version of this README told you to install
+> `@bas-more/cli`; no such package exists. To run this fork's CLI, build it
+> from source with `npm install && npm run build:daemon`, then use
+> `npm run cli -- <args>`.
+>
+> The instructions below install the **upstream** CLI, not this fork.
+
 Install the CLI and start Paseo:
 
 ```bash
-npm install -g @bas-more/cli
+npm install -g @getpaseo/cli
 paseo
 ```
 
