@@ -1,5 +1,7 @@
 <!-- bas-more-project-memory:v1:start -->
+
 ## Project memory
+
 After the repository's mandatory entry and handover reads, read
 .project-memory/config.json and .project-memory/POLICY.md from the repository root.
 Setup is enabled by the owner. Continue incomplete setup within this repository
