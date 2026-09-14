@@ -10,6 +10,7 @@ Before coding, use the documented session/freshness, context and upstream-impact
 workflow. After edits, refresh relevant graphs and record actual validation.
 Graph readiness requires the policy's acceptance evidence; installed rules alone
 do not establish that graphs, semantic retrieval, hooks or integrations work.
+
 <!-- bas-more-project-memory:v1:end -->
 
 # CLAUDE.md
