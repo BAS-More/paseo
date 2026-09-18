@@ -4,5 +4,5 @@ pydantic==2.12.5
 
 # Test dependencies
 httpx==0.28.1
-anyio[asyncio]==4.13.0
+anyio[asyncio]==4.14.2
 pytest==9.0.3
