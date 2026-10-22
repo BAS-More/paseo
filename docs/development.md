@@ -186,3 +186,21 @@ Always run typecheck after changes:
 ```bash
 npm run typecheck
 ```
+
+## Dependency override compatibility
+
+Keep overrides within each consumer's supported major version. Express 4 reads
+`send.mime`, which is removed in send 1.x; the `send@<1` override keeps legacy
+consumers on patched 0.19.x while Express 5 and other modern consumers retain 1.x.
+Likewise, Zod 3 and 4 coexist in this workspace: respect each package's declared
+range instead of forcing every dependency to one major. After changing an
+override, regenerate the lockfile and check the resolved dependency tree. Zod 3
+annotations use separate output, definition, and input type parameters; schemas
+that transform or default input must not assume their input equals their output.
+
+Generate lockfiles with the same npm major as CI (currently npm 10 on Node 22);
+npm 11 resolves workspace overrides differently. Verify with `npm ci --dry-run`
+using the CI version before committing. Vitest 4 requires matching UI/browser
+packages and an explicit Playwright provider. Worker limits use `maxWorkers`;
+the former single-fork configuration is `maxWorkers: 1, isolate: false`, per the
+[Vitest migration guide](https://v4.vitest.dev/guide/migration.html).
