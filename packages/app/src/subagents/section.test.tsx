@@ -170,9 +170,9 @@ describe("SubagentsSection", () => {
 
   function render(
     rows: SubagentRow[],
-    onOpenSubagent: ReturnType<typeof vi.fn> = vi.fn(),
-    onArchiveSubagent: ReturnType<typeof vi.fn> = vi.fn(),
-  ): ReturnType<typeof vi.fn> {
+    onOpenSubagent: ReturnType<typeof vi.fn<(id: string) => void>> = vi.fn(),
+    onArchiveSubagent: ReturnType<typeof vi.fn<(id: string) => void>> = vi.fn(),
+  ): ReturnType<typeof vi.fn<(id: string) => void>> {
     act(() => {
       root?.render(
         <SubagentsSection

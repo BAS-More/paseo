@@ -17,7 +17,7 @@ function initialize(input?: {
   cursor?: { epoch: string; startSeq: number; endSeq: number };
   hasOlder?: boolean;
   inFlight?: boolean;
-  fetchAgentTimeline?: ReturnType<typeof vi.fn>;
+  fetchAgentTimeline?: Parameters<typeof makeClient>[0];
 }) {
   const client = makeClient(input?.fetchAgentTimeline);
   useSessionStore.getState().initializeSession(serverId, client as never);
