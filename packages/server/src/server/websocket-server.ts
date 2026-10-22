@@ -605,7 +605,14 @@ export class VoiceAssistantWebSocketServer {
     request: IncomingMessage,
     password: string | undefined,
   ): Promise<void> {
-    if (password) {
+    if (!password) {
+      await this.attachSocket(ws, request);
+      return;
+    }
+
+    // Hold early client frames until bcrypt finishes and message handlers exist.
+    ws.pause();
+    try {
       const requestMetadata = extractSocketRequestMetadata(request);
       const protocol = extractWsBearerProtocol(request.headers["sec-websocket-protocol"]);
       const token = extractWsBearerToken(protocol);
@@ -619,9 +626,12 @@ export class VoiceAssistantWebSocketServer {
         ws.close(WS_CLOSE_DAEMON_AUTH_FAILED, reason);
         return;
       }
+      if (ws.readyState === 1) {
+        await this.attachSocket(ws, request);
+      }
+    } finally {
+      ws.resume();
     }
-
-    await this.attachSocket(ws, request);
   }
 
   public broadcast(message: WSOutboundMessage): void {
