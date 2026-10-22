@@ -54,7 +54,7 @@ import { createGitHubService, type GitHubService } from "../services/github-serv
 import {
   extractWsBearerProtocol,
   extractWsBearerToken,
-  isBearerTokenValid,
+  isBearerTokenValidAsync,
   type DaemonAuthConfig,
 } from "./auth.js";
 import {
@@ -605,11 +605,18 @@ export class VoiceAssistantWebSocketServer {
     request: IncomingMessage,
     password: string | undefined,
   ): Promise<void> {
-    if (password) {
+    if (!password) {
+      await this.attachSocket(ws, request);
+      return;
+    }
+
+    // Hold early client frames until bcrypt finishes and message handlers exist.
+    ws.pause();
+    try {
       const requestMetadata = extractSocketRequestMetadata(request);
       const protocol = extractWsBearerProtocol(request.headers["sec-websocket-protocol"]);
       const token = extractWsBearerToken(protocol);
-      const isAuthorized = isBearerTokenValid({ password, token });
+      const isAuthorized = await isBearerTokenValidAsync({ password, token });
       if (!isAuthorized) {
         const reason = token === null ? "Password required" : "Incorrect password";
         this.logger.warn(
@@ -619,9 +626,12 @@ export class VoiceAssistantWebSocketServer {
         ws.close(WS_CLOSE_DAEMON_AUTH_FAILED, reason);
         return;
       }
+      if (ws.readyState === 1) {
+        await this.attachSocket(ws, request);
+      }
+    } finally {
+      ws.resume();
     }
-
-    await this.attachSocket(ws, request);
   }
 
   public broadcast(message: WSOutboundMessage): void {
