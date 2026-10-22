@@ -362,12 +362,11 @@ interface ToolReadOutputValue {
   content?: string;
 }
 
-export const ToolReadOutputSchema: z.ZodType<ToolReadOutputValue> = ToolReadOutputContentSchema;
+export const ToolReadOutputSchema: z.ZodType<ToolReadOutputValue, z.ZodTypeDef, unknown> =
+  ToolReadOutputContentSchema;
 
-export const ToolReadOutputWithPathSchema: z.ZodType<ToolReadOutputValue> = z.union([
-  ToolReadOutputContentSchema,
-  ToolReadOutputPathSchema,
-]);
+export const ToolReadOutputWithPathSchema: z.ZodType<ToolReadOutputValue, z.ZodTypeDef, unknown> =
+  z.union([ToolReadOutputContentSchema, ToolReadOutputPathSchema]);
 
 export const ToolWriteContentSchema = z
   .object({

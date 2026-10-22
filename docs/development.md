@@ -186,3 +186,14 @@ Always run typecheck after changes:
 ```bash
 npm run typecheck
 ```
+
+## Dependency override compatibility
+
+Keep overrides within each consumer's supported major version. Express 4 reads
+`send.mime`, which is removed in send 1.x; the `send@<1` override keeps legacy
+consumers on patched 0.19.x while Express 5 and other modern consumers retain 1.x.
+Likewise, Zod 3 and 4 coexist in this workspace: respect each package's declared
+range instead of forcing every dependency to one major. After changing an
+override, regenerate the lockfile and check the resolved dependency tree. Zod 3
+annotations use separate output, definition, and input type parameters; schemas
+that transform or default input must not assume their input equals their output.
