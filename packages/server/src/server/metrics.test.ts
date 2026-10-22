@@ -32,18 +32,15 @@ const mocks = vi.hoisted(() => {
 });
 
 vi.mock("prom-client", () => ({
-  Gauge: vi.fn().mockImplementation(() => ({
-    set: mocks.gaugeSet,
-    inc: mocks.gaugeInc,
-    dec: mocks.gaugeDec,
-  })),
-  Counter: vi.fn().mockImplementation(() => ({
-    inc: mocks.counterInc,
-  })),
-  Histogram: vi.fn().mockImplementation(() => ({
-    observe: mocks.histogramObserve,
-    startTimer: mocks.histogramStartTimer,
-  })),
+  Gauge: vi.fn().mockImplementation(function () {
+    return { set: mocks.gaugeSet, inc: mocks.gaugeInc, dec: mocks.gaugeDec };
+  }),
+  Counter: vi.fn().mockImplementation(function () {
+    return { inc: mocks.counterInc };
+  }),
+  Histogram: vi.fn().mockImplementation(function () {
+    return { observe: mocks.histogramObserve, startTimer: mocks.histogramStartTimer };
+  }),
   register: {
     metrics: mocks.registerMetrics,
     contentType: mocks.registerContentType,

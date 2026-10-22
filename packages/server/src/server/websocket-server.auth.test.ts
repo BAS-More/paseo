@@ -113,6 +113,8 @@ const TEST_DAEMON_VERSION = "1.2.3-test";
 
 class MockSocket {
   readyState = 1;
+  pause = vi.fn();
+  resume = vi.fn();
   bufferedAmount = 0;
   sent: unknown[] = [];
   closedWith: { code?: number; reason?: string } | null = null;
@@ -256,6 +258,26 @@ describe("WebSocket auth upgrade uses async bcrypt", () => {
     });
     expect(authModule.isBearerTokenValid).not.toHaveBeenCalled();
 
+    await server.close();
+  });
+
+  test("holds incoming frames until async authentication and handler registration finish", async () => {
+    const server = createServer({ password: "test-password" });
+    const internals = asInternals<WebSocketServerInternals>(server);
+    const ws = new MockSocket();
+    let authorize!: (value: boolean) => void;
+    authModule.isBearerTokenValidAsync.mockImplementationOnce(
+      () =>
+        new Promise<boolean>((resolve) => {
+          authorize = resolve;
+        }),
+    );
+    const attached = internals.attachAuthenticatedSocket(ws, { headers: {} }, "test-password");
+    expect(ws.pause).toHaveBeenCalledOnce();
+    expect(ws.resume).not.toHaveBeenCalled();
+    authorize(true);
+    await attached;
+    expect(ws.resume).toHaveBeenCalledOnce();
     await server.close();
   });
 
