@@ -11,6 +11,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 LOCK_FILE="$ROOT_DIR/package-lock.json"
 HASH_FILE="$ROOT_DIR/nix/npm-deps.hash"
+PACKAGE_NIX="$ROOT_DIR/nix/package.nix"
 
 CHECK_MODE=false
 if [[ "${1:-}" == "--check" ]]; then
@@ -66,3 +67,4 @@ else
   printf '%s\n' "$NEW_HASH" > "$HASH_FILE"
   echo "Updated: $CURRENT_HASH -> $NEW_HASH"
 fi
+
