@@ -51,6 +51,13 @@ jobs:
           PASEO_HOME="$(mktemp -d)"
           export PASEO_LISTEN=127.0.0.1:6767
 
+          # Exercise production validation with isolated, per-run credentials.
+          export PASEO_PASSWORD PASEO_AUDIT_HMAC_SECRET
+          PASEO_PASSWORD="$(node -p "require('node:crypto').randomBytes(32).toString('hex')")"
+          PASEO_AUDIT_HMAC_SECRET="$(node -p "require('node:crypto').randomBytes(32).toString('hex')")"
+          echo "::add-mask::$PASEO_PASSWORD"
+          echo "::add-mask::$PASEO_AUDIT_HMAC_SECRET"
+
           WRAPPER_LOG="$PASEO_HOME/paseo-server-wrapper.log"
 
           cleanup() {

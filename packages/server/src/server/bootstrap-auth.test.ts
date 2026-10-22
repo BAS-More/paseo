@@ -60,6 +60,39 @@ describe("daemon bearer auth", () => {
     }
   });
 
+  test("accepts hello sent immediately after opening a password-protected WebSocket", async () => {
+    const daemonHandle = await createTestPaseoDaemon({
+      auth: { password: CORRECT_PASSWORD_HASH },
+    });
+    const ws = new WebSocket(`ws://127.0.0.1:${daemonHandle.port}/ws`, [
+      "paseo.bearer.correct-password",
+    ]);
+    try {
+      const response = new Promise<string>((resolve, reject) => {
+        ws.once("message", (data) => resolve(data.toString()));
+        ws.once("error", reject);
+        ws.once("close", () => reject(new Error("Closed before hello response")));
+      });
+      ws.once("open", () => {
+        ws.send(
+          JSON.stringify({
+            type: "hello",
+            clientId: "auth-handshake-regression",
+            clientType: "cli",
+            protocolVersion: 1,
+          }),
+        );
+      });
+      expect(JSON.parse(await response)).toMatchObject({
+        type: "session",
+        message: { type: "status", payload: { status: "server_info" } },
+      });
+    } finally {
+      ws.close();
+      await daemonHandle.close();
+    }
+  });
+
   test("requires Authorization bearer on protected HTTP routes when password is configured", async () => {
     const daemonHandle = await createTestPaseoDaemon({
       auth: { password: CORRECT_PASSWORD_HASH },
