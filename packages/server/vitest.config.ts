@@ -15,7 +15,7 @@ export default defineConfig({
     setupFiles: [path.resolve(__dirname, "./src/test-utils/vitest-setup.ts")],
     pool: "forks",
     maxWorkers: 1,
-    isolate: false,
+    isolate: true,
     exclude: ["**/node_modules/**", "**/dist/**", "**/.claude/**"],
     coverage: {
       provider: "v8",
