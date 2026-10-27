@@ -25,7 +25,13 @@ export const SidebarUserFooter = memo(function SidebarUserFooter({
   );
 
   return (
-    <Pressable style={pressableStyle} onPress={onPress} accessibilityLabel="User and model">
+    <Pressable
+      style={pressableStyle}
+      onPress={onPress}
+      testID="sidebar-settings"
+      accessibilityRole="button"
+      accessibilityLabel="Settings"
+    >
       <View style={styles.avatarCircle}>
         <Text style={styles.avatarText}>{userName.charAt(0).toUpperCase()}</Text>
       </View>

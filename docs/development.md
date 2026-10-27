@@ -204,3 +204,23 @@ using the CI version before committing. Vitest 4 requires matching UI/browser
 packages and an explicit Playwright provider. Worker limits use `maxWorkers`;
 the former single-fork configuration is `maxWorkers: 1, isolate: false`, per the
 [Vitest migration guide](https://v4.vitest.dev/guide/migration.html).
+
+## Sidebar composition contracts
+
+The fork's Chat/Cowork/Code tabs do not replace project/workspace navigation.
+The Code tab retains the workspace list alongside session history; Chat and
+Cowork retain their existing session filters. Sessions, Settings, compact-menu
+Close, and the sidebar callout slot remain reachable in the default
+`claude-desktop` layout. A layout preference must not hide the only compact
+Settings/host-switching controls. Keep these contracts covered by
+`left-sidebar.test.tsx` and the existing Playwright navigation tests.
+
+## CrewAI bridge dependency lock
+
+The bridge Dockerfile installs `packages/crewai-bridge/requirements.lock`, while
+local setup uses `requirements.txt`. Update both when a direct pin changes.
+Regenerate the lock in a clean Python 3.12 virtualenv so unrelated audit/developer
+tools do not enter the image, then run `pip check`, `test_dependency_lock.py`,
+and `test_api.py`. Audit the actual lock, not only the freshly resolved direct
+requirements: an old transitive lock can retain vulnerable packages even when
+the direct requirements resolve cleanly.

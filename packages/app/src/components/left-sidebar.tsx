@@ -6,6 +6,7 @@ import {
   Plus,
   Search,
   Settings,
+  X,
   Zap,
 } from "lucide-react-native";
 import {
@@ -43,11 +44,12 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { StyleSheet, useUnistyles } from "react-native-unistyles";
 import { TitlebarDragRegion } from "@/components/desktop/titlebar-drag-region";
 import { SidebarHeaderRow } from "@/components/sidebar/sidebar-header-row";
+import { HeaderToggleButton } from "@/components/headers/header-toggle-button";
+import { SidebarCalloutSlot } from "@/components/sidebar-callout-slot";
 import { Combobox, ComboboxItem, type ComboboxOption } from "@/components/ui/combobox";
 import { Shortcut } from "@/components/ui/shortcut";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useIsCompactFormFactor } from "@/constants/layout";
-import { useAppSettings } from "@/hooks/use-settings";
 import { isWeb } from "@/constants/platform";
 import { useSidebarAnimation } from "@/contexts/sidebar-animation-context";
 import { useOpenProjectPicker } from "@/hooks/use-open-project-picker";
@@ -87,6 +89,7 @@ import { SidebarSessionList } from "./sidebar/sidebar-session-list";
 import { SidebarUserFooter } from "./sidebar/sidebar-user-footer";
 
 const MIN_CHAT_WIDTH = 400;
+const NO_SHORTCUT_KEYS: [] = [];
 
 type SidebarShortcutModel = ReturnType<typeof useSidebarShortcutModel>;
 type SidebarTheme = ReturnType<typeof useUnistyles>["theme"];
@@ -496,13 +499,6 @@ function SidebarFooter({
   handleSettings: () => void;
 }) {
   const newAgentKeys = useShortcutKeys("new-agent");
-  const { settings: footerSettings } = useAppSettings();
-  const isClaudeDesktopFooter = footerSettings.layoutMode === "claude-desktop";
-
-  if (isClaudeDesktopFooter) {
-    return null;
-  }
-
   return (
     <View style={styles.sidebarFooter}>
       <View style={styles.footerHostSlot}>
@@ -554,7 +550,7 @@ function SidebarFooter({
   );
 }
 
-function MobileSidebar({
+export function MobileSidebar({
   theme,
   activeServerId,
   activeHostLabel,
@@ -761,6 +757,19 @@ function MobileSidebar({
       <GestureDetector gesture={closeGesture} touchAction="pan-y">
         <Animated.View style={mobileSidebarStyle} pointerEvents="auto">
           <View style={styles.sidebarContent} pointerEvents="auto">
+            <View style={styles.mobileCloseRow}>
+              <HeaderToggleButton
+                onPress={closeToAgent}
+                tooltipLabel="Close menu"
+                tooltipKeys={NO_SHORTCUT_KEYS}
+                tooltipSide="bottom"
+                testID="sidebar-close"
+                accessibilityRole="button"
+                accessibilityLabel="Close menu"
+              >
+                <X size={theme.iconSize.md} color={theme.colors.foregroundMuted} />
+              </HeaderToggleButton>
+            </View>
             <SidebarHeaderRow
               icon={MessagesSquare}
               label="Sessions"
@@ -791,6 +800,7 @@ function MobileSidebar({
               />
             )}
 
+            <SidebarCalloutSlot />
             <SidebarFooter
               theme={theme}
               activeServerId={activeServerId}
@@ -812,10 +822,15 @@ function MobileSidebar({
   );
 }
 
-function DesktopSidebar({
+export function DesktopSidebar({
   theme,
   activeServerId,
   activeHostLabel,
+  projects,
+  isInitialLoad,
+  collapsedProjectKeys,
+  shortcutIndexByWorkspaceKey,
+  toggleProjectCollapsed,
   isRevalidating,
   isManualRefresh,
   handleRefresh,
@@ -940,6 +955,7 @@ function DesktopSidebar({
             <Pressable
               onPress={handleViewMore}
               style={styles.iconRailButton}
+              testID="sidebar-sessions"
               accessibilityLabel="Sessions"
             >
               <MessagesSquare size={18} color={theme.colors.foregroundMuted} />
@@ -953,6 +969,7 @@ function DesktopSidebar({
         <Pressable
           onPress={handleSettings}
           style={styles.iconRailButton}
+          testID="sidebar-settings"
           accessibilityLabel="Settings"
         >
           <Settings size={18} color={theme.colors.foregroundMuted} />
@@ -970,12 +987,36 @@ function DesktopSidebar({
         </View>
 
         <SidebarTabBar activeTab={activeTab} onTabChange={setActiveTab} />
+        <SidebarHeaderRow
+          icon={MessagesSquare}
+          label="Sessions"
+          onPress={handleViewMore}
+          isActive={pathname.includes("/sessions")}
+          testID="sidebar-sessions"
+        />
 
         <SidebarQuickActions
           onNewSession={handleOpenProject}
           onRoutines={handleRoutines}
           onCustomize={handleSettings}
         />
+
+        {/* Keep project/workspace navigation alongside the fork's session tabs. */}
+        {activeTab === "code" &&
+          (isInitialLoad ? (
+            <SidebarAgentListSkeleton />
+          ) : (
+            <SidebarWorkspaceList
+              serverId={activeServerId}
+              projects={projects}
+              collapsedProjectKeys={collapsedProjectKeys}
+              onToggleProjectCollapsed={toggleProjectCollapsed}
+              shortcutIndexByWorkspaceKey={shortcutIndexByWorkspaceKey}
+              isRefreshing={isManualRefresh && isRevalidating}
+              onRefresh={handleRefresh}
+              onAddProject={handleOpenProject}
+            />
+          ))}
 
         <View style={styles.searchContainer}>
           <Search size={14} color={theme.colors.foregroundMuted} />
@@ -1005,6 +1046,7 @@ function DesktopSidebar({
           />
         )}
 
+        <SidebarCalloutSlot />
         <SidebarUserFooter
           userName={activeHostLabel}
           modelLabel={activeServerId ? "Connected" : "Offline"}
@@ -1043,6 +1085,10 @@ const styles = StyleSheet.create((theme) => ({
   sidebarContent: {
     flex: 1,
     minHeight: 0,
+  },
+  mobileCloseRow: {
+    alignItems: "flex-end",
+    paddingHorizontal: theme.spacing[2],
   },
   desktopSidebarBorder: {
     borderRightWidth: 1,

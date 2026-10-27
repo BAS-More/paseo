@@ -96,8 +96,10 @@ export interface StructuredAgentGenerationWithFallbackOptions<T> {
 export const DEFAULT_STRUCTURED_GENERATION_PROVIDERS: readonly StructuredGenerationProvider[] = [
   { provider: "claude", model: "haiku" },
   { provider: "codex", model: "gpt-5.4-mini", thinkingOptionId: "low" },
-  { provider: "opencode", model: "opencode/minimax-m2.5-free" },
-  { provider: "opencode", model: "opencode/nemotron-3-super-free" },
+  // Free fallback IDs verified against https://opencode.ai/zen/v1/models (2026-10-27).
+  // Keep these explicit: resolving a provider's default may select a paid model.
+  { provider: "opencode", model: "opencode/nemotron-3.5-super-vl-free" },
+  { provider: "opencode", model: "opencode/deepseek-v4.1-flash-free" },
 ] as const;
 
 interface SchemaValidator<T> {
