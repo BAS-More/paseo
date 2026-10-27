@@ -87,6 +87,7 @@ export class TestOpenCodeClient {
 
   constructor() {
     this.eventStream = this.queuedEventStream.stream;
+    this.emitEvent({ payload: { type: "server.connected", properties: {} } });
   }
 
   emitEvent(event: unknown): void {

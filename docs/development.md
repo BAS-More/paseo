@@ -186,3 +186,50 @@ Always run typecheck after changes:
 ```bash
 npm run typecheck
 ```
+
+## Dependency override compatibility
+
+Keep overrides within each consumer's supported major version. Express 4 reads
+`send.mime`, which is removed in send 1.x; the `send@<1` override keeps legacy
+consumers on patched 0.19.x while Express 5 and other modern consumers retain 1.x.
+Likewise, Zod 3 and 4 coexist in this workspace: respect each package's declared
+range instead of forcing every dependency to one major. After changing an
+override, regenerate the lockfile and check the resolved dependency tree. Zod 3
+annotations use separate output, definition, and input type parameters; schemas
+that transform or default input must not assume their input equals their output.
+
+Generate lockfiles with the same npm major as CI (currently npm 10 on Node 22);
+npm 11 resolves workspace overrides differently. Verify with `npm ci --dry-run`
+using the CI version before committing. Vitest 4 requires matching UI/browser
+packages and an explicit Playwright provider. Worker limits use `maxWorkers`;
+the former single-fork configuration is `maxWorkers: 1, isolate: false`, per the
+[Vitest migration guide](https://v4.vitest.dev/guide/migration.html).
+
+## Sidebar composition contracts
+
+The fork's Chat/Cowork/Code tabs do not replace project/workspace navigation.
+The Code tab retains the workspace list alongside session history; Chat and
+Cowork retain their existing session filters. Sessions, Settings, compact-menu
+Close, and the sidebar callout slot remain reachable in the default
+`claude-desktop` layout. A layout preference must not hide the only compact
+Settings/host-switching controls. Keep these contracts covered by
+`left-sidebar.test.tsx` and the existing Playwright navigation tests.
+
+## CrewAI bridge dependency lock
+
+The bridge Dockerfile installs `packages/crewai-bridge/requirements.lock`, while
+local setup uses `requirements.txt`. Update both when a direct pin changes.
+Regenerate the lock in a clean Python 3.12 virtualenv so unrelated audit/developer
+tools do not enter the image, then run `pip check`, `test_dependency_lock.py`,
+and `test_api.py`. Audit the actual lock, not only the freshly resolved direct
+requirements: an old transitive lock can retain vulnerable packages even when
+the direct requirements resolve cleanly.
+
+## OpenCode event readiness
+
+The OpenCode SDK opens its SSE connection lazily when the returned stream is
+iterated. Receiving the stream object is not a readiness signal: wait for
+`server.connected` before dispatching a prompt, or fast turn events can be lost.
+The adapter bounds that handshake wait at 45 seconds and aborts on timeout or
+close. Test stream fixtures must emit the handshake before any events that
+depend on a submitted prompt; do not gate the handshake on the prompt itself.

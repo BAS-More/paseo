@@ -14,12 +14,7 @@ export default defineConfig({
     environment: "node",
     include: ["src/e2e/**/*.e2e.test.ts"],
     pool: "forks",
-    poolOptions: {
-      forks: {
-        singleFork: true,
-        minForks: 1,
-        maxForks: 1,
-      },
-    },
+    maxWorkers: 1,
+    isolate: false,
   },
 });

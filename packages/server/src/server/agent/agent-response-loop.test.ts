@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { z } from "zod";
 import {
   getStructuredAgentResponse,
+  DEFAULT_STRUCTURED_GENERATION_PROVIDERS,
   generateStructuredAgentResponseWithFallback,
   StructuredAgentFallbackError,
   StructuredAgentResponseError,
@@ -140,6 +141,36 @@ describe("generateStructuredAgentResponseWithFallback", () => {
       listProviderAvailability: async () => availability,
     } as unknown as AgentManager;
   }
+
+  it("preserves primary providers and reaches the current free fallback after failures", async () => {
+    const calls: Array<{ provider: string; model?: string }> = [];
+    const manager = createManager([
+      { provider: "claude", available: true, error: null },
+      { provider: "codex", available: true, error: null },
+      { provider: "opencode", available: true, error: null },
+    ]);
+    const result = await generateStructuredAgentResponseWithFallback({
+      manager,
+      cwd: "/tmp/project",
+      prompt: "Return JSON",
+      schema,
+      providers: DEFAULT_STRUCTURED_GENERATION_PROVIDERS,
+      runner: async ({ agentConfig }) => {
+        calls.push({ provider: agentConfig.provider, model: agentConfig.model ?? undefined });
+        if (agentConfig.model !== "opencode/deepseek-v4.1-flash-free") {
+          throw new Error("Provider unavailable for this unit-test request");
+        }
+        return { summary: "ok" };
+      },
+    });
+    expect(result).toEqual({ summary: "ok" });
+    expect(calls).toEqual([
+      { provider: "claude", model: "haiku" },
+      { provider: "codex", model: "gpt-5.4-mini" },
+      { provider: "opencode", model: "opencode/nemotron-3.5-super-vl-free" },
+      { provider: "opencode", model: "opencode/deepseek-v4.1-flash-free" },
+    ]);
+  });
 
   it("uses the first available provider in the waterfall", async () => {
     const calls: Array<{ provider: string; model?: string; persistSession?: boolean }> = [];

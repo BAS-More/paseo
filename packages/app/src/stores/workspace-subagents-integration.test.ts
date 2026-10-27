@@ -27,6 +27,7 @@ vi.mock("react-native-unistyles", () => ({
             fontSize: { xs: 11, sm: 13, base: 15 },
             fontWeight: { normal: "400", medium: "500" },
             iconSize: { sm: 14, md: 18 },
+            shadow: { md: {} },
             colors: {
               foreground: "#fff",
               foregroundMuted: "#aaa",
