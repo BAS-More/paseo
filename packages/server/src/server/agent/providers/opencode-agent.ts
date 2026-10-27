@@ -79,6 +79,7 @@ const OPENCODE_BUILD_MODE_ID = "build";
 const OPENCODE_FULL_ACCESS_MODE_ID = "full-access";
 const OPENCODE_PERSISTED_SESSION_LIMIT = 200;
 const OPENCODE_PENDING_ABORT_START_TIMEOUT_MS = 10_000;
+const OPENCODE_EVENT_READINESS_TIMEOUT_MS = 45_000;
 
 const DEFAULT_MODES: AgentMode[] = [
   {
@@ -2620,6 +2621,12 @@ class OpenCodeAgentSession implements AgentSession {
 
     const eventStreamAbortController = new AbortController();
     const eventStreamReady = createDeferred<void>();
+    eventStreamReady.promise = withTimeout(
+      eventStreamReady.promise,
+      OPENCODE_EVENT_READINESS_TIMEOUT_MS,
+      "OpenCode event stream did not send server.connected within 45s",
+    );
+    void eventStreamReady.promise.catch(() => eventStreamAbortController.abort());
     this.eventStreamAbortController = eventStreamAbortController;
     this.eventStreamReady = eventStreamReady;
     void this.consumeEventStream(eventStreamAbortController, eventStreamReady).finally(() => {
@@ -2646,15 +2653,23 @@ class OpenCodeAgentSession implements AgentSession {
         signal: eventStreamAbortController.signal,
         sseMaxRetryAttempts: 0,
       });
-      eventStreamReadyResolved = true;
-      this.traceOpenCode("provider.opencode.subscribe.ready", {
-        sessionId: this.sessionId,
-      });
-      eventStreamReady.resolve();
-
       let eventCount = 0;
       for await (const rawEvent of result.stream) {
+        if (eventStreamAbortController.signal.aborted) {
+          break;
+        }
         eventCount += 1;
+        // The SDK opens SSE lazily when iterated; receiving the stream object
+        // does not establish a subscription. Wait for the upstream handshake
+        // so a fast prompt cannot finish before its events can be observed.
+        if (unwrapOpenCodeGlobalEvent(rawEvent)?.type === "server.connected") {
+          eventStreamReadyResolved = true;
+          this.traceOpenCode("provider.opencode.subscribe.ready", {
+            sessionId: this.sessionId,
+          });
+          eventStreamReady.resolve();
+          continue;
+        }
         await this.consumeOpenCodeStreamEvent({ rawEvent, eventCount });
       }
 
@@ -2664,10 +2679,10 @@ class OpenCodeAgentSession implements AgentSession {
         activeTurnId: this.activeForegroundTurnId,
       });
 
+      if (!eventStreamReadyResolved) {
+        eventStreamReady.reject(new Error("OpenCode event stream ended before it became ready"));
+      }
       if (!eventStreamAbortController.signal.aborted) {
-        if (!eventStreamReadyResolved) {
-          eventStreamReady.reject(new Error("OpenCode event stream ended before it became ready"));
-        }
         const activeTurnId = this.activeForegroundTurnId;
         if (activeTurnId) {
           this.traceOpenCode("provider.opencode.turn.fail_eof", {
@@ -3004,6 +3019,9 @@ class OpenCodeAgentSession implements AgentSession {
       // unhandled rejection in whichever test the daemon hops to next.
       this.closed = true;
       this.abortController?.abort();
+      this.eventStreamReady?.reject(
+        new Error("OpenCode session closed before event stream readiness"),
+      );
       this.eventStreamAbortController?.abort();
       this.eventStreamAbortController = null;
       this.eventStreamReady = null;

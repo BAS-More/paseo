@@ -583,6 +583,109 @@ describe("OpenCode adapter context-window normalization", () => {
 });
 
 describe("OpenCode adapter startTurn error handling", () => {
+  test("waits for the SSE handshake before dispatching a prompt", async () => {
+    const connected = createTestDeferred<void>();
+    const consuming = createTestDeferred<void>();
+    const client = new TestOpenCodeClient();
+    const queuedEvents = client.eventStream;
+    client.eventStream = (async function* () {
+      consuming.resolve();
+      await connected.promise;
+      yield { payload: { type: "server.connected", properties: {} } };
+      yield* queuedEvents;
+    })();
+    const session = new __openCodeInternals.OpenCodeAgentSession(
+      { provider: "opencode", cwd: "/tmp/test" },
+      client.asSdkClient(),
+      "session-1",
+      createTestLogger(),
+    );
+    const turn = session.startTurn("Synthetic handshake test");
+    try {
+      await consuming.promise;
+      // Drain the promise queue while the handshake remains explicitly blocked.
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      expect(client.calls.sessionPromptAsync).toHaveLength(0);
+      connected.resolve();
+      await turn;
+      expect(client.calls.sessionPromptAsync).toHaveLength(1);
+    } finally {
+      connected.resolve();
+      await turn.catch(() => undefined);
+      await session.close();
+    }
+  });
+
+  test("rejects a stream that ends before the SSE handshake without sending a prompt", async () => {
+    const client = new TestOpenCodeClient();
+    client.eventStream = (async function* () {
+      yield { payload: { type: "server.heartbeat", properties: {} } };
+    })();
+    const session = new __openCodeInternals.OpenCodeAgentSession(
+      { provider: "opencode", cwd: "/tmp/test" },
+      client.asSdkClient(),
+      "session-1",
+      createTestLogger(),
+    );
+    try {
+      await expect(session.startTurn("Synthetic EOF test")).rejects.toThrow(
+        "OpenCode event stream ended before it became ready",
+      );
+      expect(client.calls.sessionPromptAsync).toHaveLength(0);
+    } finally {
+      await session.close();
+    }
+  });
+
+  test("bounds a missing SSE handshake at 45 seconds and aborts the subscription", async () => {
+    vi.useFakeTimers();
+    const client = new TestOpenCodeClient();
+    client.eventStream = { [Symbol.asyncIterator]: () => ({ next: () => new Promise(() => {}) }) };
+    const session = new __openCodeInternals.OpenCodeAgentSession(
+      { provider: "opencode", cwd: "/tmp/test" },
+      client.asSdkClient(),
+      "session-1",
+      createTestLogger(),
+    );
+    let settled = false;
+    const turn = session.startTurn("Synthetic timeout test").finally(() => {
+      settled = true;
+    });
+    const rejected = expect(turn).rejects.toThrow("did not send server.connected within 45s");
+    try {
+      // Independent literal guards the startup budget, rather than importing
+      // the production timeout and making an accidental reduction invisible.
+      await vi.advanceTimersByTimeAsync(44_999);
+      expect(settled).toBe(false);
+      expect(client.calls.sessionPromptAsync).toHaveLength(0);
+      await vi.advanceTimersByTimeAsync(1);
+      await rejected;
+      expect(client.calls.globalEvent).toHaveLength(1);
+      expect((client.calls.globalEvent[0] as { signal: AbortSignal }).signal.aborted).toBe(true);
+    } finally {
+      await session.close();
+      vi.useRealTimers();
+    }
+  });
+
+  test("closing before the SSE handshake rejects the pending turn", async () => {
+    const client = new TestOpenCodeClient();
+    client.eventStream = { [Symbol.asyncIterator]: () => ({ next: () => new Promise(() => {}) }) };
+    const session = new __openCodeInternals.OpenCodeAgentSession(
+      { provider: "opencode", cwd: "/tmp/test" },
+      client.asSdkClient(),
+      "session-1",
+      createTestLogger(),
+    );
+    const rejected = expect(session.startTurn("Synthetic close test")).rejects.toThrow(
+      "closed before event stream readiness",
+    );
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    await session.close();
+    await rejected;
+    expect(client.calls.sessionPromptAsync).toHaveLength(0);
+  });
+
   test("emits turn_started before live OpenCode timeline items", async () => {
     const eventsGate = createTestDeferred<void>();
     const globalEvents = [
@@ -633,8 +736,9 @@ describe("OpenCode adapter startTurn error handling", () => {
       global: {
         event: vi.fn().mockResolvedValue({
           stream: (async function* () {
+            yield globalEvents[0];
             await eventsGate.promise;
-            yield* globalEvents;
+            yield* globalEvents.slice(1);
           })(),
         }),
       },
@@ -733,8 +837,9 @@ describe("OpenCode adapter startTurn error handling", () => {
       global: {
         event: vi.fn().mockResolvedValue({
           stream: (async function* () {
+            yield globalEvents[0];
             await eventsGate.promise;
-            yield* globalEvents;
+            yield* globalEvents.slice(1);
           })(),
         }),
       },
@@ -772,9 +877,17 @@ describe("OpenCode adapter startTurn error handling", () => {
     const eventsGate = createTestDeferred<void>();
     const retryStream: AsyncIterable<unknown> = {
       [Symbol.asyncIterator]: () => {
+        let connected = false;
         let emitted = false;
         return {
           next: async () => {
+            if (!connected) {
+              connected = true;
+              return {
+                done: false,
+                value: { payload: { type: "server.connected", properties: {} } },
+              };
+            }
             await eventsGate.promise;
             if (!emitted) {
               emitted = true;

@@ -224,3 +224,12 @@ tools do not enter the image, then run `pip check`, `test_dependency_lock.py`,
 and `test_api.py`. Audit the actual lock, not only the freshly resolved direct
 requirements: an old transitive lock can retain vulnerable packages even when
 the direct requirements resolve cleanly.
+
+## OpenCode event readiness
+
+The OpenCode SDK opens its SSE connection lazily when the returned stream is
+iterated. Receiving the stream object is not a readiness signal: wait for
+`server.connected` before dispatching a prompt, or fast turn events can be lost.
+The adapter bounds that handshake wait at 45 seconds and aborts on timeout or
+close. Test stream fixtures must emit the handshake before any events that
+depend on a submitted prompt; do not gate the handshake on the prompt itself.

@@ -72,6 +72,7 @@ describe("OpenCodeAgentSession slash command timeout handling", () => {
       data: [{ name: "help", description: "Show help", hints: [] }],
     };
     openCodeClient.eventStream = (async function* () {
+      yield { type: "server.connected", properties: {} };
       await idleEventGate.promise;
       yield {
         type: "session.idle",
@@ -84,7 +85,8 @@ describe("OpenCodeAgentSession slash command timeout handling", () => {
     const session = await client.createSession({ provider: "opencode", cwd: "/tmp" });
 
     const runPromise = session.run("/help");
-    await Promise.resolve();
+    await nextTick();
+    expect(openCodeClient.calls.sessionCommand).toHaveLength(1);
     idleEventGate.resolve();
 
     await expect(runPromise).resolves.toMatchObject({
