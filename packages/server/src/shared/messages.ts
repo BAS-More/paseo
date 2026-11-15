@@ -371,101 +371,102 @@ const WorktreeSetupDetailPayloadSchema = z.object({
   truncated: z.boolean().optional(),
 });
 
-const ToolCallDetailPayloadSchema: z.ZodType<ToolCallDetail> = z.discriminatedUnion("type", [
-  WorktreeSetupDetailPayloadSchema,
-  z.object({
-    type: z.literal("shell"),
-    command: z.string(),
-    cwd: z.string().optional(),
-    output: z.string().optional(),
-    exitCode: z.number().nullable().optional(),
-  }),
-  z.object({
-    type: z.literal("read"),
-    filePath: z.string(),
-    content: z.string().optional(),
-    offset: z.number().optional(),
-    limit: z.number().optional(),
-  }),
-  z.object({
-    type: z.literal("edit"),
-    filePath: z.string(),
-    oldString: z.string().optional(),
-    newString: z.string().optional(),
-    unifiedDiff: z.string().optional(),
-  }),
-  z.object({
-    type: z.literal("write"),
-    filePath: z.string(),
-    content: z.string().optional(),
-  }),
-  z.object({
-    type: z.literal("search"),
-    query: z.string(),
-    toolName: z.enum(["search", "grep", "glob", "web_search"]).optional(),
-    content: z.string().optional(),
-    filePaths: z.array(z.string()).optional(),
-    webResults: z
-      .array(
-        z.object({
-          title: z.string(),
-          url: z.string(),
-        }),
-      )
-      .optional(),
-    annotations: z.array(z.string()).optional(),
-    numFiles: z.number().optional(),
-    numMatches: z.number().optional(),
-    durationMs: z.number().optional(),
-    durationSeconds: z.number().optional(),
-    truncated: z.boolean().optional(),
-    mode: z.enum(["content", "files_with_matches", "count"]).optional(),
-  }),
-  z.object({
-    type: z.literal("fetch"),
-    url: z.string(),
-    prompt: z.string().optional(),
-    result: z.string().optional(),
-    code: z.number().optional(),
-    codeText: z.string().optional(),
-    bytes: z.number().optional(),
-    durationMs: z.number().optional(),
-  }),
-  z.object({
-    type: z.literal("sub_agent"),
-    subAgentType: z.string().optional(),
-    description: z.string().optional(),
-    childSessionId: z.string().optional(),
-    log: z.string(),
-    // Compat cruft for clients <= 0.1.65-beta.3 that required this field. Producers still
-    // emit `[]`; nothing reads it. Drop the field (and the `[]` emissions) once those
-    // clients are no longer in the field.
-    actions: z
-      .array(
-        z.object({
-          index: z.number().int().positive(),
-          toolName: z.string(),
-          summary: z.string().optional(),
-        }),
-      )
-      .optional(),
-  }),
-  z.object({
-    type: z.literal("plain_text"),
-    label: z.string().optional(),
-    text: z.string().optional(),
-    icon: z.enum(TOOL_CALL_ICON_NAMES).optional(),
-  }),
-  z.object({
-    type: z.literal("plan"),
-    text: z.string(),
-  }),
-  z.object({
-    type: z.literal("unknown"),
-    input: UnknownValueSchema,
-    output: UnknownValueSchema,
-  }),
-]);
+const ToolCallDetailPayloadSchema: z.ZodType<ToolCallDetail, z.ZodTypeDef, unknown> =
+  z.discriminatedUnion("type", [
+    WorktreeSetupDetailPayloadSchema,
+    z.object({
+      type: z.literal("shell"),
+      command: z.string(),
+      cwd: z.string().optional(),
+      output: z.string().optional(),
+      exitCode: z.number().nullable().optional(),
+    }),
+    z.object({
+      type: z.literal("read"),
+      filePath: z.string(),
+      content: z.string().optional(),
+      offset: z.number().optional(),
+      limit: z.number().optional(),
+    }),
+    z.object({
+      type: z.literal("edit"),
+      filePath: z.string(),
+      oldString: z.string().optional(),
+      newString: z.string().optional(),
+      unifiedDiff: z.string().optional(),
+    }),
+    z.object({
+      type: z.literal("write"),
+      filePath: z.string(),
+      content: z.string().optional(),
+    }),
+    z.object({
+      type: z.literal("search"),
+      query: z.string(),
+      toolName: z.enum(["search", "grep", "glob", "web_search"]).optional(),
+      content: z.string().optional(),
+      filePaths: z.array(z.string()).optional(),
+      webResults: z
+        .array(
+          z.object({
+            title: z.string(),
+            url: z.string(),
+          }),
+        )
+        .optional(),
+      annotations: z.array(z.string()).optional(),
+      numFiles: z.number().optional(),
+      numMatches: z.number().optional(),
+      durationMs: z.number().optional(),
+      durationSeconds: z.number().optional(),
+      truncated: z.boolean().optional(),
+      mode: z.enum(["content", "files_with_matches", "count"]).optional(),
+    }),
+    z.object({
+      type: z.literal("fetch"),
+      url: z.string(),
+      prompt: z.string().optional(),
+      result: z.string().optional(),
+      code: z.number().optional(),
+      codeText: z.string().optional(),
+      bytes: z.number().optional(),
+      durationMs: z.number().optional(),
+    }),
+    z.object({
+      type: z.literal("sub_agent"),
+      subAgentType: z.string().optional(),
+      description: z.string().optional(),
+      childSessionId: z.string().optional(),
+      log: z.string(),
+      // Compat cruft for clients <= 0.1.65-beta.3 that required this field. Producers still
+      // emit `[]`; nothing reads it. Drop the field (and the `[]` emissions) once those
+      // clients are no longer in the field.
+      actions: z
+        .array(
+          z.object({
+            index: z.number().int().positive(),
+            toolName: z.string(),
+            summary: z.string().optional(),
+          }),
+        )
+        .optional(),
+    }),
+    z.object({
+      type: z.literal("plain_text"),
+      label: z.string().optional(),
+      text: z.string().optional(),
+      icon: z.enum(TOOL_CALL_ICON_NAMES).optional(),
+    }),
+    z.object({
+      type: z.literal("plan"),
+      text: z.string(),
+    }),
+    z.object({
+      type: z.literal("unknown"),
+      input: UnknownValueSchema,
+      output: UnknownValueSchema,
+    }),
+  ]);
 
 const ToolCallBasePayloadSchema = z
   .object({
